@@ -60,6 +60,10 @@ float morphGain = 1.0f;
 
 uint32_t noiseSeed = 22222;
 
+// Filtro progressivo controlli
+float pitchFiltered = 0.0f;
+float volumeFiltered = 0.0f;
+
 // ======================================================
 // TIMING
 // ======================================================
@@ -89,7 +93,6 @@ const uint32_t LONG_PRESS_MS = 800;
 inline void writeMCP4922A(uint16_t value) {
   value &= 0x0FFF;
 
-  // Channel A, unbuffered, gain 1x, active
   uint16_t command = 0x3000 | value;
 
   digitalWrite(PIN_CS, LOW);
@@ -102,8 +105,17 @@ inline void writeMCP4922A(uint16_t value) {
 // ======================================================
 
 float fastSine(float ph) {
-  int index = (int)(ph * SINE_TABLE_SIZE) & 255;
-  return (float)sineTable[index] / 2047.0f;
+  float pos = ph * SINE_TABLE_SIZE;
+
+  int index0 = (int)pos & 255;
+  int index1 = (index0 + 1) & 255;
+
+  float frac = pos - (float)((int)pos);
+
+  float s0 = (float)sineTable[index0] / 2047.0f;
+  float s1 = (float)sineTable[index1] / 2047.0f;
+
+  return s0 + (s1 - s0) * frac;
 }
 
 float squareWave(float ph) {
@@ -208,26 +220,14 @@ float oscillatorProcess() {
 // CONTROLS
 // ======================================================
 
-int readAnalogAveraged(int pin) {
-  int total = 0;
-
-  for (int i = 0; i < 4; i++) {
-    total += analogRead(pin);
-  }
-
-  return total / 4;
-}
-
 void handleButton() {
   bool reading = digitalRead(PIN_BUTTON);
 
-  // Premuto
   if (reading == LOW && !buttonWasPressed) {
     buttonWasPressed = true;
     buttonPressStart = millis();
   }
 
-  // Rilasciato
   if (reading == HIGH && buttonWasPressed) {
     uint32_t pressDuration = millis() - buttonPressStart;
     buttonWasPressed = false;
@@ -245,15 +245,18 @@ void handleButton() {
 }
 
 void updateControls() {
-  int pitchRaw = readAnalogAveraged(PIN_PITCH);
-  int volumeRaw = readAnalogAveraged(PIN_VOLUME);
+  int pitchRaw = analogRead(PIN_PITCH);
+  int volumeRaw = analogRead(PIN_VOLUME);
 
-  float normalizedPitch = (float)pitchRaw / 4095.0f;
+  pitchFiltered += ((float)pitchRaw - pitchFiltered) * 0.08f;
+  volumeFiltered += ((float)volumeRaw - volumeFiltered) * 0.08f;
 
-  // Pitch musicale circa 55 Hz - 1760 Hz
-  targetFrequency = 55.0f * powf(2.0f, normalizedPitch * 5.0f);
+  float normalizedPitch = pitchFiltered / 4095.0f;
 
-  targetVolume = (float)volumeRaw / 4095.0f;
+  // Pitch ridotto: circa 55 Hz - 880 Hz
+  targetFrequency = 55.0f * powf(2.0f, normalizedPitch * 4.0f);
+
+  targetVolume = volumeFiltered / 4095.0f;
   targetVolume *= 0.85f;
 
   pulseWidth = 0.10f + normalizedPitch * 0.80f;
@@ -325,6 +328,10 @@ void setup() {
 
   analogReadResolution(12);
 
+  // Prima lettura per inizializzare i filtri senza salto iniziale
+  pitchFiltered = analogRead(PIN_PITCH);
+  volumeFiltered = analogRead(PIN_VOLUME);
+
   SPI.begin(PIN_SCK, -1, PIN_MOSI, PIN_CS);
   SPI.beginTransaction(SPISettings(20000000, MSBFIRST, SPI_MODE0));
 
@@ -344,12 +351,7 @@ void loop() {
 
   // AUDIO
   if (nowMicros - lastSampleMicros >= SAMPLE_PERIOD_US) {
-    lastSampleMicros += SAMPLE_PERIOD_US;
-
-    // Se resta troppo indietro, riallinea il clock audio
-    if (nowMicros - lastSampleMicros > SAMPLE_PERIOD_US * 4) {
-      lastSampleMicros = nowMicros;
-    }
+    lastSampleMicros = nowMicros;
 
     frequency += (targetFrequency - frequency) * 0.0008f;
     volume += (targetVolume - volume) * 0.0015f;

@@ -1,3 +1,4 @@
+#include "Audio.h"
 #include "AppConfig.h"
 #include "Hardware.h"
 #include "Pong.h"
@@ -42,6 +43,12 @@
 //    SDA -> GPIO21 / D21
 //    SCL -> GPIO22 / D22
 //    OLED 1..4 -> channels 0..3
+//
+//  PCM5102 I2S DAC:
+//    BCK  -> GPIO5
+//    LCK  -> GPIO15
+//    DIN  -> GPIO4
+//    SCK  -> GND for 3-wire I2S / BCK PLL mode
 // ======================================================
 
 volatile bool valuesChanged = true;
@@ -93,6 +100,7 @@ void setup() {
   interrupts();
 
   resetPongGame();
+  setupAudio();
 
   drawScreen();
 
@@ -142,6 +150,8 @@ void loop() {
   if (currentMode == MODE_PONG && !menuOpen) {
     updatePong();
   }
+
+  updateAudio();
 
   if (valuesChanged && millis() - lastDraw >= 35) {
     valuesChanged = false;

@@ -15,6 +15,7 @@ La parte PlatformIO precedente e' stata rimossa: il repository ora e' centrato s
 - PCA9548A I2C multiplexer, indirizzo `0x70`
 - 4 OLED SSD1306 0.96", 128x64, I2C, indirizzo `0x3C`
 - 4 encoder rotativi con pulsante
+- DAC I2S PCM5102 / PCM5102A per l'uscita audio della waveform
 - Resistenze di pull-up I2C da `4.7k` consigliate
 
 ## Collegamenti
@@ -50,6 +51,21 @@ Tutti gli OLED vanno alimentati a `3V3` e `GND` comuni.
 
 Ogni encoder usa `3V3` e `GND`. Nella UI fisica, schermo 1 sta sopra encoder 1, schermo 2 sopra encoder 2, e cosi' via.
 
+### PCM5102 -> ESP32
+
+| PCM5102 | ESP32 |
+| --- | --- |
+| VIN | 3V3 |
+| GND | GND |
+| BCK | GPIO5 |
+| LCK / LRCK / WS | GPIO15 |
+| DIN | GPIO4 |
+| SCK | GND |
+
+Il PCM5102A puo' lavorare in I2S a 3 fili usando il PLL interno agganciato a `BCK`, quindi non serve generare `SCK/MCLK` dall'ESP32. Tenere `SCK` a `GND` evita che il pin resti flottante.
+
+Nota ESP32: `GPIO15` e' un pin di strap di boot. Con un ingresso DAC normale non dovrebbe disturbare, ma se la board non parte piu' scollegare temporaneamente `LCK/LRCK` o spostarlo su un altro GPIO libero adatto a output.
+
 ## Pull-Up I2C
 
 Nota di merito enorme: le resistenze di pull-up sono state la svolta.
@@ -80,7 +96,7 @@ Funzioni principali:
 - UI multi-schermo con pannelli utility.
 - Menu comandato da Encoder 4, quindi il menu principale vive sullo schermo 4.
 - Encoder view con i primi 3 schermi in stile contagiri per Encoder 1, 2 e 3, e schermo 4 come summary dei click.
-- Waveform view con parametri controllati da Encoder 1 e 2.
+- Waveform view con parametri controllati da Encoder 1 e 2 e uscita audio I2S sul PCM5102.
 - Pong wide su 4 OLED, con campo logico largo `4 x 128` e paddle controllati da Encoder 1 e 4.
 - Modalita' debug runtime: tenere premuti i pulsanti degli encoder 1 e 4 per circa 1 secondo.
 

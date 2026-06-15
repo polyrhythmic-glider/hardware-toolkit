@@ -14,7 +14,7 @@ Encoder 4 e' il controller del menu, quindi in modalita' menu il menu principale
 ## Modalita'
 
 - `ENCODER VIEW`: schermi 1-3 in stile contagiri per encoder 1-3; schermo 4 come summary dei click.
-- `WAVEFORM VIEW`: editor grafico di waveform.
+- `WAVEFORM VIEW`: editor grafico di waveform con uscita audio I2S su PCM5102.
 - `PONG`: mini Pong su campo largo 4 schermi, con paddle su encoder 1 e 4 e velocita' aumentata.
 
 ## Debug Runtime
@@ -57,3 +57,18 @@ Pull-up consigliate:
 ```
 
 Le pull-up sono fondamentali: sono state la differenza tra schermi corrotti/spenti e setup stabile.
+
+PCM5102:
+
+```text
+VIN      -> ESP32 3V3
+GND      -> ESP32 GND
+BCK      -> ESP32 GPIO5
+LCK/LRCK -> ESP32 GPIO15
+DIN      -> ESP32 GPIO4
+SCK      -> GND
+```
+
+Il firmware usa I2S stereo a `44100 Hz`. In `WAVEFORM VIEW`, la forma d'onda selezionata viene anche inviata al DAC. Fuori da questa modalita' viene inviato silenzio.
+
+Nota: `GPIO15` e' un pin di strap di boot dell'ESP32. Se dopo aver collegato il DAC la board non parte, prova prima a scollegare `LCK/LRCK`.

@@ -1,5 +1,6 @@
 #include "Ui.h"
 
+#include "Audio.h"
 #include "AppConfig.h"
 #include "Hardware.h"
 #include "Pong.h"
@@ -52,6 +53,8 @@ void prepareModeTracking() {
     }
 
     lastPongUpdate = millis();
+  } else if (currentMode == MODE_WAVEFORM) {
+    resetAudioPhase();
   }
 }
 

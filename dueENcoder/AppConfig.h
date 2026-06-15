@@ -23,6 +23,13 @@ constexpr bool WIDE_PONG = true;
 constexpr int SCREEN_WIDTH = 128;
 constexpr int SCREEN_HEIGHT = 64;
 
+constexpr int AUDIO_I2S_BCK = 5;
+constexpr int AUDIO_I2S_LRCK = 15;
+constexpr int AUDIO_I2S_DIN = 4;
+constexpr int AUDIO_SAMPLE_RATE = 44100;
+constexpr int AUDIO_BUFFER_SAMPLES = 256;
+constexpr float AUDIO_BASE_FREQUENCY = 220.0f;
+
 // ======================================================
 //  DEBUG CONFIG
 // ======================================================

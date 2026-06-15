@@ -7,7 +7,23 @@
 #include "Hardware.h"
 #include "Pong.h"
 
+uint8_t activeDisplayIndex = 0;
+
+Encoder& getEncoderForDisplay(uint8_t displayIndex);
+unsigned long getClickFlashForDisplay(uint8_t displayIndex);
+const char* getEncoderTitle(uint8_t displayIndex);
+
 void drawMenuScreen();
+void drawUtilityScreen();
+void drawMenuUtilityScreen();
+void drawEncoderMainScreen();
+void drawEncoderUtilityScreen();
+void drawClickSummaryScreen();
+void drawWaveformUtilityScreen();
+void drawDebugUtilityScreen();
+void drawStatusUtility(const char* title);
+void printEncoderLine(const char* label, Encoder& enc);
+void printEncoderPinLine(const char* label, Encoder& enc);
 void drawMenuItem(int x, int y, const char* text, bool selected);
 void drawTitleBar(const char* modeName);
 void drawTopInfoBar(const char* modeName, int leftValue, int rightValue);
@@ -44,26 +60,162 @@ int normalizedToY(float value, int y, int h);
 void drawThickLine(int x1, int y1, int x2, int y2, int thickness);
 
 void drawScreen() {
-  if (menuOpen) {
-    drawMenuScreen();
+  if (!displayHardwareReady) {
+    return;
+  }
+
+  if (DIRECT_OLED_TEST || PCA_MUX_TEST) {
+    return;
+  }
+
+  if (!pca9548aFound) {
+    activeDisplayIndex = 0;
+
+    if (MULTI_SCREEN_UI) {
+      drawUtilityScreen();
+    } else {
+      if (menuOpen) {
+        drawMenuScreen();
+      } else if (currentMode == MODE_ENCODERS) {
+        drawEncoderScreen();
+      } else if (currentMode == MODE_WAVEFORM) {
+        drawWaveformScreen();
+      } else if (currentMode == MODE_PONG) {
+        drawPongScreen();
+      }
+    }
+
     display.display();
     return;
   }
 
-  if (currentMode == MODE_ENCODERS) {
-    drawEncoderScreen();
-  } else if (currentMode == MODE_WAVEFORM) {
-    drawWaveformScreen();
-  } else if (currentMode == MODE_PONG) {
-    drawPongScreen();
+  for (uint8_t i = 0; i < DISPLAY_COUNT; i++) {
+    selectDisplay(i);
+    activeDisplayIndex = i;
+
+    if (MULTI_SCREEN_UI) {
+      if (currentMode == MODE_PONG && !menuOpen) {
+        drawPongScreen();
+      } else {
+        drawUtilityScreen();
+      }
+    } else {
+      if (menuOpen) {
+        drawMenuScreen();
+      } else if (currentMode == MODE_ENCODERS) {
+        drawEncoderScreen();
+      } else if (currentMode == MODE_WAVEFORM) {
+        drawWaveformScreen();
+      } else if (currentMode == MODE_PONG) {
+        drawPongScreen();
+      }
+    }
+
+    display.display();
   }
 
-  display.display();
+  selectDisplay(0);
+}
+
+Encoder& getEncoderForDisplay(uint8_t displayIndex) {
+  switch (displayIndex) {
+    case 0: return enc1;
+    case 1: return enc2;
+    case 2: return enc3;
+    default: return enc4;
+  }
+}
+
+unsigned long getClickFlashForDisplay(uint8_t displayIndex) {
+  switch (displayIndex) {
+    case 0: return clickFlashUntil1;
+    case 1: return clickFlashUntil2;
+    case 2: return clickFlashUntil3;
+    default: return clickFlashUntil4;
+  }
+}
+
+const char* getEncoderTitle(uint8_t displayIndex) {
+  switch (displayIndex) {
+    case 0: return "ENC 1";
+    case 1: return "ENC 2";
+    case 2: return "ENC 3";
+    default: return "ENC 4";
+  }
 }
 
 // ======================================================
 //  MENU + COMMON TOP BAR
 // ======================================================
+
+void drawUtilityScreen() {
+  if (debugMode && activeDisplayIndex != 3 && !(currentMode == MODE_PONG && !menuOpen)) {
+    drawDebugUtilityScreen();
+    return;
+  }
+
+  if (menuOpen) {
+    if (activeDisplayIndex == 3) {
+      drawMenuScreen();
+    } else {
+      drawMenuUtilityScreen();
+    }
+
+    return;
+  }
+
+  if (currentMode == MODE_ENCODERS) {
+    if (activeDisplayIndex < 3) {
+      drawEncoderScreen();
+    } else {
+      drawClickSummaryScreen();
+    }
+  } else if (currentMode == MODE_WAVEFORM) {
+    if (activeDisplayIndex == 0) {
+      drawWaveformScreen();
+    } else {
+      drawWaveformUtilityScreen();
+    }
+  } else if (currentMode == MODE_PONG) {
+    drawPongScreen();
+  }
+}
+
+void drawDebugUtilityScreen() {
+  display.clearDisplay();
+
+  if (activeDisplayIndex == 1) {
+    drawStatusUtility("DEBUG BUS");
+    display.setCursor(0, 20);
+    display.print("SERIAL ");
+    display.println(debugMode ? "ON" : "OFF");
+    display.print("I2C ");
+    display.print(I2C_CLOCK_HZ / 1000);
+    display.println("kHz");
+    display.print("PCA ");
+    display.println(pca9548aFound ? "OK" : "NO");
+    display.print("OLED 0x");
+    display.println(activeOledAddress, HEX);
+  } else if (activeDisplayIndex == 2) {
+    drawStatusUtility("DEBUG PINS");
+    display.setCursor(0, 18);
+    printEncoderPinLine("E1", enc1);
+    printEncoderPinLine("E2", enc2);
+    printEncoderPinLine("E3", enc3);
+    printEncoderPinLine("E4", enc4);
+  } else {
+    drawStatusUtility("DEBUG STATE");
+    display.setCursor(0, 20);
+    display.print("MODE ");
+    display.println((int)currentMode);
+    display.print("MENU ");
+    display.println(menuOpen ? "OPEN" : "CLOSED");
+    display.print("SEL ");
+    display.println(menuSelection);
+    display.print("DISP ");
+    display.println(activeDisplayIndex);
+  }
+}
 
 void drawMenuScreen() {
   display.clearDisplay();
@@ -74,9 +226,65 @@ void drawMenuScreen() {
   drawMenuItem(8, 38, "WAVEFORM VIEW", menuSelection == MODE_WAVEFORM);
   drawMenuItem(8, 54, "PONG", menuSelection == MODE_PONG);
 
-  if (millis() < clickFlashUntil3) {
+  if (millis() < clickFlashUntil4) {
     display.drawRect(0, UI_HEADER_HEIGHT, 128, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
   }
+}
+
+void drawMenuUtilityScreen() {
+  display.clearDisplay();
+
+  if (activeDisplayIndex == 0) {
+    drawStatusUtility("ENC 1");
+    display.setCursor(0, 20);
+    printEncoderLine("E1", enc1);
+    display.println("SCREEN 1");
+    display.println("LOCAL ENCODER");
+  } else if (activeDisplayIndex == 1) {
+    drawStatusUtility("MODES");
+    display.setCursor(0, 20);
+    display.print(menuSelection == MODE_ENCODERS ? "> " : "  ");
+    display.println("ENCODER");
+    display.print(menuSelection == MODE_WAVEFORM ? "> " : "  ");
+    display.println("WAVEFORM");
+    display.print(menuSelection == MODE_PONG ? "> " : "  ");
+    display.println("PONG");
+  } else if (activeDisplayIndex == 2) {
+    drawStatusUtility("ENCODERS");
+    display.setCursor(0, 20);
+    printEncoderLine("E1", enc1);
+    printEncoderLine("E2", enc2);
+    printEncoderLine("E3", enc3);
+    printEncoderLine("E4", enc4);
+  }
+}
+
+void drawStatusUtility(const char* title) {
+  drawTitleBar(title);
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+}
+
+void printEncoderLine(const char* label, Encoder& enc) {
+  long value;
+
+  noInterrupts();
+  value = enc.value;
+  interrupts();
+
+  display.print(label);
+  display.print(": ");
+  display.println(value);
+}
+
+void printEncoderPinLine(const char* label, Encoder& enc) {
+  display.print(label);
+  display.print(" A");
+  display.print(digitalRead(enc.pinA));
+  display.print(" B");
+  display.print(digitalRead(enc.pinB));
+  display.print(" S");
+  display.println(digitalRead(enc.pinSW));
 }
 
 void drawMenuItem(int x, int y, const char* text, bool selected) {
@@ -127,25 +335,121 @@ void drawTopInfoBar(const char* modeName, int leftValue, int rightValue) {
 //  ENCODER VIEW
 // ======================================================
 
-void drawEncoderScreen() {
+void drawEncoderMainScreen() {
   long v1;
   long v2;
+  long v3;
+  long v4;
 
   noInterrupts();
   v1 = enc1.value;
   v2 = enc2.value;
+  v3 = enc3.value;
+  v4 = enc4.value;
+  interrupts();
+
+  display.clearDisplay();
+  drawTitleBar("ENCODERS");
+
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 20);
+  display.print("E1 ");
+  display.print(v1);
+  display.setCursor(64, 20);
+  display.print("E2 ");
+  display.print(v2);
+  display.setCursor(0, 34);
+  display.print("E3 ");
+  display.print(v3);
+  display.setCursor(64, 34);
+  display.print("E4 ");
+  display.print(v4);
+  display.setCursor(0, 54);
+  display.print("E4 PUSH MENU");
+}
+
+void drawEncoderUtilityScreen() {
+  display.clearDisplay();
+
+  if (activeDisplayIndex == 1) {
+    drawEncoderScreen();
+  } else if (activeDisplayIndex == 2) {
+    drawStatusUtility("BUTTONS");
+    display.setCursor(0, 20);
+    display.print("SW1 ");
+    display.println(digitalRead(enc1.pinSW) == LOW ? "DOWN" : "UP");
+    display.print("SW2 ");
+    display.println(digitalRead(enc2.pinSW) == LOW ? "DOWN" : "UP");
+    display.print("SW3 ");
+    display.println(digitalRead(enc3.pinSW) == LOW ? "DOWN" : "UP");
+    display.print("SW4 ");
+    display.println(digitalRead(enc4.pinSW) == LOW ? "DOWN" : "UP");
+  } else {
+    drawStatusUtility("ACTIONS");
+    display.setCursor(0, 20);
+    display.println("E1 PUSH RESET");
+    display.println("E2 PUSH RESET");
+    display.println("E3 PUSH RESET");
+    display.println("E4 PUSH MENU");
+  }
+}
+
+void drawClickSummaryScreen() {
+  display.clearDisplay();
+  drawTitleBar("CLICKS");
+
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  display.setCursor(0, 20);
+  display.print("E1 ");
+  display.print(digitalRead(enc1.pinSW) == LOW ? "DOWN" : "UP  ");
+  display.print(millis() < clickFlashUntil1 ? " CLICK" : "");
+
+  display.setCursor(0, 30);
+  display.print("E2 ");
+  display.print(digitalRead(enc2.pinSW) == LOW ? "DOWN" : "UP  ");
+  display.print(millis() < clickFlashUntil2 ? " CLICK" : "");
+
+  display.setCursor(0, 40);
+  display.print("E3 ");
+  display.print(digitalRead(enc3.pinSW) == LOW ? "DOWN" : "UP  ");
+  display.print(millis() < clickFlashUntil3 ? " CLICK" : "");
+
+  display.setCursor(0, 50);
+  display.print("E4 ");
+  display.print(digitalRead(enc4.pinSW) == LOW ? "DOWN" : "UP  ");
+  display.print(millis() < clickFlashUntil4 ? " MENU" : "");
+}
+
+void drawEncoderScreen() {
+  Encoder& activeEncoder = getEncoderForDisplay(activeDisplayIndex);
+  long value;
+
+  noInterrupts();
+  value = activeEncoder.value;
   interrupts();
 
   display.clearDisplay();
 
-  drawTopInfoBar("ENC", v1 % 100, v2 % 100);
+  drawTitleBar(getEncoderTitle(activeDisplayIndex));
 
-  if (millis() < clickFlashUntil3) {
-    display.drawRect(0, UI_HEADER_HEIGHT, 128, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
-  }
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_BLACK);
+  display.setCursor(52, 4);
+  display.print("V:");
+  display.print(value % 1000);
+  display.setCursor(103, 4);
+  display.print("CH");
+  display.print(activeDisplayIndex);
+  display.setTextColor(SSD1306_WHITE);
 
-  drawTickDial(32, 42, 20, v1, millis() < clickFlashUntil1);
-  drawTickDial(96, 42, 20, v2, millis() < clickFlashUntil2);
+  drawTickDial(64, 42, 21, value, millis() < getClickFlashForDisplay(activeDisplayIndex));
+
+  display.setTextSize(1);
+  display.setCursor(activeDisplayIndex == 3 ? 38 : 34, 57);
+  display.print(activeDisplayIndex == 3 ? "PUSH MENU" : "PUSH RESET");
 }
 
 void drawTickDial(int cx, int cy, int r, long value, bool flash) {
@@ -259,8 +563,40 @@ void drawWaveformScreen() {
   drawWaveTopBar(waveformIndex, parameterA, parameterB);
   drawBigWaveform(waveformIndex, parameterA, parameterB);
 
-  if (millis() < clickFlashUntil3) {
+  if (millis() < clickFlashUntil4) {
     display.drawRect(0, UI_HEADER_HEIGHT, 128, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
+  }
+}
+
+void drawWaveformUtilityScreen() {
+  display.clearDisplay();
+
+  if (activeDisplayIndex == 1) {
+    drawStatusUtility("PARAMS");
+    display.setCursor(0, 20);
+    display.print(getParameterALabel(waveformIndex));
+    display.print(": ");
+    printSignedTiny(parameterA);
+    display.println();
+    display.print(getParameterBLabel(waveformIndex));
+    display.print(": ");
+    printSignedTiny(parameterB);
+    display.println();
+    display.print("TYPE: ");
+    display.println(getWaveformName(waveformIndex));
+  } else if (activeDisplayIndex == 2) {
+    drawStatusUtility("INPUTS");
+    display.setCursor(0, 20);
+    display.println("E1 TURN: PARAM A");
+    display.println("E2 TURN: PARAM B");
+    display.println("E1 PUSH: PREV");
+    display.println("E2 PUSH: NEXT");
+  } else {
+    drawStatusUtility("ENCODERS");
+    display.setCursor(0, 20);
+    printEncoderLine("E1", enc1);
+    printEncoderLine("E2", enc2);
+    printEncoderLine("E4", enc4);
   }
 }
 
@@ -498,43 +834,67 @@ void drawPongScreen() {
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
 
-    display.setCursor(34, 25);
-    display.print("GAME OVER");
+    if (!WIDE_PONG || activeDisplayIndex == 1 || activeDisplayIndex == 2) {
+      display.setCursor(34, 25);
+      display.print("GAME OVER");
 
-    display.setCursor(33, 39);
+      display.setCursor(33, 39);
 
-    if (pongScoreLeft > pongScoreRight) {
-      display.print("LEFT WINS");
-    } else {
-      display.print("RIGHT WINS");
+      if (pongScoreLeft > pongScoreRight) {
+        display.print("LEFT WINS");
+      } else {
+        display.print("RIGHT WINS");
+      }
     }
 
-    display.setCursor(16, 54);
-    display.print("CLICK E1/E2 RESET");
+    display.setCursor(WIDE_PONG && activeDisplayIndex == 0 ? 10 : 16, 54);
+    display.print(WIDE_PONG && activeDisplayIndex == 0 ? "CLICK E1 RESET" : "CLICK E1/E4 RESET");
 
     return;
   }
 
   display.drawRect(0, UI_HEADER_HEIGHT, 128, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
 
-  for (int y = UI_CONTENT_TOP + 2; y < PONG_BOTTOM - 1; y += 6) {
-    display.drawFastVLine(64, y, 3, SSD1306_WHITE);
+  int worldLeft = WIDE_PONG ? activeDisplayIndex * SCREEN_WIDTH : 0;
+  int localBallX = (int)ballX - worldLeft;
+  int localLeftPaddleX = PONG_LEFT_X - worldLeft;
+  int localRightPaddleX = PONG_RIGHT_X - worldLeft;
+
+  if (WIDE_PONG && activeDisplayIndex > 0) {
+    display.drawFastVLine(0, UI_CONTENT_TOP, PONG_BOTTOM - UI_CONTENT_TOP, SSD1306_WHITE);
   }
 
-  drawPongPaddle(PONG_LEFT_X, leftPaddleY);
-  drawPongPaddle(PONG_RIGHT_X, rightPaddleY);
+  for (int worldX = 64; worldX < PONG_WORLD_WIDTH; worldX += 64) {
+    int localX = worldX - worldLeft;
 
-  display.fillCircle((int)ballX, (int)ballY, 2, SSD1306_WHITE);
+    if (localX >= 0 && localX < SCREEN_WIDTH) {
+      for (int y = UI_CONTENT_TOP + 2; y < PONG_BOTTOM - 1; y += 6) {
+        display.drawFastVLine(localX, y, 3, SSD1306_WHITE);
+      }
+    }
+  }
+
+  if (localLeftPaddleX >= -2 && localLeftPaddleX < SCREEN_WIDTH) {
+    drawPongPaddle(localLeftPaddleX, leftPaddleY);
+  }
+
+  if (localRightPaddleX >= -2 && localRightPaddleX < SCREEN_WIDTH) {
+    drawPongPaddle(localRightPaddleX, rightPaddleY);
+  }
+
+  if (localBallX >= -2 && localBallX <= SCREEN_WIDTH + 2) {
+    display.fillCircle(localBallX, (int)ballY, 2, SSD1306_WHITE);
+  }
 
   if (millis() < clickFlashUntil1) {
     display.drawRect(1, UI_CONTENT_TOP, 8, PONG_BOTTOM - UI_CONTENT_TOP, SSD1306_WHITE);
   }
 
-  if (millis() < clickFlashUntil2) {
+  if (millis() < clickFlashUntil4) {
     display.drawRect(119, UI_CONTENT_TOP, 8, PONG_BOTTOM - UI_CONTENT_TOP, SSD1306_WHITE);
   }
 
-  if (millis() < clickFlashUntil3) {
+  if (millis() < clickFlashUntil4) {
     display.drawRect(0, UI_HEADER_HEIGHT, 128, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
   }
 }
@@ -547,14 +907,18 @@ void drawPongTopBar() {
 
   display.setCursor(2, 4);
   display.print("PONG");
+  if (WIDE_PONG) {
+    display.print(" ");
+    display.print(activeDisplayIndex + 1);
+  }
 
-  display.setCursor(48, 4);
+  display.setCursor(WIDE_PONG ? 52 : 48, 4);
   display.print(pongScoreLeft);
 
-  display.setCursor(60, 4);
+  display.setCursor(WIDE_PONG ? 64 : 60, 4);
   display.print("-");
 
-  display.setCursor(72, 4);
+  display.setCursor(WIDE_PONG ? 76 : 72, 4);
   display.print(pongScoreRight);
 
   display.setCursor(101, 4);

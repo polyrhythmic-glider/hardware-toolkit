@@ -8,9 +8,9 @@ void handleUiLogic() {
   if (menuOpen) {
     handleMenuLogic();
   } else {
-    if (enc3.clickEvent) {
+    if (enc4.clickEvent && !(currentMode == MODE_PONG && pongGameOver)) {
       openMenu();
-      clickFlashUntil3 = millis() + 180;
+      clickFlashUntil4 = millis() + 180;
       clearClickEvents();
       valuesChanged = true;
       return;
@@ -27,7 +27,7 @@ void openMenu() {
   menuSelection = currentMode;
 
   noInterrupts();
-  menuStartValue3 = enc3.value;
+  menuStartValue4 = enc4.value;
   interrupts();
 }
 
@@ -43,7 +43,7 @@ void prepareModeTracking() {
   parameterStartValue1 = enc1.value;
   parameterStartValue2 = enc2.value;
   pongStartValue1 = enc1.value;
-  pongStartValue2 = enc2.value;
+  pongStartValue2 = enc4.value;
   interrupts();
 
   if (currentMode == MODE_PONG) {
@@ -56,13 +56,13 @@ void prepareModeTracking() {
 }
 
 void handleMenuLogic() {
-  long v3;
+  long v4;
 
   noInterrupts();
-  v3 = enc3.value;
+  v4 = enc4.value;
   interrupts();
 
-  int delta = v3 - menuStartValue3;
+  int delta = v4 - menuStartValue4;
 
   if (delta != 0) {
     menuSelection += delta;
@@ -73,13 +73,13 @@ void handleMenuLogic() {
 
     menuSelection = menuSelection % MODE_COUNT;
 
-    menuStartValue3 = v3;
+    menuStartValue4 = v4;
     valuesChanged = true;
   }
 
-  if (enc3.clickEvent) {
+  if (enc4.clickEvent) {
     closeMenuAndApplySelection();
-    clickFlashUntil3 = millis() + 180;
+    clickFlashUntil4 = millis() + 180;
     valuesChanged = true;
   }
 }
@@ -104,6 +104,12 @@ void handleEncoderModeLogic() {
   if (enc2.clickEvent) {
     resetEncoderValue(enc2);
     clickFlashUntil2 = millis() + 180;
+    valuesChanged = true;
+  }
+
+  if (enc3.clickEvent) {
+    resetEncoderValue(enc3);
+    clickFlashUntil3 = millis() + 180;
     valuesChanged = true;
   }
 }

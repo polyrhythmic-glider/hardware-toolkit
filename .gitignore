@@ -15,12 +15,6 @@ temp/
 *.tmp
 *.log
 
-# PlatformIO local/generated files
-.pio/
-.pioenvs/
-.piolibdeps/
-sdkconfig.*
-
 # Arduino local/generated files
 *.elf
 *.hex

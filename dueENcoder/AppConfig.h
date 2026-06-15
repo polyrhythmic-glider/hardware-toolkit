@@ -11,8 +11,26 @@ constexpr int OLED_SDA = 21;
 constexpr int OLED_SCL = 22;
 constexpr int OLED_RESET = -1;
 
+constexpr uint8_t PCA9548A_ADDRESS = 0x70;
+constexpr uint8_t OLED_ADDRESS = 0x3C;
+constexpr uint8_t DISPLAY_COUNT = 4;
+constexpr uint32_t I2C_CLOCK_HZ = 400000;
+constexpr bool DIRECT_OLED_TEST = false;
+constexpr bool PCA_MUX_TEST = false;
+constexpr bool MULTI_SCREEN_UI = true;
+constexpr bool WIDE_PONG = true;
+
 constexpr int SCREEN_WIDTH = 128;
 constexpr int SCREEN_HEIGHT = 64;
+
+// ======================================================
+//  DEBUG CONFIG
+// ======================================================
+
+constexpr bool DEBUG_SERIAL = false;
+constexpr unsigned long DEBUG_SERIAL_BAUD = 115200;
+constexpr unsigned long DEBUG_HEARTBEAT_INTERVAL_MS = 1000;
+constexpr unsigned long DEBUG_TOGGLE_HOLD_MS = 1000;
 
 // ======================================================
 //  UI CONFIG
@@ -55,24 +73,32 @@ constexpr int PONG_PADDLE_HEIGHT = 14;
 constexpr int PONG_PADDLE_HALF = 7;
 constexpr int PONG_TOP = UI_CONTENT_TOP;
 constexpr int PONG_BOTTOM = UI_CONTENT_BOTTOM;
+constexpr int PONG_WORLD_WIDTH = WIDE_PONG ? (SCREEN_WIDTH * DISPLAY_COUNT) : SCREEN_WIDTH;
 constexpr int PONG_LEFT_X = 4;
-constexpr int PONG_RIGHT_X = 123;
+constexpr int PONG_RIGHT_X = PONG_WORLD_WIDTH - 5;
+constexpr float PONG_SPEED_MULTIPLIER = 4.0f;
+constexpr float PONG_BASE_X_SPEED = 1.45f * PONG_SPEED_MULTIPLIER;
+constexpr float PONG_BASE_Y_SPEED = 0.75f * PONG_SPEED_MULTIPLIER;
+constexpr float PONG_MAX_X_SPEED = 3.0f * PONG_SPEED_MULTIPLIER;
+constexpr float PONG_MAX_Y_SPEED = 2.4f * PONG_SPEED_MULTIPLIER;
 
 // ======================================================
 //  SHARED UI STATE
 // ======================================================
 
 extern volatile bool valuesChanged;
+extern bool debugMode;
 
 extern unsigned long clickFlashUntil1;
 extern unsigned long clickFlashUntil2;
 extern unsigned long clickFlashUntil3;
+extern unsigned long clickFlashUntil4;
 
 extern UiMode currentMode;
 
 extern bool menuOpen;
 extern int menuSelection;
-extern long menuStartValue3;
+extern long menuStartValue4;
 
 extern long parameterStartValue1;
 extern long parameterStartValue2;

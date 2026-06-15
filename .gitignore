@@ -15,6 +15,12 @@ temp/
 *.tmp
 *.log
 
+# PlatformIO local/generated files
+.pio/
+.pioenvs/
+.piolibdeps/
+sdkconfig.*
+
 # Arduino local/generated files
 *.elf
 *.hex
@@ -24,9 +30,3 @@ temp/
 *.lst
 *.sym
 *.bak
-
-# Keep hardware-toolkit project sources tracked
-!dueENcoder/
-!dueENcoder/**
-!synthProject/
-!synthProject/**

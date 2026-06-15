@@ -1,0 +1,32 @@
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Build/cache output
+build/
+dist/
+out/
+tmp/
+temp/
+*.tmp
+*.log
+
+# Arduino local/generated files
+*.elf
+*.hex
+*.bin
+*.map
+*.eep
+*.lst
+*.sym
+*.bak
+
+# Keep hardware-toolkit project sources tracked
+!dueENcoder/
+!dueENcoder/**
+!synthProject/
+!synthProject/**

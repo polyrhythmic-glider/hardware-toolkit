@@ -853,25 +853,24 @@ void drawPongScreen() {
     return;
   }
 
-  display.drawRect(0, UI_HEADER_HEIGHT, 128, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
-
   int worldLeft = WIDE_PONG ? activeDisplayIndex * SCREEN_WIDTH : 0;
   int localBallX = (int)ballX - worldLeft;
   int localLeftPaddleX = PONG_LEFT_X - worldLeft;
   int localRightPaddleX = PONG_RIGHT_X - worldLeft;
 
-  if (WIDE_PONG && activeDisplayIndex > 0) {
-    display.drawFastVLine(0, UI_CONTENT_TOP, PONG_BOTTOM - UI_CONTENT_TOP, SSD1306_WHITE);
-  }
+  if (WIDE_PONG) {
+    display.drawFastHLine(0, UI_HEADER_HEIGHT, SCREEN_WIDTH, SSD1306_WHITE);
+    display.drawFastHLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, SSD1306_WHITE);
 
-  for (int worldX = 64; worldX < PONG_WORLD_WIDTH; worldX += 64) {
-    int localX = worldX - worldLeft;
-
-    if (localX >= 0 && localX < SCREEN_WIDTH) {
-      for (int y = UI_CONTENT_TOP + 2; y < PONG_BOTTOM - 1; y += 6) {
-        display.drawFastVLine(localX, y, 3, SSD1306_WHITE);
-      }
+    if (activeDisplayIndex == 0) {
+      display.drawFastVLine(0, UI_HEADER_HEIGHT, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
     }
+
+    if (activeDisplayIndex == DISPLAY_COUNT - 1) {
+      display.drawFastVLine(SCREEN_WIDTH - 1, UI_HEADER_HEIGHT, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
+    }
+  } else {
+    display.drawRect(0, UI_HEADER_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
   }
 
   if (localLeftPaddleX >= -2 && localLeftPaddleX < SCREEN_WIDTH) {

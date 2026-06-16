@@ -5,7 +5,6 @@ Esperimenti hardware/software per ESP32, encoder rotativi, OLED I2C e multiplexe
 ## Progetti
 
 - `dueENcoder/`: sketch Arduino principale per ESP32 DevKit V1 / ESP32-WROOM-32, 4 OLED SSD1306 e 4 encoder.
-- `oledMultiplexerTest/`: sketch minimale di test per verificare PCA9548A e i 4 OLED senza la UI completa.
 
 La parte PlatformIO precedente e' stata rimossa: il repository ora e' centrato sugli sketch Arduino.
 

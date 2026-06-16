@@ -169,7 +169,7 @@ void setupSerialDebug() {
   serialDebugStarted = true;
   delay(800);
   Serial.println();
-  Serial.println(F("==== dueENcoder debug boot ===="));
+  Serial.println(F("==== synthProject debug boot ===="));
 }
 
 bool handleDebugToggle() {

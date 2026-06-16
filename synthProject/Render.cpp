@@ -16,6 +16,7 @@ const char* getEncoderTitle(uint8_t displayIndex);
 void drawMenuScreen();
 void drawUtilityScreen();
 void drawMenuUtilityScreen();
+void drawTestUtilityScreen();
 void drawEncoderMainScreen();
 void drawEncoderUtilityScreen();
 void drawClickSummaryScreen();
@@ -25,6 +26,8 @@ void drawStatusUtility(const char* title);
 void printEncoderLine(const char* label, Encoder& enc);
 void printEncoderPinLine(const char* label, Encoder& enc);
 void drawMenuItem(int x, int y, const char* text, bool selected);
+const char* getMenuItemLabel(int mode);
+int getMenuFirstVisibleIndex();
 void drawTitleBar(const char* modeName);
 void drawTopInfoBar(const char* modeName, int leftValue, int rightValue);
 
@@ -50,6 +53,8 @@ void drawConstWave(int x, int y, int w, int h, int levelParam, int rippleParam);
 void drawPongScreen();
 void drawPongTopBar();
 void drawPongPaddle(int x, int centerY);
+void drawStartupLogoPanel();
+void drawStartupGliderMark(int originX, int originY, int cellSize);
 
 float mapFloat(float value, float inMin, float inMax, float outMin, float outMax);
 float constrainFloat(float value, float minValue, float maxValue);
@@ -82,6 +87,8 @@ void drawScreen() {
         drawWaveformScreen();
       } else if (currentMode == MODE_PONG) {
         drawPongScreen();
+      } else if (currentMode == MODE_TEST) {
+        drawTestUtilityScreen();
       }
     }
 
@@ -108,6 +115,8 @@ void drawScreen() {
         drawWaveformScreen();
       } else if (currentMode == MODE_PONG) {
         drawPongScreen();
+      } else if (currentMode == MODE_TEST) {
+        drawTestUtilityScreen();
       }
     }
 
@@ -115,6 +124,101 @@ void drawScreen() {
   }
 
   selectDisplay(0);
+}
+
+void drawStartupLogo(unsigned long holdMs) {
+  if (!displayHardwareReady) {
+    return;
+  }
+
+  if (!pca9548aFound) {
+    activeDisplayIndex = 0;
+    drawStartupLogoPanel();
+    display.display();
+    delay(holdMs);
+    return;
+  }
+
+  for (uint8_t i = 0; i < DISPLAY_COUNT; i++) {
+    selectDisplay(i);
+    activeDisplayIndex = i;
+    drawStartupLogoPanel();
+    display.display();
+  }
+
+  selectDisplay(0);
+  delay(holdMs);
+}
+
+void drawStartupLogoPanel() {
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+
+  display.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
+  display.drawFastHLine(8, 8, SCREEN_WIDTH - 16, SSD1306_WHITE);
+  display.drawFastHLine(8, SCREEN_HEIGHT - 9, SCREEN_WIDTH - 16, SSD1306_WHITE);
+
+  if (pca9548aFound && MULTI_SCREEN_UI) {
+    switch (activeDisplayIndex) {
+      case 0:
+        display.setTextSize(1);
+        display.setCursor(32, 19);
+        display.print("MADE WITH");
+        display.setCursor(50, 31);
+        display.print("LOVE");
+        display.setCursor(55, 43);
+        display.print("BY");
+        break;
+
+      case 1:
+        display.setTextSize(2);
+        display.setCursor(27, 12);
+        display.print("POLY");
+        display.setCursor(15, 30);
+        display.print("RHYTHMIC");
+        display.setTextSize(1);
+        display.setCursor(43, 51);
+        display.print("GLIDER");
+        break;
+
+      case 2:
+        drawStartupGliderMark(38, 11, 14);
+        break;
+
+      default:
+        display.setTextSize(2);
+        display.setCursor(22, 22);
+        display.print("LOADING");
+        break;
+    }
+  } else {
+    display.setTextSize(2);
+    display.setCursor(27, 10);
+    display.print("POLY");
+    display.setCursor(15, 29);
+    display.print("RHYTH");
+    display.setTextSize(1);
+    display.setCursor(43, 51);
+    display.print("GLIDER");
+  }
+}
+
+void drawStartupGliderMark(int originX, int originY, int cellSize) {
+  const uint8_t glider[5][5] = {
+    {0, 1, 0, 0, 0},
+    {0, 0, 1, 0, 0},
+    {1, 1, 1, 0, 0},
+    {0, 0, 0, 0, 0},
+    {0, 0, 0, 0, 0}
+  };
+
+  for (uint8_t y = 0; y < 5; y++) {
+    for (uint8_t x = 0; x < 5; x++) {
+      if (glider[y][x]) {
+        display.fillRect(originX + x * cellSize, originY + y * cellSize, cellSize - 2, cellSize - 2, SSD1306_WHITE);
+      }
+    }
+  }
 }
 
 Encoder& getEncoderForDisplay(uint8_t displayIndex) {
@@ -149,7 +253,7 @@ const char* getEncoderTitle(uint8_t displayIndex) {
 // ======================================================
 
 void drawUtilityScreen() {
-  if (debugMode && activeDisplayIndex != 3 && !(currentMode == MODE_PONG && !menuOpen)) {
+  if (debugMode && currentMode != MODE_TEST && activeDisplayIndex != 3 && !(currentMode == MODE_PONG && !menuOpen)) {
     drawDebugUtilityScreen();
     return;
   }
@@ -165,11 +269,7 @@ void drawUtilityScreen() {
   }
 
   if (currentMode == MODE_ENCODERS) {
-    if (activeDisplayIndex < 3) {
-      drawEncoderScreen();
-    } else {
-      drawClickSummaryScreen();
-    }
+    drawEncoderScreen();
   } else if (currentMode == MODE_WAVEFORM) {
     if (activeDisplayIndex == 0) {
       drawWaveformScreen();
@@ -178,6 +278,8 @@ void drawUtilityScreen() {
     }
   } else if (currentMode == MODE_PONG) {
     drawPongScreen();
+  } else if (currentMode == MODE_TEST) {
+    drawTestUtilityScreen();
   }
 }
 
@@ -222,9 +324,32 @@ void drawMenuScreen() {
 
   drawTitleBar("MENU");
 
-  drawMenuItem(8, 22, "ENCODER VIEW", menuSelection == MODE_ENCODERS);
-  drawMenuItem(8, 38, "WAVEFORM VIEW", menuSelection == MODE_WAVEFORM);
-  drawMenuItem(8, 54, "PONG", menuSelection == MODE_PONG);
+  int firstVisible = getMenuFirstVisibleIndex();
+
+  for (int i = 0; i < MENU_VISIBLE_ITEMS; i++) {
+    int item = firstVisible + i;
+
+    if (item >= MODE_COUNT) {
+      break;
+    }
+
+    drawMenuItem(8, 22 + (i * 16), getMenuItemLabel(item), menuSelection == item);
+  }
+
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_BLACK);
+
+  if (firstVisible > 0) {
+    display.setCursor(101, 4);
+    display.print("^");
+  }
+
+  if (firstVisible + MENU_VISIBLE_ITEMS < MODE_COUNT) {
+    display.setCursor(116, 4);
+    display.print("v");
+  }
+
+  display.setTextColor(SSD1306_WHITE);
 
   if (millis() < clickFlashUntil4) {
     display.drawRect(0, UI_HEADER_HEIGHT, 128, SCREEN_HEIGHT - UI_HEADER_HEIGHT, SSD1306_WHITE);
@@ -241,14 +366,15 @@ void drawMenuUtilityScreen() {
     display.println("SCREEN 1");
     display.println("LOCAL ENCODER");
   } else if (activeDisplayIndex == 1) {
-    drawStatusUtility("MODES");
+    drawStatusUtility("BUS");
     display.setCursor(0, 20);
-    display.print(menuSelection == MODE_ENCODERS ? "> " : "  ");
-    display.println("ENCODER");
-    display.print(menuSelection == MODE_WAVEFORM ? "> " : "  ");
-    display.println("WAVEFORM");
-    display.print(menuSelection == MODE_PONG ? "> " : "  ");
-    display.println("PONG");
+    display.print("I2C ");
+    display.print(I2C_CLOCK_HZ / 1000);
+    display.println("kHz");
+    display.print("PCA ");
+    display.println(pca9548aFound ? "FOUND" : "MISSING");
+    display.print("OLED 0x");
+    display.println(activeOledAddress, HEX);
   } else if (activeDisplayIndex == 2) {
     drawStatusUtility("ENCODERS");
     display.setCursor(0, 20);
@@ -256,6 +382,47 @@ void drawMenuUtilityScreen() {
     printEncoderLine("E2", enc2);
     printEncoderLine("E3", enc3);
     printEncoderLine("E4", enc4);
+  }
+}
+
+void drawTestUtilityScreen() {
+  display.clearDisplay();
+
+  if (activeDisplayIndex == 0) {
+    drawStatusUtility("TEST BUS");
+    display.setCursor(0, 20);
+    display.print("PCA ");
+    display.println(pca9548aFound ? "OK" : "NO");
+    display.print("ADDR 0x");
+    display.println(activePca9548aAddress, HEX);
+    display.print("OLED 0x");
+    display.println(activeOledAddress, HEX);
+    display.print("CLK ");
+    display.print(I2C_CLOCK_HZ / 1000);
+    display.println("kHz");
+  } else if (activeDisplayIndex == 1) {
+    drawStatusUtility("TEST PINS");
+    display.setCursor(0, 18);
+    printEncoderPinLine("E1", enc1);
+    printEncoderPinLine("E2", enc2);
+    printEncoderPinLine("E3", enc3);
+    printEncoderPinLine("E4", enc4);
+  } else if (activeDisplayIndex == 2) {
+    drawStatusUtility("TEST VALUES");
+    display.setCursor(0, 18);
+    printEncoderLine("E1", enc1);
+    printEncoderLine("E2", enc2);
+    printEncoderLine("E3", enc3);
+    printEncoderLine("E4", enc4);
+  } else {
+    drawStatusUtility("TEST MENU");
+    display.setCursor(0, 20);
+    display.println("E4 PUSH MENU");
+    display.print("SERIAL ");
+    display.println(debugMode ? "ON" : "OFF");
+    display.print("DISP ");
+    display.println(DISPLAY_COUNT);
+    display.println("OLED CH 0..3");
   }
 }
 
@@ -300,6 +467,36 @@ void drawMenuItem(int x, int y, const char* text, bool selected) {
   display.print(text);
 
   display.setTextColor(SSD1306_WHITE);
+}
+
+const char* getMenuItemLabel(int mode) {
+  switch (mode) {
+    case MODE_ENCODERS: return "ENCODER VIEW";
+    case MODE_WAVEFORM: return "WAVEFORM VIEW";
+    case MODE_PONG: return "PONG";
+    case MODE_TEST: return "TEST";
+    default: return "";
+  }
+}
+
+int getMenuFirstVisibleIndex() {
+  int firstVisible = menuSelection - (MENU_VISIBLE_ITEMS - 1);
+
+  if (firstVisible < 0) {
+    firstVisible = 0;
+  }
+
+  int maxFirstVisible = MODE_COUNT - MENU_VISIBLE_ITEMS;
+
+  if (firstVisible > maxFirstVisible) {
+    firstVisible = maxFirstVisible;
+  }
+
+  if (firstVisible < 0) {
+    firstVisible = 0;
+  }
+
+  return firstVisible;
 }
 
 void drawTitleBar(const char* modeName) {
@@ -437,9 +634,6 @@ void drawEncoderScreen() {
 
   display.setTextSize(1);
   display.setTextColor(SSD1306_BLACK);
-  display.setCursor(52, 4);
-  display.print("V:");
-  display.print(value % 1000);
   display.setCursor(103, 4);
   display.print("CH");
   display.print(activeDisplayIndex);

@@ -9,5 +9,6 @@ void handleMenuLogic();
 void handleCurrentModeLogic();
 void handleEncoderModeLogic();
 void handleWaveformModeLogic();
+void handleTestModeLogic();
 
 #endif

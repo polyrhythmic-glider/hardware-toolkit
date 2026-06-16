@@ -35,6 +35,7 @@ In modo piu' tecnico:
 - il menu principale e' comandato dall'Encoder 4;
 - la modalita' waveform genera anche audio digitale I2S verso un DAC PCM5102;
 - l'audio gira in un task FreeRTOS separato, cosi' i ridisegni OLED non interrompono il flusso I2S;
+- all'avvio viene mostrato uno splash screen distribuito sui quattro display con credits, nome, simbolo glider e stato loading;
 - la modalita' debug puo' stampare diagnostica seriale, scan I2C, valori encoder e heartbeat.
 
 ## Hardware
@@ -133,9 +134,10 @@ File principali:
 
 Modalita' principali:
 
-- `ENCODER VIEW`: schermi 1-3 in stile contagiri per encoder 1-3; schermo 4 come summary dei click.
+- `ENCODER VIEW`: tutti e quattro gli schermi mostrano il rispettivo encoder in stile contagiri.
 - `WAVEFORM VIEW`: editor grafico di waveform con uscita audio I2S sul PCM5102.
 - `PONG`: mini Pong su campo largo `4 x 128` pixel, con paddle controllati da Encoder 1 e 4.
+- `TEST`: diagnostica rapida su bus I2C, PCA9548A, OLED, pin encoder e stato firmware.
 
 ## Configurazione Tecnica
 
@@ -155,6 +157,7 @@ Significato pratico:
 - `PCA_MUX_TEST`: usa il firmware principale per diagnosticare multiplexer e canali OLED.
 - `MULTI_SCREEN_UI`: abilita la UI distribuita sui quattro schermi.
 - `WIDE_PONG`: fa usare a Pong un campo largo quattro display invece di un solo OLED.
+- `STARTUP_LOGO_MS`: durata minima del logo di apertura.
 - `DEBUG_SERIAL`: abilita la seriale di debug gia' al boot.
 
 Parametri rilevanti:

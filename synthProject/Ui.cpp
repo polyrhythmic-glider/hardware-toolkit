@@ -94,6 +94,8 @@ void handleCurrentModeLogic() {
     handleWaveformModeLogic();
   } else if (currentMode == MODE_PONG) {
     handlePongInputLogic();
+  } else if (currentMode == MODE_TEST) {
+    handleTestModeLogic();
   }
 }
 
@@ -162,6 +164,23 @@ void handleWaveformModeLogic() {
     }
 
     clickFlashUntil2 = millis() + 180;
+    valuesChanged = true;
+  }
+}
+
+void handleTestModeLogic() {
+  if (enc1.clickEvent) {
+    clickFlashUntil1 = millis() + 180;
+    valuesChanged = true;
+  }
+
+  if (enc2.clickEvent) {
+    clickFlashUntil2 = millis() + 180;
+    valuesChanged = true;
+  }
+
+  if (enc3.clickEvent) {
+    clickFlashUntil3 = millis() + 180;
     valuesChanged = true;
   }
 }

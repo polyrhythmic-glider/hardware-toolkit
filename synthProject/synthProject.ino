@@ -18,6 +18,7 @@
 //    0 = Encoder monitor con tacchette
 //    1 = Waveform editor
 //    2 = Mini Pong
+//    3 = Hardware test / diagnostics
 //
 //  ENCODER 1:
 //    A  -> GPIO13 / D13
@@ -83,6 +84,8 @@ void setup() {
   setupSerialDebug();
 
   setupDisplay();
+  unsigned long startupLogoStartedAt = millis();
+  drawStartupLogo(0);
 
   setupAllEncoders();
   printEncoderDebug("encoder pins ready");
@@ -101,6 +104,11 @@ void setup() {
 
   resetPongGame();
   setupAudio();
+
+  unsigned long startupLogoElapsed = millis() - startupLogoStartedAt;
+  if (startupLogoElapsed < STARTUP_LOGO_MS) {
+    delay(STARTUP_LOGO_MS - startupLogoElapsed);
+  }
 
   drawScreen();
 

@@ -26,6 +26,7 @@ struct Encoder {
 extern Adafruit_SSD1306 display;
 extern bool displayHardwareReady;
 extern bool pca9548aFound;
+extern uint8_t activePca9548aAddress;
 extern uint8_t activeOledAddress;
 
 extern Encoder enc1;

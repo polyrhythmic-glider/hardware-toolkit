@@ -92,6 +92,11 @@ const uint32_t BT_UI_REFRESH_MS = 250;
 const uint32_t BT_RSSI_REFRESH_MS = 1800;
 const uint32_t BT_HEADER_REFRESH_MS = 350;
 
+// Volume A2DP: 0 = mute, 127 = massimo.
+// 110 evita che Linux parta bassissimo, ma non spara subito al massimo.
+const uint8_t BT_START_VOLUME = 110;
+const uint32_t BT_START_VOLUME_RETRY_MS = 1200;
+
 // =======================
 // ENCODER ISR
 // =======================
@@ -362,6 +367,11 @@ bool lastBtStreaming = false;
 uint32_t lastBtPacketDrawn = 0;
 uint32_t lastBtUiRefreshMs = 0;
 
+bool lastBtConnected = false;
+bool btStartVolumeApplied = false;
+uint8_t btStartVolumeApplyCount = 0;
+uint32_t lastBtStartVolumeMs = 0;
+
 uint32_t lastBtHeaderRefreshMs = 0;
 uint32_t lastBtRssiRequestMs = 0;
 int8_t btRssiDelta = 0;
@@ -404,6 +414,40 @@ void btRssiReceived(esp_bt_gap_cb_param_t::read_rssi_delta_param& rssi) {
   btRssiValid = true;
 }
 
+void applyBluetoothStartVolume(bool force) {
+  if (!btAudioStarted) return;
+
+  bool connected = a2dpSink.is_connected();
+  uint32_t now = millis();
+
+  if (!connected) {
+    lastBtConnected = false;
+    btStartVolumeApplied = false;
+    btStartVolumeApplyCount = 0;
+    return;
+  }
+
+  // Quando Linux si collega può partire con un volume ricordato molto basso.
+  // Lo forziamo alla connessione e una sola seconda volta poco dopo,
+  // così poi non combattiamo il volume scelto dall'utente.
+  bool justConnected = !lastBtConnected;
+  bool retryDue =
+    btStartVolumeApplyCount == 1 &&
+    now - lastBtStartVolumeMs >= BT_START_VOLUME_RETRY_MS;
+
+  if (force || justConnected || !btStartVolumeApplied || retryDue) {
+    a2dpSink.set_volume(BT_START_VOLUME);
+    btStartVolumeApplied = true;
+    lastBtStartVolumeMs = now;
+
+    if (btStartVolumeApplyCount < 2) {
+      btStartVolumeApplyCount++;
+    }
+  }
+
+  lastBtConnected = true;
+}
+
 void startBluetoothAudio() {
   if (btAudioStarted) return;
 
@@ -421,6 +465,9 @@ void startBluetoothAudio() {
 
   btAudioStarted = true;
   btStartedAtMs = millis();
+
+  // Default locale del sink; verrà ribadito anche appena il PC si collega.
+  a2dpSink.set_volume(BT_START_VOLUME);
 }
 
 bool isBluetoothStreaming() {
@@ -1953,13 +2000,10 @@ void drawTypeRow(int row, int typeIndex) {
     tft.drawFastHLine(12, y + 17, 136, rgb565(18, 23, 36));
   }
 
+  // Riga pulita: niente tag/campo ripetuto, solo nome dell'area.
   tft.setTextSize(1);
-  tft.setTextColor(selected ? accent : COL_MUTED);
-  tft.setCursor(15, y + 5);
-  tft.print(areaChoices[typeIndex].tag);
-
   tft.setTextColor(selected ? COL_INK : COL_MUTED);
-  tft.setCursor(55, y + 5);
+  tft.setCursor(18, y + 6);
   tft.print(areaChoices[typeIndex].label);
 
   for (int i = 0; i < 4; i++) {
@@ -2001,7 +2045,7 @@ void updatePreMenuFast() {
 void drawMenuBase() {
   drawStageBackdrop();
 
-  drawHeader(areaChoices[activeType].tag);
+  drawHeader(areaChoices[activeType].label);
 
   lastSelectedItem = -1;
   lastTopItem = -1;
@@ -2026,13 +2070,10 @@ void drawMenuRow(int row, int visibleIndex) {
     drawParamIcon(itemIndex, 18, y + 8, COL_MUTED);
   }
 
+  // Riga pulita: niente tag/campo OSC/TUNE/GAIN per ogni voce.
   tft.setTextSize(1);
-  tft.setTextColor(selected ? accent : COL_MUTED);
-  tft.setCursor(32, y + 2);
-  tft.print(menuItems[itemIndex].tag);
-
   tft.setTextColor(selected ? COL_INK : COL_MUTED);
-  tft.setCursor(32, y + 11);
+  tft.setCursor(34, y + 6);
   tft.print(menuItems[itemIndex].label);
 
   const char* value = getValueText(itemIndex);
@@ -2409,6 +2450,7 @@ void setup() {
 
 void loop() {
   updateButtons();
+  applyBluetoothStartVolume(false);
   updateUiLogic();
   drawUi();
 }

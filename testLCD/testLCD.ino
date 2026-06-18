@@ -2006,15 +2006,7 @@ void drawTypeRow(int row, int typeIndex) {
   tft.setCursor(18, y + 6);
   tft.print(areaChoices[typeIndex].label);
 
-  for (int i = 0; i < 4; i++) {
-    int h = 3 + ((typeIndex + i) % 4) * 2;
-    uint16_t barColor = selected ? accent : rgb565(58, 65, 82);
-    tft.fillRect(124 + i * 5, y + 13 - h, 3, h, barColor);
-  }
-
-  if (active) {
-    tft.fillCircle(147, y + 8, 2, COL_GOLD);
-  }
+  (void)active;
 }
 
 void updatePreMenuFast() {

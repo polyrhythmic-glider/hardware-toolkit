@@ -75,6 +75,9 @@ const int ITEM_COLOR_COUNT = sizeof(ITEM_COLORS) / sizeof(ITEM_COLORS[0]);
 const float TWO_PI_F = 6.2831853f;
 const int SPECTRUM_MAX_BARS = 32;
 const float SPECTRUM_MIN_HZ = 20.0f;
+const int BT_FFT_SAMPLES = 128;
+const int BT_FFT_BARS = 16;
+const int BT_FFT_DECIMATE = 3;
 
 const int FFT_RANGE_VALUES[] = { 1000, 4000, 8000, 12000 };
 const char* FFT_RANGE_LABELS[] = { "1K", "4K", "8K", "12K" };
@@ -243,6 +246,8 @@ int frequency = 220;
 int volume = 80;
 int attack = 10;
 int decay = 80;
+int sustain = 68;
+int releaseMs = 320;
 int waveFold = 12;
 int wavePhase = 0;
 int fftRangeIndex = 1;
@@ -254,6 +259,10 @@ bool btAudioStarted = false;
 uint32_t btStartedAtMs = 0;
 volatile uint32_t btLastAudioMs = 0;
 volatile uint32_t btPacketCount = 0;
+volatile int16_t btFftSamples[BT_FFT_SAMPLES];
+volatile uint16_t btFftWriteIndex = 0;
+volatile uint32_t btFftSampleCount = 0;
+uint8_t btFftDecimator = 0;
 
 enum MenuAction {
   ACTION_WAVEFORM,
@@ -261,9 +270,11 @@ enum MenuAction {
   ACTION_LEVEL,
   ACTION_WAVE_FOLD,
   ACTION_WAVE_PHASE,
+  ACTION_ADSR,
   ACTION_ATTACK,
   ACTION_DECAY,
   ACTION_SPECTRUM,
+  ACTION_BT_FFT,
   ACTION_FFT_RANGE,
   ACTION_FFT_WINDOW,
   ACTION_FFT_SMOOTH,
@@ -293,10 +304,12 @@ MenuItem menuItems[] = {
   { "GAIN", "Level", ACTION_LEVEL },
   { "FOLD", "Wavefold", ACTION_WAVE_FOLD },
   { "PHAS", "Phase", ACTION_WAVE_PHASE },
+  { "ADSR", "ADSR", ACTION_ADSR },
   { "RISE", "Attack", ACTION_ATTACK },
   { "FALL", "Decay", ACTION_DECAY },
   { "SCP", "Wave Scope", ACTION_SCOPE },
   { "SPEC", "Analyzer", ACTION_SPECTRUM },
+  { "LIVE", "BT FFT", ACTION_BT_FFT },
   { "RNG", "FFT Range", ACTION_FFT_RANGE },
   { "WIN", "Window", ACTION_FFT_WINDOW },
   { "AVG", "Smoothing", ACTION_FFT_SMOOTH },
@@ -311,11 +324,11 @@ MenuItem menuItems[] = {
   { "AUX", "Line Output", ACTION_BT_OUTPUT }
 };
 
-const uint8_t MENU_WAVE_ITEMS[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-const uint8_t MENU_FFT_ITEMS[] = { 8, 9, 10, 11, 12, 13 };
-const uint8_t MENU_UTILITY_ITEMS[] = { 2, 14, 15, 16 };
-const uint8_t MENU_TEST_ITEMS[] = { 15, 14, 7, 8, 16 };
-const uint8_t MENU_BT_ITEMS[] = { 17, 18, 19, 20 };
+const uint8_t MENU_WAVE_ITEMS[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+const uint8_t MENU_FFT_ITEMS[] = { 9, 10, 11, 12, 13, 14, 15 };
+const uint8_t MENU_UTILITY_ITEMS[] = { 2, 16, 17, 18 };
+const uint8_t MENU_TEST_ITEMS[] = { 17, 16, 8, 9, 18 };
+const uint8_t MENU_BT_ITEMS[] = { 19, 20, 21, 22 };
 
 struct AreaChoice {
   const char* tag;
@@ -356,6 +369,8 @@ int lastFrequency = -1;
 int lastVolume = -1;
 int lastAttack = -1;
 int lastDecay = -1;
+int lastSustain = -1;
+int lastReleaseMs = -1;
 int lastWaveFold = -1;
 int lastWavePhase = -1;
 int lastFftRangeIndex = -1;
@@ -402,10 +417,34 @@ void btAudioDataReceived() {
   btPacketCount++;
 }
 
-void btAudioStreamReceived(const uint8_t* data, uint32_t length) {
-  (void)data;
-  (void)length;
+void captureBluetoothFftSamples(const uint8_t* data, uint32_t length) {
+  const int16_t* pcm = (const int16_t*)data;
+  uint32_t frames = length / 4;
 
+  for (uint32_t i = 0; i < frames; i++) {
+    btFftDecimator++;
+
+    if (btFftDecimator < BT_FFT_DECIMATE) {
+      continue;
+    }
+
+    btFftDecimator = 0;
+
+    int32_t left = pcm[i * 2];
+    int32_t right = pcm[i * 2 + 1];
+    int16_t mono = (int16_t)((left + right) / 2);
+
+    btFftSamples[btFftWriteIndex] = mono;
+    btFftWriteIndex = (btFftWriteIndex + 1) % BT_FFT_SAMPLES;
+
+    if (btFftSampleCount < BT_FFT_SAMPLES) {
+      btFftSampleCount++;
+    }
+  }
+}
+
+void btAudioStreamReceived(const uint8_t* data, uint32_t length) {
+  captureBluetoothFftSamples(data, length);
   btAudioDataReceived();
 }
 
@@ -582,6 +621,8 @@ void applyTypeChoice(int typeIndex) {
   lastVolume = -1;
   lastAttack = -1;
   lastDecay = -1;
+  lastSustain = -1;
+  lastReleaseMs = -1;
   lastWaveFold = -1;
   lastWavePhase = -1;
   lastFftRangeIndex = -1;
@@ -616,6 +657,10 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%ddeg", wavePhase);
       break;
 
+    case ACTION_ADSR:
+      snprintf(buffer, sizeof(buffer), "S%d%%", sustain);
+      break;
+
     case ACTION_ATTACK:
       snprintf(buffer, sizeof(buffer), "%dms", attack);
       break;
@@ -626,6 +671,10 @@ const char* getValueText(int itemIndex) {
 
     case ACTION_SPECTRUM:
       snprintf(buffer, sizeof(buffer), "Live");
+      break;
+
+    case ACTION_BT_FFT:
+      snprintf(buffer, sizeof(buffer), "%s", getBluetoothStatusText());
       break;
 
     case ACTION_FFT_RANGE:
@@ -714,6 +763,11 @@ void changeCurrentValue(int delta) {
     case ACTION_WAVE_PHASE:
       wavePhase += delta * 5;
       wavePhase = wrapIndex(wavePhase, 360);
+      break;
+
+    case ACTION_ADSR:
+      sustain += delta;
+      sustain = clampInt(sustain, 0, 100);
       break;
 
     case ACTION_ATTACK:
@@ -1215,6 +1269,13 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.fillCircle(cx, cy, 2, color);
       break;
 
+    case ACTION_ADSR:
+      tft.drawLine(cx - 8, cy + 5, cx - 3, cy - 5, color);
+      tft.drawLine(cx - 3, cy - 5, cx + 2, cy, color);
+      tft.drawLine(cx + 2, cy, cx + 6, cy, color);
+      tft.drawLine(cx + 6, cy, cx + 8, cy + 5, color);
+      break;
+
     case ACTION_ATTACK:
       tft.drawLine(cx - 8, cy + 5, cx + 7, cy - 5, color);
       tft.drawFastHLine(cx - 8, cy + 5, 16, color);
@@ -1231,6 +1292,15 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       for (int i = 0; i < 5; i++) {
         int h = 3 + i * 2;
         tft.fillRect(cx - 8 + i * 4, cy + 6 - h, 2, h, color);
+      }
+      break;
+
+    case ACTION_BT_FFT:
+      tft.drawCircle(cx - 6, cy - 3, 2, color);
+      tft.drawCircle(cx - 6, cy - 3, 5, rgb565(62, 68, 82));
+      for (int i = 0; i < 4; i++) {
+        int h = 3 + ((i + 1) % 4) * 3;
+        tft.fillRect(cx - 1 + i * 4, cy + 6 - h, 2, h, color);
       }
       break;
 
@@ -1413,6 +1483,88 @@ void drawSpectrumBars(int x, int y, int width, int height, uint16_t accent, bool
   tft.drawFastVLine(markerX, y + 2, height - 4, COL_GOLD);
 }
 
+bool buildBluetoothFftMagnitudes(uint8_t magnitudes[], int count) {
+  int16_t samples[BT_FFT_SAMPLES];
+  uint32_t available = btFftSampleCount;
+  uint16_t writeIndex = btFftWriteIndex;
+
+  if (available > BT_FFT_SAMPLES) {
+    available = BT_FFT_SAMPLES;
+  }
+
+  for (int i = 0; i < BT_FFT_SAMPLES; i++) {
+    samples[i] = 0;
+  }
+
+  if (available < 16) {
+    for (int i = 0; i < count; i++) {
+      magnitudes[i] = 0;
+    }
+
+    return false;
+  }
+
+  uint16_t start = (writeIndex + BT_FFT_SAMPLES - available) % BT_FFT_SAMPLES;
+  int pad = BT_FFT_SAMPLES - available;
+  int32_t mean = 0;
+
+  for (uint32_t i = 0; i < available; i++) {
+    int16_t sample = btFftSamples[(start + i) % BT_FFT_SAMPLES];
+    samples[pad + i] = sample;
+    mean += sample;
+  }
+
+  mean /= (int32_t)available;
+
+  for (int bin = 0; bin < count; bin++) {
+    int maxK = BT_FFT_SAMPLES / 2 - 2;
+    int k = 1;
+
+    if (count > 1) {
+      long curved = (long)bin * (long)bin * maxK;
+      k += curved / ((long)(count - 1) * (long)(count - 1));
+    }
+
+    float real = 0.0f;
+    float imag = 0.0f;
+
+    for (int n = 0; n < BT_FFT_SAMPLES; n++) {
+      float window = 0.5f - 0.5f * cosf(TWO_PI_F * n / (BT_FFT_SAMPLES - 1));
+      float sample = ((float)samples[n] - mean) / 32768.0f * window;
+      float angle = TWO_PI_F * k * n / BT_FFT_SAMPLES;
+
+      real += sample * cosf(angle);
+      imag -= sample * sinf(angle);
+    }
+
+    float magnitude = sqrtf(real * real + imag * imag) / (BT_FFT_SAMPLES * 0.18f);
+    magnitudes[bin] = (uint8_t)clampInt((int)(magnitude * 100.0f), 0, 100);
+  }
+
+  return true;
+}
+
+void drawBluetoothFftBars(int x, int y, int width, int height, uint16_t accent) {
+  uint8_t magnitudes[BT_FFT_BARS];
+  bool hasSamples = buildBluetoothFftMagnitudes(magnitudes, BT_FFT_BARS);
+  int maxH = height - 4;
+
+  for (int i = 0; i < BT_FFT_BARS; i++) {
+    int barLeft = x + (i * width) / BT_FFT_BARS;
+    int barRight = x + ((i + 1) * width) / BT_FFT_BARS;
+    int fillW = barRight - barLeft - 2;
+    if (fillW < 1) fillW = 1;
+
+    int level = hasSamples ? magnitudes[i] : 4 + (i % 4) * 2;
+    int barH = clampInt(map(level, 0, 100, 1, maxH), 1, maxH);
+    int bx = barLeft + 1;
+    int by = y + height - 2 - barH;
+    uint16_t color = hasSamples ? (level > 72 ? COL_GOLD : accent) : rgb565(54, 63, 79);
+
+    tft.fillRect(bx, by, fillW, barH, color);
+  }
+}
+
 void drawOscilloscopeTrace(int x, int y, int width, int height, uint16_t accent, bool useLevel) {
   float amplitude = useLevel ? volume / 100.0f : 1.0f;
   int centerY = y + height / 2;
@@ -1483,6 +1635,51 @@ void drawEnvelopeCurve(bool attackMode, uint16_t accent) {
   tft.print(attack);
   tft.print(" D");
   tft.print(decay);
+}
+
+void drawAdsrCurve(uint16_t accent) {
+  int x = 12;
+  int y = 76;
+  int width = 136;
+  int height = 42;
+  int baseY = y + height - 5;
+  int peakY = y + 5;
+  int sustainY = baseY - map(sustain, 0, 100, 0, height - 10);
+
+  int attackX = x + map(attack, 0, 500, 14, 42);
+  int decayX = attackX + map(decay, 0, 2000, 18, 42);
+  int sustainX = decayX + 30;
+  int releaseX = x + width - 6;
+
+  if (decayX > x + 92) decayX = x + 92;
+  if (sustainX > x + 116) sustainX = x + 116;
+
+  drawPanelFrame(10, 73, 140, 47, accent);
+
+  tft.drawFastHLine(x, baseY, width, rgb565(34, 40, 53));
+  tft.drawFastVLine(x, peakY, height - 8, rgb565(34, 40, 53));
+
+  tft.drawLine(x + 2, baseY, attackX, peakY, accent);
+  tft.drawLine(attackX, peakY, decayX, sustainY, COL_SKY);
+  tft.drawLine(decayX, sustainY, sustainX, sustainY, COL_GOLD);
+  tft.drawLine(sustainX, sustainY, releaseX, baseY, COL_CORAL);
+
+  tft.fillCircle(attackX, peakY, 2, accent);
+  tft.fillCircle(decayX, sustainY, 2, COL_SKY);
+  tft.fillCircle(sustainX, sustainY, 2, COL_GOLD);
+
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(12, 122);
+  tft.print("A");
+  tft.print(attack);
+  tft.print(" D");
+  tft.print(decay);
+  tft.print(" S");
+  tft.print(sustain);
+  printRight("R", 135, 122, 1, COL_MUTED);
+  tft.setCursor(137, 122);
+  tft.print(releaseMs);
 }
 
 void drawSpectrumScale(int y) {
@@ -1609,6 +1806,15 @@ void drawWavePhaseEdit(uint16_t accent) {
   drawOscilloscopeTrace(78, 80, 68, 35, accent, true);
 }
 
+void drawAdsrEdit(uint16_t accent) {
+  char value[12];
+  snprintf(value, sizeof(value), "S%d%%", sustain);
+
+  drawValueReadout(value, "ADSR", accent);
+  printRight("sustain", 150, 67, 1, COL_INK);
+  drawAdsrCurve(accent);
+}
+
 void drawAttackEdit(uint16_t accent) {
   drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), "ENV A", accent);
   drawEnvelopeCurve(true, accent);
@@ -1638,6 +1844,26 @@ void drawSpectrumEdit(uint16_t accent) {
   tft.print(FFT_BIN_VALUES[fftBinsIndex]);
   tft.print("b");
   printRight(getSpectrumMaxLabel(), 149, 120, 1, COL_MUTED);
+}
+
+void drawBluetoothFftEdit(uint16_t accent) {
+  bool streaming = isBluetoothStreaming();
+  bool connected = a2dpSink.is_connected();
+  const char* status = getBluetoothStatusText();
+
+  drawValueReadout(status, "BT FFT", accent);
+  printRight(streaming ? "pcm stream" : connected ? "waiting audio" : "not linked", 150, 67, 1, streaming ? COL_GOLD : COL_INK);
+
+  drawPanelFrame(10, 74, 140, 42, accent);
+  drawBluetoothFftBars(14, 78, 132, 33, accent);
+
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(11, 120);
+  tft.print("BT");
+  tft.setTextColor(streaming ? COL_GOLD : COL_MUTED);
+  tft.print(streaming ? " live" : connected ? " linked" : " pair");
+  printRight("PCM FFT", 149, 120, 1, COL_MUTED);
 }
 
 void drawFftRangeEdit(uint16_t accent) {
@@ -2068,18 +2294,8 @@ void drawMenuRow(int row, int visibleIndex) {
   tft.setCursor(34, y + 6);
   tft.print(menuItems[itemIndex].label);
 
-  const char* value = getValueText(itemIndex);
-
   if (selected) {
-    int valueW = textPixelWidth(value, 1) + 8;
-    int chipX = SCREEN_W - valueW - 6;
-
-    tft.fillRoundRect(chipX, y + 3, valueW, 13, 3, accent);
-    tft.setTextColor(COL_BG);
-    tft.setCursor(chipX + 4, y + 6);
-    tft.print(value);
-  } else {
-    printRight(value, 152, y + 6, 1, COL_MUTED);
+    tft.drawFastHLine(34, y + 17, 110, accent);
   }
 }
 
@@ -2159,6 +2375,8 @@ void drawEditBase() {
   lastVolume = -1;
   lastAttack = -1;
   lastDecay = -1;
+  lastSustain = -1;
+  lastReleaseMs = -1;
   lastWaveFold = -1;
   lastWavePhase = -1;
   lastFftRangeIndex = -1;
@@ -2176,6 +2394,8 @@ bool editValueChanged() {
   if (volume != lastVolume) return true;
   if (attack != lastAttack) return true;
   if (decay != lastDecay) return true;
+  if (sustain != lastSustain) return true;
+  if (releaseMs != lastReleaseMs) return true;
   if (waveFold != lastWaveFold) return true;
   if (wavePhase != lastWavePhase) return true;
   if (fftRangeIndex != lastFftRangeIndex) return true;
@@ -2193,6 +2413,8 @@ void saveLastValues() {
   lastVolume = volume;
   lastAttack = attack;
   lastDecay = decay;
+  lastSustain = sustain;
+  lastReleaseMs = releaseMs;
   lastWaveFold = waveFold;
   lastWavePhase = wavePhase;
   lastFftRangeIndex = fftRangeIndex;
@@ -2204,7 +2426,10 @@ void saveLastValues() {
 
 void drawEditValue() {
   MenuAction action = getSelectedAction();
-  bool dynamicBluetoothView = action == ACTION_BT_RECEIVER || action == ACTION_BT_OUTPUT;
+  bool dynamicBluetoothView =
+    action == ACTION_BT_RECEIVER ||
+    action == ACTION_BT_OUTPUT ||
+    action == ACTION_BT_FFT;
   bool bluetoothStreaming = dynamicBluetoothView ? isBluetoothStreaming() : false;
 
   if (dynamicBluetoothView && !valueDirty && !editValueChanged()) {
@@ -2255,6 +2480,10 @@ void drawEditValue() {
       drawWavePhaseEdit(accent);
       break;
 
+    case ACTION_ADSR:
+      drawAdsrEdit(accent);
+      break;
+
     case ACTION_ATTACK:
       drawAttackEdit(accent);
       break;
@@ -2265,6 +2494,10 @@ void drawEditValue() {
 
     case ACTION_SPECTRUM:
       drawSpectrumEdit(accent);
+      break;
+
+    case ACTION_BT_FFT:
+      drawBluetoothFftEdit(accent);
       break;
 
     case ACTION_FFT_RANGE:

@@ -18,7 +18,8 @@
 //    0 = Encoder monitor con tacchette
 //    1 = Waveform editor
 //    2 = Mini Pong
-//    3 = Hardware test / diagnostics
+//    3 = Generic hardware test / diagnostics
+//    4 = Startup splash test
 //
 //  ENCODER 1:
 //    A  -> GPIO13 / D13

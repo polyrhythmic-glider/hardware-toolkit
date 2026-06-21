@@ -19,7 +19,7 @@ constexpr bool DIRECT_OLED_TEST = false;
 constexpr bool PCA_MUX_TEST = false;
 constexpr bool MULTI_SCREEN_UI = true;
 constexpr bool WIDE_PONG = true;
-constexpr unsigned long STARTUP_LOGO_MS = 2400;
+constexpr unsigned long STARTUP_LOGO_MS = 4000;
 
 constexpr int SCREEN_WIDTH = 128;
 constexpr int SCREEN_HEIGHT = 64;
@@ -54,7 +54,8 @@ enum UiMode {
   MODE_ENCODERS = 0,
   MODE_WAVEFORM = 1,
   MODE_PONG = 2,
-  MODE_TEST = 3
+  MODE_TEST_GENERIC = 3,
+  MODE_TEST_SPLASH = 4
 };
 
 enum WaveformType {
@@ -64,7 +65,7 @@ enum WaveformType {
   WAVE_CONST = 3
 };
 
-constexpr int MODE_COUNT = 4;
+constexpr int MODE_COUNT = 5;
 constexpr int MENU_VISIBLE_ITEMS = 3;
 
 // ======================================================

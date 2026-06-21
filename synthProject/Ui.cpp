@@ -94,7 +94,7 @@ void handleCurrentModeLogic() {
     handleWaveformModeLogic();
   } else if (currentMode == MODE_PONG) {
     handlePongInputLogic();
-  } else if (currentMode == MODE_TEST) {
+  } else if (currentMode == MODE_TEST_GENERIC) {
     handleTestModeLogic();
   }
 }

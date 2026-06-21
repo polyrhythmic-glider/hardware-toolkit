@@ -54,6 +54,9 @@ void drawPongScreen();
 void drawPongTopBar();
 void drawPongPaddle(int x, int centerY);
 void drawStartupLogoPanel();
+void drawStartupFrame();
+void drawStartupCenteredText(const char* text, int y, uint8_t textSize);
+void drawStartupLoadingBar();
 void drawStartupGliderMark(int originX, int originY, int cellSize);
 
 float mapFloat(float value, float inMin, float inMax, float outMin, float outMax);
@@ -87,8 +90,10 @@ void drawScreen() {
         drawWaveformScreen();
       } else if (currentMode == MODE_PONG) {
         drawPongScreen();
-      } else if (currentMode == MODE_TEST) {
+      } else if (currentMode == MODE_TEST_GENERIC) {
         drawTestUtilityScreen();
+      } else if (currentMode == MODE_TEST_SPLASH) {
+        drawStartupLogoPanel();
       }
     }
 
@@ -115,8 +120,10 @@ void drawScreen() {
         drawWaveformScreen();
       } else if (currentMode == MODE_PONG) {
         drawPongScreen();
-      } else if (currentMode == MODE_TEST) {
+      } else if (currentMode == MODE_TEST_GENERIC) {
         drawTestUtilityScreen();
+      } else if (currentMode == MODE_TEST_SPLASH) {
+        drawStartupLogoPanel();
       }
     }
 
@@ -154,66 +161,85 @@ void drawStartupLogoPanel() {
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
 
-  display.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
-  display.drawFastHLine(8, 8, SCREEN_WIDTH - 16, SSD1306_WHITE);
-  display.drawFastHLine(8, SCREEN_HEIGHT - 9, SCREEN_WIDTH - 16, SSD1306_WHITE);
+  drawStartupFrame();
 
   if (pca9548aFound && MULTI_SCREEN_UI) {
     switch (activeDisplayIndex) {
       case 0:
-        display.setTextSize(1);
-        display.setCursor(32, 19);
-        display.print("MADE WITH");
-        display.setCursor(50, 31);
-        display.print("LOVE");
-        display.setCursor(55, 43);
-        display.print("BY");
+        drawStartupCenteredText("MADE WITH", 13, 1);
+        drawStartupCenteredText("LOVE", 26, 2);
+        drawStartupCenteredText("BY HAND", 45, 1);
         break;
 
       case 1:
-        display.setTextSize(2);
-        display.setCursor(27, 12);
-        display.print("POLY");
-        display.setCursor(15, 30);
-        display.print("RHYTHMIC");
-        display.setTextSize(1);
-        display.setCursor(43, 51);
-        display.print("GLIDER");
+        drawStartupCenteredText("POLYRHYTHMIC", 13, 1);
+        drawStartupCenteredText("GLIDER", 27, 2);
+        drawStartupCenteredText("SYNTH UI", 45, 1);
         break;
 
       case 2:
-        drawStartupGliderMark(38, 11, 14);
+        drawStartupGliderMark(44, 13, 13);
         break;
 
       default:
-        display.setTextSize(2);
-        display.setCursor(22, 22);
-        display.print("LOADING");
+        drawStartupCenteredText("LOADING", 18, 2);
+        drawStartupCenteredText("PLEASE WAIT", 40, 1);
         break;
     }
   } else {
-    display.setTextSize(2);
-    display.setCursor(27, 10);
-    display.print("POLY");
-    display.setCursor(15, 29);
-    display.print("RHYTH");
-    display.setTextSize(1);
-    display.setCursor(43, 51);
-    display.print("GLIDER");
+    drawStartupCenteredText("POLYRHYTHMIC", 14, 1);
+    drawStartupCenteredText("GLIDER", 28, 2);
+    drawStartupCenteredText("BOOTING", 49, 1);
+  }
+
+  drawStartupLoadingBar();
+}
+
+void drawStartupFrame() {
+  display.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
+  display.drawFastHLine(8, 8, SCREEN_WIDTH - 16, SSD1306_WHITE);
+  display.drawFastHLine(8, 54, SCREEN_WIDTH - 16, SSD1306_WHITE);
+}
+
+void drawStartupCenteredText(const char* text, int y, uint8_t textSize) {
+  int16_t x1;
+  int16_t y1;
+  uint16_t w;
+  uint16_t h;
+
+  display.setTextSize(textSize);
+  display.setTextColor(SSD1306_WHITE);
+  display.getTextBounds(text, 0, y, &x1, &y1, &w, &h);
+  display.setCursor((SCREEN_WIDTH - w) / 2, y);
+  display.print(text);
+}
+
+void drawStartupLoadingBar() {
+  constexpr int barX = 14;
+  constexpr int barY = 57;
+  constexpr int barW = SCREEN_WIDTH - (barX * 2);
+  constexpr int barH = 4;
+  constexpr int fakeProgressPixels = 330;
+
+  int localProgress = fakeProgressPixels - (activeDisplayIndex * barW);
+  localProgress = constrain(localProgress, 0, barW);
+
+  display.drawRect(barX, barY, barW, barH, SSD1306_WHITE);
+
+  if (localProgress > 2) {
+    display.fillRect(barX + 1, barY + 1, localProgress - 2, barH - 2, SSD1306_WHITE);
   }
 }
 
 void drawStartupGliderMark(int originX, int originY, int cellSize) {
-  const uint8_t glider[5][5] = {
-    {0, 1, 0, 0, 0},
-    {0, 0, 1, 0, 0},
-    {1, 1, 1, 0, 0},
-    {0, 0, 0, 0, 0},
-    {0, 0, 0, 0, 0}
+  const uint8_t glider[3][3] = {
+    {0, 1, 0},
+    {0, 0, 1},
+    {1, 1, 1}
   };
 
-  for (uint8_t y = 0; y < 5; y++) {
-    for (uint8_t x = 0; x < 5; x++) {
+  for (uint8_t y = 0; y < 3; y++) {
+    for (uint8_t x = 0; x < 3; x++) {
       if (glider[y][x]) {
         display.fillRect(originX + x * cellSize, originY + y * cellSize, cellSize - 2, cellSize - 2, SSD1306_WHITE);
       }
@@ -253,7 +279,7 @@ const char* getEncoderTitle(uint8_t displayIndex) {
 // ======================================================
 
 void drawUtilityScreen() {
-  if (debugMode && currentMode != MODE_TEST && activeDisplayIndex != 3 && !(currentMode == MODE_PONG && !menuOpen)) {
+  if (debugMode && currentMode != MODE_TEST_GENERIC && currentMode != MODE_TEST_SPLASH && activeDisplayIndex != 3 && !(currentMode == MODE_PONG && !menuOpen)) {
     drawDebugUtilityScreen();
     return;
   }
@@ -278,8 +304,10 @@ void drawUtilityScreen() {
     }
   } else if (currentMode == MODE_PONG) {
     drawPongScreen();
-  } else if (currentMode == MODE_TEST) {
+  } else if (currentMode == MODE_TEST_GENERIC) {
     drawTestUtilityScreen();
+  } else if (currentMode == MODE_TEST_SPLASH) {
+    drawStartupLogoPanel();
   }
 }
 
@@ -389,7 +417,7 @@ void drawTestUtilityScreen() {
   display.clearDisplay();
 
   if (activeDisplayIndex == 0) {
-    drawStatusUtility("TEST BUS");
+    drawStatusUtility("GEN BUS");
     display.setCursor(0, 20);
     display.print("PCA ");
     display.println(pca9548aFound ? "OK" : "NO");
@@ -401,21 +429,21 @@ void drawTestUtilityScreen() {
     display.print(I2C_CLOCK_HZ / 1000);
     display.println("kHz");
   } else if (activeDisplayIndex == 1) {
-    drawStatusUtility("TEST PINS");
+    drawStatusUtility("GEN PINS");
     display.setCursor(0, 18);
     printEncoderPinLine("E1", enc1);
     printEncoderPinLine("E2", enc2);
     printEncoderPinLine("E3", enc3);
     printEncoderPinLine("E4", enc4);
   } else if (activeDisplayIndex == 2) {
-    drawStatusUtility("TEST VALUES");
+    drawStatusUtility("GEN VALUES");
     display.setCursor(0, 18);
     printEncoderLine("E1", enc1);
     printEncoderLine("E2", enc2);
     printEncoderLine("E3", enc3);
     printEncoderLine("E4", enc4);
   } else {
-    drawStatusUtility("TEST MENU");
+    drawStatusUtility("GEN MENU");
     display.setCursor(0, 20);
     display.println("E4 PUSH MENU");
     display.print("SERIAL ");
@@ -474,7 +502,8 @@ const char* getMenuItemLabel(int mode) {
     case MODE_ENCODERS: return "ENCODER VIEW";
     case MODE_WAVEFORM: return "WAVEFORM VIEW";
     case MODE_PONG: return "PONG";
-    case MODE_TEST: return "TEST";
+    case MODE_TEST_GENERIC: return "TEST GENERICO";
+    case MODE_TEST_SPLASH: return "TEST SPLASH";
     default: return "";
   }
 }

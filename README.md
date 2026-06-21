@@ -35,7 +35,7 @@ In modo piu' tecnico:
 - il menu principale e' comandato dall'Encoder 4;
 - la modalita' waveform genera anche audio digitale I2S verso un DAC PCM5102;
 - l'audio gira in un task FreeRTOS separato, cosi' i ridisegni OLED non interrompono il flusso I2S;
-- all'avvio viene mostrato uno splash screen distribuito sui quattro display con credits, nome, simbolo glider e stato loading;
+- all'avvio viene mostrato uno splash screen distribuito sui quattro display con credits, nome, simbolo glider e loading bar finta;
 - la modalita' debug puo' stampare diagnostica seriale, scan I2C, valori encoder e heartbeat.
 
 ## Hardware
@@ -137,7 +137,8 @@ Modalita' principali:
 - `ENCODER VIEW`: tutti e quattro gli schermi mostrano il rispettivo encoder in stile contagiri.
 - `WAVEFORM VIEW`: editor grafico di waveform con uscita audio I2S sul PCM5102.
 - `PONG`: mini Pong su campo largo `4 x 128` pixel, con paddle controllati da Encoder 1 e 4.
-- `TEST`: diagnostica rapida su bus I2C, PCA9548A, OLED, pin encoder e stato firmware.
+- `TEST GENERICO`: diagnostica rapida su bus I2C, PCA9548A, OLED, pin encoder e stato firmware.
+- `TEST SPLASH`: anteprima dello splash screen iniziale con loading bar finta.
 
 ## Configurazione Tecnica
 

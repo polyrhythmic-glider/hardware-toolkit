@@ -8,7 +8,7 @@ Questo firmware trasforma un ESP32 in un piccolo pannello interattivo con 4 OLED
 
 - L'Encoder 4 controlla il menu principale.
 - Gli schermi sono distribuiti sui canali `0..3` del PCA9548A.
-- All'avvio compare uno splash screen distribuito sui quattro display con credits, nome, simbolo glider e loading.
+- All'avvio compare uno splash screen distribuito sui quattro display con credits, nome, simbolo glider e loading bar finta.
 - La modalita' waveform disegna la forma d'onda e la manda anche in uscita audio I2S.
 - La modalita' Pong usa i quattro display come un campo orizzontale largo.
 - Il debug seriale puo' essere attivato tenendo premuti insieme Encoder 1 ed Encoder 4.
@@ -37,7 +37,8 @@ Encoder 4 e' il controller del menu, quindi in modalita' menu il menu principale
 - `ENCODER VIEW`: tutti e quattro gli schermi mostrano il rispettivo encoder in stile contagiri.
 - `WAVEFORM VIEW`: editor grafico di waveform con uscita audio I2S su PCM5102.
 - `PONG`: mini Pong su campo largo quattro schermi, con paddle su encoder 1 e 4.
-- `TEST`: diagnostica rapida su bus I2C, PCA9548A, OLED, pin encoder e stato firmware.
+- `TEST GENERICO`: diagnostica rapida su bus I2C, PCA9548A, OLED, pin encoder e stato firmware.
+- `TEST SPLASH`: anteprima dello splash screen iniziale con loading bar finta.
 
 ## Cablaggio Rapido
 
@@ -98,7 +99,7 @@ constexpr bool DIRECT_OLED_TEST = false;
 constexpr bool PCA_MUX_TEST = false;
 constexpr bool MULTI_SCREEN_UI = true;
 constexpr bool WIDE_PONG = true;
-constexpr unsigned long STARTUP_LOGO_MS = 2400;
+constexpr unsigned long STARTUP_LOGO_MS = 4000;
 constexpr bool DEBUG_SERIAL = false;
 ```
 

@@ -66,7 +66,16 @@ enum MenuAction {
   ACTION_KICK_DRIVE,
   ACTION_INPUTS,
   ACTION_DISPLAY_TEST,
-  ACTION_ABOUT
+  ACTION_ABOUT,
+  ACTION_DELAY_MIX,
+  ACTION_DELAY_TIME,
+  ACTION_DELAY_FEEDBACK,
+  ACTION_REVERB_MIX,
+  ACTION_REVERB_ROOM,
+  ACTION_PRESET_SLOT,
+  ACTION_PRESET_LOAD,
+  ACTION_PRESET_SAVE,
+  ACTION_TRANSPORT_MENU
 };
 
 struct MenuItem {
@@ -144,7 +153,16 @@ enum MenuItemIndex {
   ITEM_RELEASE,
   ITEM_FILTER_POWER,
   ITEM_FILTER_TYPE,
-  ITEM_FILTER_CUTOFF
+  ITEM_FILTER_CUTOFF,
+  ITEM_DELAY_MIX,
+  ITEM_DELAY_TIME,
+  ITEM_DELAY_FEEDBACK,
+  ITEM_REVERB_MIX,
+  ITEM_REVERB_ROOM,
+  ITEM_PRESET_SLOT,
+  ITEM_PRESET_LOAD,
+  ITEM_PRESET_SAVE,
+  ITEM_TRANSPORT_MENU
 };
 
 enum MenuPage {
@@ -154,7 +172,8 @@ enum MenuPage {
   MENU_PAGE_WAVE_TRIANGLE,
   MENU_PAGE_WAVE_SAW,
   MENU_PAGE_FILTER,
-  MENU_PAGE_KICK
+  MENU_PAGE_KICK,
+  MENU_PAGE_TRANSPORT
 };
 
 const MenuItem menuItems[] = {
@@ -185,15 +204,15 @@ const MenuItem menuItems[] = {
   { "IN", "Inputs", ACTION_INPUTS },
   { "LCD", "Display", ACTION_DISPLAY_TEST },
   { "INFO", "Stage", ACTION_ABOUT },
-  { "BT", "Receiver", ACTION_BT_RECEIVER },
-  { "DEV", "Pair Name", ACTION_BT_DEVICE },
+  { "BT", "Connection", ACTION_BT_RECEIVER },
+  { "DEV", "Device Name", ACTION_BT_DEVICE },
   { "I2S", "PCM5102 Bus", ACTION_BT_I2S },
-  { "AUX", "Line Output", ACTION_BT_OUTPUT },
+  { "OUT", "Audio Output", ACTION_BT_OUTPUT },
   { "BTON", "Bluetooth", ACTION_BT_POWER },
   { "AUD", "Test Audio", ACTION_AUDIO_TEST },
   { "PLAY", "Start", ACTION_SEQ_START },
   { "STOP", "Stop", ACTION_SEQ_STOP },
-  { "SEQ", "Seq Run", ACTION_SEQ_POWER },
+  { "VIEW", "Synth View", ACTION_SEQ_POWER },
   { "BPM", "Seq BPM", ACTION_SEQ_BPM },
   { "STEP", "Seq Step", ACTION_SEQ_STEP },
   { "NOTE", "Seq Note", ACTION_SEQ_NOTE },
@@ -219,11 +238,20 @@ const MenuItem menuItems[] = {
   { "R", "Release", ACTION_RELEASE },
   { "PWR", "Filter Power", ACTION_FILTER_POWER },
   { "TYPE", "Filter Type", ACTION_FILTER_TYPE },
-  { "CUT", "Filter Cutoff", ACTION_FILTER_CUTOFF }
+  { "CUT", "Filter Cutoff", ACTION_FILTER_CUTOFF },
+  { "DLY", "Delay Mix", ACTION_DELAY_MIX },
+  { "TIME", "Delay Time", ACTION_DELAY_TIME },
+  { "FDBK", "Delay Feedback", ACTION_DELAY_FEEDBACK },
+  { "REV", "Reverb Mix", ACTION_REVERB_MIX },
+  { "ROOM", "Reverb Room", ACTION_REVERB_ROOM },
+  { "SLOT", "Preset Slot", ACTION_PRESET_SLOT },
+  { "LOAD", "Load Preset", ACTION_PRESET_LOAD },
+  { "SAVE", "Save Preset", ACTION_PRESET_SAVE },
+  { "TRNS", "Transport", ACTION_TRANSPORT_MENU }
 };
 
 const int MENU_ITEM_COUNT = sizeof(menuItems) / sizeof(menuItems[0]);
-static_assert(MENU_ITEM_COUNT == ITEM_FILTER_CUTOFF + 1, "Menu item index mismatch");
+static_assert(MENU_ITEM_COUNT == ITEM_TRANSPORT_MENU + 1, "Menu item index mismatch");
 
 // Indici dentro menuItems, separati per area o sottomenu.
 const uint8_t MENU_WAVE_ITEMS[] = {
@@ -254,7 +282,12 @@ const uint8_t MENU_MIXER_ITEMS[] = {
   ITEM_MIX_TRIANGLE,
   ITEM_MIX_SAW,
   ITEM_MIX_KICK,
-  ITEM_KICK_MENU
+  ITEM_KICK_MENU,
+  ITEM_DELAY_MIX,
+  ITEM_DELAY_TIME,
+  ITEM_DELAY_FEEDBACK,
+  ITEM_REVERB_MIX,
+  ITEM_REVERB_ROOM
 };
 const uint8_t MENU_KICK_ITEMS[] = {
   ITEM_KICK_PITCH,
@@ -271,8 +304,8 @@ const uint8_t MENU_ENVELOPE_ITEMS[] = {
   ITEM_RELEASE
 };
 const uint8_t MENU_SEQUENCER_ITEMS[] = {
-  ITEM_SEQ_START,
-  ITEM_SEQ_STOP,
+  ITEM_TRANSPORT_MENU,
+  ITEM_SEQ_POWER,
   ITEM_SEQ_BPM,
   ITEM_SEQ_STEP,
   ITEM_SEQ_NOTE,
@@ -284,6 +317,10 @@ const uint8_t MENU_SEQUENCER_ITEMS[] = {
   ITEM_SEQ_RANDOMIZE,
   ITEM_SEQ_CLEAR,
   ITEM_SEQ_ROTATE
+};
+const uint8_t MENU_TRANSPORT_ITEMS[] = {
+  ITEM_SEQ_START,
+  ITEM_SEQ_STOP
 };
 const uint8_t MENU_FFT_ITEMS[] = {
   ITEM_SPECTRUM,
@@ -297,7 +334,10 @@ const uint8_t MENU_FFT_ITEMS[] = {
 const uint8_t MENU_UTILITY_ITEMS[] = {
   ITEM_INPUTS,
   ITEM_DISPLAY_TEST,
-  ITEM_ABOUT
+  ITEM_ABOUT,
+  ITEM_PRESET_SLOT,
+  ITEM_PRESET_LOAD,
+  ITEM_PRESET_SAVE
 };
 const uint8_t MENU_TEST_ITEMS[] = {
   ITEM_DISPLAY_TEST,
@@ -311,10 +351,8 @@ const uint8_t MENU_BT_ITEMS[] = {
   ITEM_BT_POWER,
   ITEM_BT_RECEIVER,
   ITEM_BT_DEVICE,
-  ITEM_BT_I2S,
   ITEM_BT_OUTPUT
 };
-
 const AreaChoice areaChoices[] = {
   { "WAVE", "Wave Engine", MENU_WAVE_ITEMS, sizeof(MENU_WAVE_ITEMS) / sizeof(MENU_WAVE_ITEMS[0]) },
   { "MIX", "Mixer", MENU_MIXER_ITEMS, sizeof(MENU_MIXER_ITEMS) / sizeof(MENU_MIXER_ITEMS[0]) },

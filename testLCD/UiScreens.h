@@ -6,7 +6,7 @@
 
 void drawBootScreen() {
   uint32_t elapsed = millis() - bootStartMs;
-  int progress = clampInt((int)((elapsed * 100) / bootDurationMs), 0, 100);
+  int progress = bootReady ? 100 : clampInt((int)((elapsed * 100) / bootDurationMs), 0, 100);
 
   if (fullRedraw || lastDrawnMode != MODE_BOOT) {
     tft.fillScreen(COL_BG);
@@ -53,51 +53,64 @@ void drawPreMenuBase() {
   drawHeader("SELECT AREA");
 
   lastSelectedType = -1;
+  lastTopType = -1;
 }
 
 void drawTypeRow(int row, int typeIndex) {
-  int y = 22 + row * 13;
+  int y = 21 + row * 18;
   bool selected = typeIndex == selectedType;
   bool active = typeIndex == activeType;
   uint16_t accent = getAccentColor(typeIndex);
   uint16_t bg = selected ? COL_PANEL : COL_BG;
 
-  tft.fillRect(0, y - 1, SCREEN_W, 14, bg);
+  tft.fillRect(0, y, SCREEN_W, 18, bg);
 
   if (selected) {
-    tft.fillTriangle(0, y - 1, 0, y + 12, 8, y + 6, accent);
-    tft.drawFastVLine(154, y, 11, accent);
-    tft.drawFastHLine(12, y + 12, 136, accent);
+    tft.fillTriangle(0, y, 0, y + 17, 8, y + 8, accent);
+    tft.drawFastVLine(154, y + 2, 14, accent);
+    tft.drawFastHLine(12, y + 17, 136, accent);
   } else {
-    tft.drawFastHLine(12, y + 12, 136, rgb565(18, 23, 36));
+    tft.drawFastHLine(12, y + 17, 136, rgb565(18, 23, 36));
   }
 
-  // Riga pulita: niente tag/campo ripetuto, solo nome dell'area.
   tft.setTextSize(1);
   tft.setTextColor(selected ? COL_INK : COL_MUTED);
-  tft.setCursor(18, y + 3);
+  tft.setCursor(18, y + 6);
   tft.print(areaChoices[typeIndex].label);
 
   (void)active;
+}
+
+void drawVisibleTypeRows() {
+  for (int row = 0; row < VISIBLE_TYPE_ROWS; row++) {
+    drawTypeRow(row, wrapIndex(topType + row, TYPE_COUNT));
+  }
+
+  lastSelectedType = selectedType;
+  lastTopType = topType;
 }
 
 void updatePreMenuFast() {
   if (fullRedraw || lastDrawnMode != MODE_PREMENU) {
     drawPreMenuBase();
 
-    for (int row = 0; row < TYPE_COUNT; row++) {
-      drawTypeRow(row, row);
-    }
+    drawVisibleTypeRows();
 
-    lastSelectedType = selectedType;
     lastDrawnMode = MODE_PREMENU;
     fullRedraw = false;
     return;
   }
 
+  if (topType != lastTopType) {
+    drawVisibleTypeRows();
+    return;
+  }
+
   if (selectedType != lastSelectedType) {
-    drawTypeRow(lastSelectedType, lastSelectedType);
-    drawTypeRow(selectedType, selectedType);
+    int oldRow = wrapIndex(lastSelectedType - topType, TYPE_COUNT);
+    int newRow = wrapIndex(selectedType - topType, TYPE_COUNT);
+    if (oldRow < VISIBLE_TYPE_ROWS) drawTypeRow(oldRow, lastSelectedType);
+    if (newRow < VISIBLE_TYPE_ROWS) drawTypeRow(newRow, selectedType);
     lastSelectedType = selectedType;
   }
 }
@@ -134,7 +147,6 @@ void drawMenuRow(int row, int visibleIndex) {
     drawParamIcon(itemIndex, 18, y + 8, COL_MUTED);
   }
 
-  // Riga pulita: niente tag/campo OSC/TUNE/GAIN per ogni voce.
   tft.setTextSize(1);
   tft.setTextColor(selected ? COL_INK : COL_MUTED);
   tft.setCursor(34, y + 6);
@@ -146,10 +158,12 @@ void drawMenuRow(int row, int visibleIndex) {
 }
 
 void drawVisibleMenuRows() {
-  for (int row = 0; row < VISIBLE_ROWS; row++) {
-    int visibleIndex = topItem + row;
+  int count = getActiveMenuCount();
 
-    if (visibleIndex >= getActiveMenuCount()) {
+  for (int row = 0; row < VISIBLE_ROWS; row++) {
+    int visibleIndex = count > 0 ? wrapIndex(topItem + row, count) : 0;
+
+    if (row >= count) {
       tft.fillRect(0, 23 + row * 20, SCREEN_W, 22, COL_BG);
     } else {
       drawMenuRow(row, visibleIndex);
@@ -176,8 +190,9 @@ void updateMenuFast() {
   }
 
   if (selectedItem != lastSelectedItem) {
-    int oldRow = lastSelectedItem - topItem;
-    int newRow = selectedItem - topItem;
+    int count = getActiveMenuCount();
+    int oldRow = wrapIndex(lastSelectedItem - topItem, count);
+    int newRow = wrapIndex(selectedItem - topItem, count);
 
     if (oldRow >= 0 && oldRow < VISIBLE_ROWS) {
       drawMenuRow(oldRow, lastSelectedItem);
@@ -228,6 +243,12 @@ void drawEditBase() {
   lastFilterEnabled = -1;
   lastFilterType = -1;
   lastFilterCutoff = -1;
+  lastDelayMix = -1;
+  lastDelayTimeMs = -1;
+  lastDelayFeedback = -1;
+  lastReverbMix = -1;
+  lastReverbRoom = -1;
+  lastPresetSlot = -1;
   lastWaveVoiceParamChecksum = -1;
   lastFftRangeIndex = -1;
   lastFftWindow = -1;
@@ -264,6 +285,12 @@ bool editValueChanged() {
   if ((int)filterEnabled != lastFilterEnabled) return true;
   if (filterType != lastFilterType) return true;
   if (filterCutoff != lastFilterCutoff) return true;
+  if (delayMix != lastDelayMix) return true;
+  if (delayTimeMs != lastDelayTimeMs) return true;
+  if (delayFeedback != lastDelayFeedback) return true;
+  if (reverbMix != lastReverbMix) return true;
+  if (reverbRoom != lastReverbRoom) return true;
+  if (presetSlot != lastPresetSlot) return true;
   if (getWaveVoiceParamChecksum() != lastWaveVoiceParamChecksum) return true;
   if (fftRangeIndex != lastFftRangeIndex) return true;
   if (fftWindow != lastFftWindow) return true;
@@ -300,6 +327,12 @@ void saveLastValues() {
   lastFilterEnabled = (int)filterEnabled;
   lastFilterType = filterType;
   lastFilterCutoff = filterCutoff;
+  lastDelayMix = delayMix;
+  lastDelayTimeMs = delayTimeMs;
+  lastDelayFeedback = delayFeedback;
+  lastReverbMix = reverbMix;
+  lastReverbRoom = reverbRoom;
+  lastPresetSlot = presetSlot;
   lastWaveVoiceParamChecksum = getWaveVoiceParamChecksum();
   lastFftRangeIndex = fftRangeIndex;
   lastFftWindow = fftWindow;
@@ -323,6 +356,7 @@ void saveLastValues() {
 
 void drawEditValue() {
   MenuAction action = getSelectedAction();
+  bool clearBody = valueDirty;
   bool dynamicBluetoothView =
     action == ACTION_BT_RECEIVER ||
     action == ACTION_BT_OUTPUT ||
@@ -374,7 +408,9 @@ void drawEditValue() {
     lastBtUiRefreshMs = millis();
   }
 
-  tft.fillRect(0, 53, SCREEN_W, SCREEN_H - 53, COL_BG);
+  if (clearBody) {
+    tft.fillRect(0, 53, SCREEN_W, SCREEN_H - 53, COL_BG);
+  }
 
   switch (action) {
     case ACTION_VOICE_WAVE:
@@ -558,6 +594,20 @@ void drawEditValue() {
 
     case ACTION_KICK_DRIVE:
       drawKickDriveEdit(accent);
+      break;
+
+    case ACTION_DELAY_MIX:
+    case ACTION_DELAY_TIME:
+    case ACTION_DELAY_FEEDBACK:
+    case ACTION_REVERB_MIX:
+    case ACTION_REVERB_ROOM:
+      drawEffectEdit(action, accent);
+      break;
+
+    case ACTION_PRESET_SLOT:
+    case ACTION_PRESET_LOAD:
+    case ACTION_PRESET_SAVE:
+      drawPresetEdit(action, accent);
       break;
 
     case ACTION_BT_RECEIVER:

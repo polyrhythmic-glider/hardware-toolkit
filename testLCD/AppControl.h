@@ -41,6 +41,7 @@ bool isDiscreteEditAction(MenuAction action) {
     case ACTION_SEQ_RANDOMIZE:
     case ACTION_SEQ_CLEAR:
     case ACTION_SEQ_ROTATE:
+    case ACTION_PRESET_SLOT:
       return true;
 
     default:
@@ -279,12 +280,15 @@ bool isMenuSubmenuAction(MenuAction action) {
          action == ACTION_WAVE_TRIANGLE_MENU ||
          action == ACTION_WAVE_SAW_MENU ||
          action == ACTION_FILTER_MENU ||
-         action == ACTION_KICK_MENU;
+         action == ACTION_KICK_MENU ||
+         action == ACTION_TRANSPORT_MENU;
 }
 
 bool isImmediateMenuAction(MenuAction action) {
   return action == ACTION_SEQ_START ||
-         action == ACTION_SEQ_STOP;
+         action == ACTION_SEQ_STOP ||
+         action == ACTION_PRESET_LOAD ||
+         action == ACTION_PRESET_SAVE;
 }
 
 void startTransport() {
@@ -312,6 +316,12 @@ void executeImmediateMenuAction(MenuAction action) {
     startTransport();
   } else if (action == ACTION_SEQ_STOP) {
     stopTransport();
+  } else if (action == ACTION_PRESET_LOAD) {
+    presetOperationOk = loadCurrentPreset();
+    presetOperationText = presetOperationOk ? "LOADED" : "EMPTY";
+  } else if (action == ACTION_PRESET_SAVE) {
+    presetOperationOk = saveCurrentPreset();
+    presetOperationText = presetOperationOk ? "SAVED" : "ERROR";
   }
 
   valueDirty = true;
@@ -337,6 +347,9 @@ MenuPage getSubmenuPageForAction(MenuAction action) {
 
     case ACTION_KICK_MENU:
       return MENU_PAGE_KICK;
+
+    case ACTION_TRANSPORT_MENU:
+      return MENU_PAGE_TRANSPORT;
 
     default:
       return MENU_PAGE_ROOT;
@@ -387,6 +400,11 @@ const uint8_t* getCurrentMenuItems(int* count) {
     return MENU_KICK_ITEMS;
   }
 
+  if (currentMenuPage == MENU_PAGE_TRANSPORT) {
+    *count = sizeof(MENU_TRANSPORT_ITEMS) / sizeof(MENU_TRANSPORT_ITEMS[0]);
+    return MENU_TRANSPORT_ITEMS;
+  }
+
   if (isWaveVoicePage(currentMenuPage)) {
     *count = sizeof(MENU_WAVE_VOICE_ITEMS) / sizeof(MENU_WAVE_VOICE_ITEMS[0]);
     return MENU_WAVE_VOICE_ITEMS;
@@ -397,7 +415,8 @@ const uint8_t* getCurrentMenuItems(int* count) {
 }
 
 const char* getCurrentMenuTitle() {
-  static char title[18];
+  static char title[24];
+  const char* source = areaChoices[activeType].label;
 
   if (isWaveVoicePage(currentMenuPage)) {
     snprintf(title, sizeof(title), "VOICE %d", getCurrentWaveVoiceIndex() + 1);
@@ -405,14 +424,22 @@ const char* getCurrentMenuTitle() {
   }
 
   if (currentMenuPage == MENU_PAGE_FILTER) {
-    return "FILTER";
+    source = "FILTER";
+  }
+  else if (currentMenuPage == MENU_PAGE_KICK) {
+    source = "KICK DESIGN";
+  }
+  else if (currentMenuPage == MENU_PAGE_TRANSPORT) {
+    source = "TRANSPORT";
   }
 
-  if (currentMenuPage == MENU_PAGE_KICK) {
-    return "KICK DESIGN";
+  size_t i = 0;
+  for (; source[i] != '\0' && i < sizeof(title) - 1; i++) {
+    char c = source[i];
+    title[i] = c >= 'a' && c <= 'z' ? c - ('a' - 'A') : c;
   }
-
-  return areaChoices[activeType].label;
+  title[i] = '\0';
+  return title;
 }
 
 int getActiveMenuCount() {
@@ -444,6 +471,7 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_WAVE_SAW_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_KICK_MENU ||
+         action == ACTION_TRANSPORT_MENU ||
          action == ACTION_VOICE_WAVE ||
          action == ACTION_VOICE_TUNE ||
          action == ACTION_VOICE_FOLD ||
@@ -483,27 +511,57 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_KICK_DECAY ||
          action == ACTION_KICK_SWEEP ||
          action == ACTION_KICK_CLICK ||
-         action == ACTION_KICK_DRIVE;
+         action == ACTION_KICK_DRIVE ||
+         action == ACTION_DELAY_MIX ||
+         action == ACTION_DELAY_TIME ||
+         action == ACTION_DELAY_FEEDBACK ||
+         action == ACTION_REVERB_MIX ||
+         action == ACTION_REVERB_ROOM;
 }
 
 void wrapSelectedMenu() {
   int count = getActiveMenuCount();
+  if (count <= 0) return;
 
-  if (selectedItem < 0) selectedItem = count - 1;
-  if (selectedItem >= count) selectedItem = 0;
-
-  if (selectedItem < topItem) {
-    topItem = selectedItem;
+  if (count <= VISIBLE_ROWS) {
+    selectedItem = wrapIndex(selectedItem, count);
+    topItem = 0;
+    return;
   }
 
-  if (selectedItem >= topItem + VISIBLE_ROWS) {
-    topItem = selectedItem - VISIBLE_ROWS + 1;
+  if (selectedItem < 0) {
+    selectedItem = count - 1;
+    topItem = selectedItem;
+    return;
+  }
+
+  if (selectedItem >= count) {
+    selectedItem = 0;
+  }
+
+  int position = wrapIndex(selectedItem - topItem, count);
+  if (position >= VISIBLE_ROWS) {
+    int forwardEdge = wrapIndex(topItem + VISIBLE_ROWS, count);
+    topItem = selectedItem == forwardEdge ? wrapIndex(topItem + 1, count) : selectedItem;
   }
 }
 
 void wrapSelectedType() {
-  if (selectedType < 0) selectedType = TYPE_COUNT - 1;
-  if (selectedType >= TYPE_COUNT) selectedType = 0;
+  if (selectedType < 0) {
+    selectedType = TYPE_COUNT - 1;
+    topType = selectedType;
+    return;
+  }
+
+  if (selectedType >= TYPE_COUNT) {
+    selectedType = 0;
+  }
+
+  int position = wrapIndex(selectedType - topType, TYPE_COUNT);
+  if (position >= VISIBLE_TYPE_ROWS) {
+    int forwardEdge = wrapIndex(topType + VISIBLE_TYPE_ROWS, TYPE_COUNT);
+    topType = selectedType == forwardEdge ? wrapIndex(topType + 1, TYPE_COUNT) : selectedType;
+  }
 }
 
 int32_t getMenuNavigationStep(int32_t steps) {
@@ -560,6 +618,7 @@ const char* getValueText(int itemIndex) {
     case ACTION_WAVE_SAW_MENU:
     case ACTION_FILTER_MENU:
     case ACTION_KICK_MENU:
+    case ACTION_TRANSPORT_MENU:
       snprintf(buffer, sizeof(buffer), "OPEN");
       break;
 
@@ -767,6 +826,35 @@ const char* getValueText(int itemIndex) {
 
     case ACTION_KICK_DRIVE:
       snprintf(buffer, sizeof(buffer), "%d%%", kickDrive);
+      break;
+
+    case ACTION_DELAY_MIX:
+      snprintf(buffer, sizeof(buffer), "%d%%", delayMix);
+      break;
+
+    case ACTION_DELAY_TIME:
+      snprintf(buffer, sizeof(buffer), "%dms", delayTimeMs);
+      break;
+
+    case ACTION_DELAY_FEEDBACK:
+      snprintf(buffer, sizeof(buffer), "%d%%", delayFeedback);
+      break;
+
+    case ACTION_REVERB_MIX:
+      snprintf(buffer, sizeof(buffer), "%d%%", reverbMix);
+      break;
+
+    case ACTION_REVERB_ROOM:
+      snprintf(buffer, sizeof(buffer), "%d%%", reverbRoom);
+      break;
+
+    case ACTION_PRESET_SLOT:
+      snprintf(buffer, sizeof(buffer), "P%d", presetSlot);
+      break;
+
+    case ACTION_PRESET_LOAD:
+    case ACTION_PRESET_SAVE:
+      snprintf(buffer, sizeof(buffer), "P%d", presetSlot);
       break;
 
     case ACTION_INPUTS:
@@ -1121,6 +1209,31 @@ void changeCurrentValue(int delta) {
       kickDrive = clampInt(kickDrive, 0, 100);
       break;
 
+    case ACTION_DELAY_MIX:
+      delayMix = clampInt(delayMix + delta * 5, 0, 100);
+      break;
+
+    case ACTION_DELAY_TIME:
+      delayTimeMs = clampInt(delayTimeMs + delta * 10, 20, DELAY_MAX_MS);
+      break;
+
+    case ACTION_DELAY_FEEDBACK:
+      delayFeedback = clampInt(delayFeedback + delta * 5, 0, 90);
+      break;
+
+    case ACTION_REVERB_MIX:
+      reverbMix = clampInt(reverbMix + delta * 5, 0, 100);
+      break;
+
+    case ACTION_REVERB_ROOM:
+      reverbRoom = clampInt(reverbRoom + delta * 5, 0, 95);
+      break;
+
+    case ACTION_PRESET_SLOT:
+      presetSlot = wrapIndex(presetSlot - 1 + delta, PRESET_SLOT_COUNT) + 1;
+      presetOperationText = "SELECT";
+      break;
+
     default:
       break;
   }
@@ -1150,9 +1263,17 @@ void updateUiLogic() {
   int32_t steps = getEncoderSteps();
 
   if (uiMode == MODE_BOOT) {
-    if (pushEvent || k0Event || millis() - bootStartMs >= bootDurationMs) {
-      pushEvent = false;
-      k0Event = false;
+    bool skipRequested = pushEvent || k0Event;
+    pushEvent = false;
+    k0Event = false;
+
+    if (!bootReady && (skipRequested || millis() - bootStartMs >= bootDurationMs)) {
+      bootReady = true;
+      bootCompletedAtMs = millis();
+      lastBootProgress = -1;
+    }
+
+    if (bootReady && millis() - bootCompletedAtMs >= bootCompleteHoldMs) {
       setMode(MODE_PREMENU);
     }
 

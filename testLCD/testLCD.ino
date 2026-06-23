@@ -105,6 +105,14 @@ int wavePhase = 0;
 bool filterEnabled = false;
 int filterType = 0;
 int filterCutoff = 2400;
+int delayMix = 0;
+int delayTimeMs = 280;
+int delayFeedback = 35;
+int reverbMix = 0;
+int reverbRoom = 65;
+int presetSlot = 1;
+bool presetOperationOk = true;
+const char* presetOperationText = "SELECT";
 int fftRangeIndex = 1;
 int fftWindow = 0;
 int fftSmoothing = 35;
@@ -175,6 +183,14 @@ float audioFilterCutoff = 2400.0f;
 int audioFilterType = 0;
 float filterLowState = 0.0f;
 float filterBandState = 0.0f;
+int16_t delayBuffer[DELAY_BUFFER_SAMPLES] = { 0 };
+uint32_t delayWriteIndex = 0;
+int16_t reverbBufferA[REVERB_BUFFER_A_SAMPLES] = { 0 };
+int16_t reverbBufferB[REVERB_BUFFER_B_SAMPLES] = { 0 };
+int16_t reverbBufferC[REVERB_BUFFER_C_SAMPLES] = { 0 };
+uint16_t reverbIndexA = 0;
+uint16_t reverbIndexB = 0;
+uint16_t reverbIndexC = 0;
 
 MenuAction getSelectedAction();
 bool isSynthAction(MenuAction action);
@@ -196,6 +212,8 @@ bool isMixerLayerAudible();
 int selectedType = 0;
 int activeType = 0;
 int lastSelectedType = -1;
+int topType = 0;
+int lastTopType = -1;
 
 int selectedItem = 0;
 int lastSelectedItem = -1;
@@ -206,6 +224,7 @@ MenuPage currentMenuPage = MENU_PAGE_ROOT;
 int activeWaveVoiceIndex = 0;
 
 const int VISIBLE_ROWS = 5;
+const int VISIBLE_TYPE_ROWS = 6;
 const uint32_t menuStepCooldownMs = 80;
 uint32_t lastMenuMoveMs = 0;
 
@@ -224,6 +243,12 @@ int lastWavePhase = -1;
 int lastFilterEnabled = -1;
 int lastFilterType = -1;
 int lastFilterCutoff = -1;
+int lastDelayMix = -1;
+int lastDelayTimeMs = -1;
+int lastDelayFeedback = -1;
+int lastReverbMix = -1;
+int lastReverbRoom = -1;
+int lastPresetSlot = -1;
 int lastFftRangeIndex = -1;
 int lastFftWindow = -1;
 int lastFftSmoothing = -1;
@@ -258,8 +283,13 @@ int8_t btRssiDelta = 0;
 bool btRssiValid = false;
 
 const uint32_t bootDurationMs = 3600;
+const uint32_t bootCompleteHoldMs = 240;
 uint32_t bootStartMs = 0;
+uint32_t bootCompletedAtMs = 0;
+bool bootReady = false;
 int lastBootProgress = -1;
+
+#include "PresetStore.h"
 
 #include "AppControl.h"
 

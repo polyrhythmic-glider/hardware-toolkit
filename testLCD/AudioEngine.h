@@ -91,6 +91,30 @@ float applySynthFilter(float input) {
   return input + (filtered - input) * audioFilterAmount;
 }
 
+float processDelayAndReverb(float input) {
+  int delaySamples = clampInt((delayTimeMs * SYNTH_AUDIO_SAMPLE_RATE) / 1000, 1, DELAY_BUFFER_SAMPLES - 1);
+  uint32_t delayReadIndex = (delayWriteIndex + DELAY_BUFFER_SAMPLES - delaySamples) % DELAY_BUFFER_SAMPLES;
+  float delayed = delayBuffer[delayReadIndex] / 32767.0f;
+  float delayStored = input + delayed * (delayFeedback / 100.0f);
+  delayBuffer[delayWriteIndex] = (int16_t)(clampFloat(delayStored, -1.0f, 1.0f) * 32767.0f);
+  delayWriteIndex = (delayWriteIndex + 1) % DELAY_BUFFER_SAMPLES;
+
+  float delayOutput = input + (delayed - input) * (delayMix / 100.0f);
+  float room = reverbRoom / 100.0f;
+  float combA = reverbBufferA[reverbIndexA] / 32767.0f;
+  float combB = reverbBufferB[reverbIndexB] / 32767.0f;
+  float combC = reverbBufferC[reverbIndexC] / 32767.0f;
+  reverbBufferA[reverbIndexA] = (int16_t)(clampFloat(delayOutput + combA * room, -1.0f, 1.0f) * 32767.0f);
+  reverbBufferB[reverbIndexB] = (int16_t)(clampFloat(delayOutput + combB * room * 0.96f, -1.0f, 1.0f) * 32767.0f);
+  reverbBufferC[reverbIndexC] = (int16_t)(clampFloat(delayOutput + combC * room * 0.92f, -1.0f, 1.0f) * 32767.0f);
+  reverbIndexA = (reverbIndexA + 1) % REVERB_BUFFER_A_SAMPLES;
+  reverbIndexB = (reverbIndexB + 1) % REVERB_BUFFER_B_SAMPLES;
+  reverbIndexC = (reverbIndexC + 1) % REVERB_BUFFER_C_SAMPLES;
+
+  float reverbWet = (combA + combB + combC) / 3.0f;
+  return delayOutput + (reverbWet - delayOutput) * (reverbMix / 100.0f);
+}
+
 float getSynthEnvelopeLevel() {
   float sustainLevel = sustain / 100.0f;
   uint32_t attackSamples = ((uint32_t)attack * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
@@ -344,6 +368,7 @@ void fillSynthAudioBuffer(bool active) {
       }
 
       mixedSample += renderKickSample();
+      mixedSample = processDelayAndReverb(mixedSample);
 
       pcm = (int16_t)(clampFloat(mixedSample, -1.0f, 1.0f) * 32767.0f);
     }

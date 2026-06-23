@@ -10,20 +10,19 @@ void drawBluetoothHeaderField(bool force) {
   updateBluetoothRssi();
 
   bool connected = bluetoothEnabled && btAudioStarted && a2dpSink.is_connected();
-  bool streaming = isBluetoothStreaming();
   int bars = getBluetoothSignalBars();
-  uint16_t statusColor = streaming ? COL_GOLD : connected ? COL_NOTE : COL_MUTED;
+  uint16_t statusColor = connected ? COL_SKY : COL_MUTED;
 
-  tft.fillRect(84, 3, 74, 14, COL_HEADER);
+  tft.fillRect(100, 3, 58, 14, COL_HEADER);
 
-  tft.setTextSize(1);
-  tft.setTextColor(statusColor);
-  tft.setCursor(87, 6);
-  tft.print("BT");
-
-  tft.setTextColor(connected ? COL_INK : COL_MUTED);
-  tft.setCursor(103, 6);
-  tft.print(getBluetoothStatusText());
+  const int bx = 115;
+  tft.drawFastVLine(bx, 5, 11, statusColor);
+  tft.drawLine(bx, 5, bx + 4, 8, statusColor);
+  tft.drawLine(bx + 4, 8, bx, 10, statusColor);
+  tft.drawLine(bx, 10, bx + 4, 12, statusColor);
+  tft.drawLine(bx + 4, 12, bx, 15, statusColor);
+  tft.drawLine(bx - 3, 7, bx + 3, 13, statusColor);
+  tft.drawLine(bx - 3, 13, bx + 3, 7, statusColor);
 
   for (int i = 0; i < 4; i++) {
     int h = 3 + i * 2;
@@ -306,6 +305,12 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.drawFastVLine(cx + 9, cy - 7, 14, COL_GOLD);
       break;
 
+    case ACTION_TRANSPORT_MENU:
+      tft.drawCircle(cx, cy, 9, color);
+      tft.fillTriangle(cx - 4, cy - 5, cx - 4, cy + 5, cx + 3, cy, color);
+      tft.fillRect(cx + 4, cy - 4, 3, 8, COL_GOLD);
+      break;
+
     case ACTION_SEQ_START:
       tft.fillTriangle(cx - 5, cy - 7, cx - 5, cy + 7, cx + 7, cy, color);
       tft.drawCircle(cx, cy, 9, transportRunning ? COL_GOLD : rgb565(62, 68, 82));
@@ -511,6 +516,56 @@ void drawValueReadout(const char* value, const char* tag, uint16_t accent) {
   tft.setTextColor(COL_MUTED);
   tft.setCursor(108, 59);
   tft.print(tag);
+}
+
+void drawEffectEdit(MenuAction action, uint16_t accent) {
+  int value = 0;
+  int maximum = 100;
+  const char* left = "DRY";
+  const char* right = "WET";
+
+  if (action == ACTION_DELAY_MIX) value = delayMix;
+  if (action == ACTION_DELAY_TIME) {
+    value = delayTimeMs;
+    maximum = DELAY_MAX_MS;
+    left = "SHORT";
+    right = "LONG";
+  }
+  if (action == ACTION_DELAY_FEEDBACK) {
+    value = delayFeedback;
+    left = "ONE";
+    right = "ECHO";
+  }
+  if (action == ACTION_REVERB_MIX) value = reverbMix;
+  if (action == ACTION_REVERB_ROOM) {
+    value = reverbRoom;
+    left = "TIGHT";
+    right = "HALL";
+  }
+
+  drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), menuItems[getMenuItemIndex(selectedItem)].tag, accent);
+  drawPanelFrame(10, 78, 140, 35, accent);
+  drawGrooveBar(20, 91, 120, 10, map(value, 0, maximum, 0, 118), accent);
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(10, 119);
+  tft.print(left);
+  printRight(right, 150, 119, 1, COL_MUTED);
+}
+
+void drawPresetEdit(MenuAction action, uint16_t accent) {
+  char slotText[8];
+  snprintf(slotText, sizeof(slotText), "P%d", presetSlot);
+  drawValueReadout(slotText, "PRESET", accent);
+  drawPanelFrame(10, 78, 140, 42, accent);
+  tft.setTextSize(2);
+  tft.setTextColor(action == ACTION_PRESET_SLOT ? accent : presetOperationOk ? COL_NOTE : COL_CORAL);
+  tft.setCursor(20, 88);
+  tft.print(action == ACTION_PRESET_SLOT ? "SELECT" : presetOperationText);
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(14, 112);
+  tft.print(action == ACTION_PRESET_SLOT ? "1..8 in flash" : "press to return");
 }
 
 void drawScopeGrid(int x, int y, int width, int height) {
@@ -1253,41 +1308,66 @@ void drawAudioTestEdit(uint16_t accent) {
 }
 
 void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
+  static GFXcanvas16 canvas(width, height);
+  if (canvas.getBuffer() == nullptr) return;
+
   int cellW = width / SEQUENCER_STEP_COUNT;
   int range = SEQUENCER_MAX_NOTE - SEQUENCER_MIN_NOTE;
   int length = getSequencerLength();
+  int graphTop = 10;
+  int graphBottom = height - 3;
+
+  canvas.fillScreen(COL_PANEL);
+  canvas.drawFastHLine(0, graphTop - 1, width, COL_LINE);
 
   for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    int left = x + i * cellW;
-    int right = (i == SEQUENCER_STEP_COUNT - 1) ? x + width : left + cellW;
-    int w = right - left - 2;
-    if (w < 2) w = 2;
+    int left = i * cellW;
+    int right = (i == SEQUENCER_STEP_COUNT - 1) ? width : left + cellW;
+    int w = right - left;
 
     bool selected = i == sequencerSelectedStep;
     bool playing = transportRunning && sequencerEnabled && i == sequencerCurrentStep;
     bool inLength = i < length;
     bool enabled = sequencerStepEnabled[i];
-    uint16_t frameColor = !inLength ? rgb565(30, 34, 45) : playing ? COL_GOLD : selected ? accent : COL_LINE;
-    uint16_t fillColor = !enabled ? rgb565(42, 47, 62) : playing ? COL_GOLD : selected ? accent : rgb565(54, 63, 79);
+    uint16_t dim = rgb565(48, 54, 69);
+    uint16_t frameColor = !inLength ? rgb565(30, 34, 45) : selected ? accent : i % 4 == 0 ? COL_MUTED : COL_LINE;
 
-    tft.drawRect(left, y, w, height, frameColor);
-    if (!inLength) continue;
+    canvas.drawFastVLine(left, 0, height, frameColor);
+    if (i == SEQUENCER_STEP_COUNT - 1) canvas.drawFastVLine(right - 1, 0, height, frameColor);
+
+    canvas.setTextSize(1);
+    canvas.setTextColor(!inLength ? dim : playing ? COL_GOLD : selected ? accent : COL_MUTED);
+    canvas.setCursor(left + (w - 6) / 2, 1);
+    canvas.print(i + 1);
+
+    if (!inLength) {
+      canvas.drawFastHLine(left + 3, graphTop + 6, w - 6, dim);
+      continue;
+    }
 
     int note = clampInt(sequencerStepNotes[i], SEQUENCER_MIN_NOTE, SEQUENCER_MAX_NOTE);
-    int noteY = y + height - 4 - ((note - SEQUENCER_MIN_NOTE) * (height - 8)) / range;
-    int barH = y + height - 3 - noteY;
+    int noteY = graphBottom - ((note - SEQUENCER_MIN_NOTE) * (graphBottom - graphTop)) / range;
+    int barH = graphBottom - noteY + 1;
     if (barH < 2) barH = 2;
 
     if (enabled) {
-      tft.fillRect(left + 2, y + height - 2 - barH, w - 4, barH, fillColor);
+      uint16_t fillColor = playing ? COL_GOLD : selected ? accent : rgb565(70, 83, 103);
+      canvas.fillRect(left + 3, graphBottom - barH + 1, w - 6, barH, fillColor);
     } else {
-      tft.drawFastHLine(left + 2, y + height / 2, w - 4, COL_CORAL);
+      canvas.drawLine(left + 4, graphTop + 3, right - 5, graphBottom - 2, COL_CORAL);
+      canvas.drawLine(right - 5, graphTop + 3, left + 4, graphBottom - 2, COL_CORAL);
     }
 
     if (playing) {
-      tft.drawFastHLine(left + 2, y + 2, w - 4, COL_INK);
+      canvas.fillTriangle(left + w / 2, graphTop, left + w / 2 - 3, graphTop + 4, left + w / 2 + 3, graphTop + 4, COL_INK);
+    }
+
+    if (selected) {
+      canvas.drawRect(left + 1, 0, w - 2, height, accent);
     }
   }
+
+  tft.drawRGBBitmap(x, y, canvas.getBuffer(), width, height);
 }
 
 void formatSequencerNote(char* buffer, size_t size, int note) {
@@ -1324,8 +1404,10 @@ void drawSequencerStopEdit(uint16_t accent) {
 }
 
 void drawSequencerRunEdit(uint16_t accent) {
-  drawValueReadout(sequencerEnabled ? "ON" : "OFF", "SEQ", accent);
-  printRight(transportRunning && sequencerEnabled ? "running" : "stopped", 150, 67, 1, transportRunning && sequencerEnabled ? COL_GOLD : COL_INK);
+  char bpmText[12];
+  snprintf(bpmText, sizeof(bpmText), "%d BPM", sequencerBpm);
+  drawValueReadout(bpmText, transportRunning && sequencerEnabled ? "RUN" : "STOP", accent);
+  printRight(waveformNames[waveform], 150, 67, 1, transportRunning && sequencerEnabled ? COL_GOLD : COL_MUTED);
 
   drawPanelFrame(10, 74, 140, 42, accent);
   drawSequencerGrid(14, 79, 132, 32, accent);
@@ -1333,9 +1415,13 @@ void drawSequencerRunEdit(uint16_t accent) {
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
-  tft.print("step ");
+  tft.print("STEP ");
   tft.print(sequencerCurrentStep + 1);
-  printRight(waveformNames[waveform], 149, 120, 1, COL_MUTED);
+  tft.print("/");
+  tft.print(getSequencerLength());
+  char gateText[12];
+  snprintf(gateText, sizeof(gateText), "GATE %d%%", sequencerGate);
+  printRight(gateText, 149, 120, 1, COL_MUTED);
 }
 
 void drawSequencerBpmEdit(uint16_t accent) {
@@ -1626,22 +1712,20 @@ void drawMixerKickEdit(uint16_t accent) {
 
 void drawBluetoothPowerEdit(uint16_t accent) {
   drawValueReadout(bluetoothEnabled ? "ON" : "OFF", "BT", accent);
-  printRight(bluetoothEnabled ? getBluetoothStatusText() : "synth only", 150, 67, 1, bluetoothEnabled ? COL_INK : COL_GOLD);
+  printRight(bluetoothEnabled ? "ENABLED" : "DISABLED", 150, 67, 1, bluetoothEnabled ? COL_SKY : COL_MUTED);
 
   drawPanelFrame(10, 74, 140, 48, accent);
 
   tft.setTextSize(1);
+  tft.setTextColor(bluetoothEnabled ? COL_SKY : COL_MUTED);
+  tft.setCursor(16, 86);
+  tft.print("Bluetooth receiver");
+  tft.setTextColor(COL_INK);
+  tft.setCursor(16, 101);
+  tft.print(bluetoothEnabled ? "Ready for pairing" : "Radio off");
   tft.setTextColor(COL_MUTED);
-  tft.setCursor(15, 84);
-  tft.print("Bluetooth radio");
-
-  tft.setTextColor(bluetoothEnabled ? COL_NOTE : COL_GOLD);
-  tft.setCursor(15, 98);
-  tft.print(bluetoothEnabled ? "A2DP receiver enabled" : "disabled for wave test");
-
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(15, 114);
-  tft.print(bluetoothEnabled ? BT_AUDIO_NAME : "PCM5102 stays on I2S");
+  tft.setCursor(16, 115);
+  tft.print("Rotate to switch");
 }
 
 void drawBluetoothPacketMeter(int x, int y, int width, int height, uint16_t accent) {
@@ -1670,7 +1754,7 @@ void drawBluetoothReceiverEdit(uint16_t accent) {
   const char* status = getBluetoothStatusText();
 
   drawValueReadout(status, "A2DP", accent);
-  printRight(streaming ? "audio lock" : connected ? "connected" : "discoverable", 150, 67, 1, streaming ? COL_GOLD : COL_INK);
+  printRight(streaming ? "STREAMING" : connected ? "CONNECTED" : bluetoothEnabled ? "WAITING" : "OFF", 150, 67, 1, streaming ? COL_GOLD : connected ? COL_SKY : COL_MUTED);
 
   drawPanelFrame(10, 74, 140, 34, accent);
   drawBluetoothPacketMeter(14, 79, 132, 25, accent);
@@ -1678,38 +1762,35 @@ void drawBluetoothReceiverEdit(uint16_t accent) {
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 112);
-  tft.print("SBC");
-  tft.setTextColor(COL_INK);
-  tft.print(" -> PCM -> I2S");
-  printRight(streaming ? "LIVE" : connected ? "LINK" : "PAIR", 149, 112, 1, streaming ? COL_GOLD : COL_MUTED);
+  tft.print(BT_AUDIO_NAME);
 }
 
 void drawBluetoothDeviceEdit(uint16_t accent) {
-  const char* stateText = "disabled";
-  uint16_t stateColor = COL_GOLD;
+  const char* stateText = "OFF";
+  uint16_t stateColor = COL_MUTED;
 
   if (bluetoothEnabled) {
-    stateText = btAudioStarted ? "visible" : "starting";
-    stateColor = COL_INK;
+    stateText = btAudioStarted ? "VISIBLE" : "STARTING";
+    stateColor = COL_SKY;
   }
 
-  drawValueReadout("PAIR", "NAME", accent);
+  drawValueReadout("NAME", "BT", accent);
   printRight(stateText, 150, 67, 1, stateColor);
 
   drawPanelFrame(10, 74, 140, 48, accent);
 
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
-  tft.setCursor(15, 83);
-  tft.print("device");
+  tft.setCursor(15, 84);
+  tft.print("Device name");
 
   tft.setTextColor(COL_INK);
-  tft.setCursor(15, 96);
+  tft.setCursor(15, 99);
   tft.print(BT_AUDIO_NAME);
 
   tft.setTextColor(COL_MUTED);
-  tft.setCursor(15, 112);
-  tft.print("phone streams A2DP sink");
+  tft.setCursor(15, 115);
+  tft.print("Pair from phone or PC");
 }
 
 void drawBluetoothI2SEdit(uint16_t accent) {
@@ -1754,22 +1835,18 @@ void drawBluetoothI2SEdit(uint16_t accent) {
 void drawBluetoothOutputEdit(uint16_t accent) {
   bool streaming = isBluetoothStreaming();
 
-  drawValueReadout("AUX", "OUT", accent);
-  printRight(streaming ? "line active" : "line ready", 150, 67, 1, streaming ? COL_GOLD : COL_INK);
+  drawValueReadout("I2S", "OUT", accent);
+  printRight(streaming ? "ACTIVE" : "READY", 150, 67, 1, streaming ? COL_GOLD : COL_SKY);
 
-  drawPanelFrame(10, 74, 62, 48, accent);
-  tft.drawCircle(30, 98, 12, streaming ? COL_GOLD : COL_LINE);
-  tft.drawCircle(52, 98, 12, streaming ? accent : COL_LINE);
-  tft.fillCircle(30, 98, 4, streaming ? COL_GOLD : COL_MUTED);
-  tft.fillCircle(52, 98, 4, streaming ? accent : COL_MUTED);
-
-  drawPanelFrame(82, 74, 68, 48, accent);
-  drawBluetoothPacketMeter(87, 82, 58, 20, accent);
+  drawPanelFrame(10, 74, 140, 48, accent);
+  drawBluetoothPacketMeter(16, 80, 128, 20, accent);
 
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
-  tft.setCursor(88, 109);
-  tft.print("PCM5102 L/R");
+  tft.setCursor(16, 108);
+  tft.print("PCM5102  44.1 kHz");
+  tft.setCursor(16, 117);
+  tft.print("BCK / LRCK / DATA");
 }
 
 void drawInputsEdit(uint16_t accent) {

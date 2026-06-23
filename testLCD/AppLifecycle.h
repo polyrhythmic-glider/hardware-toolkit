@@ -26,6 +26,8 @@ void initApp() {
   tft.fillScreen(COL_BG);
 
   bootStartMs = millis();
+  bootCompletedAtMs = 0;
+  bootReady = false;
   uiMode = MODE_BOOT;
   fullRedraw = true;
 

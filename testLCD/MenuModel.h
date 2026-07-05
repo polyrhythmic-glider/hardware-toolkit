@@ -75,6 +75,7 @@ enum MenuAction {
   ACTION_PRESET_SLOT,
   ACTION_PRESET_LOAD,
   ACTION_PRESET_SAVE,
+  ACTION_SYNTH_VIEW,
   ACTION_TRANSPORT_MENU
 };
 
@@ -162,6 +163,7 @@ enum MenuItemIndex {
   ITEM_PRESET_SLOT,
   ITEM_PRESET_LOAD,
   ITEM_PRESET_SAVE,
+  ITEM_SYNTH_VIEW,
   ITEM_TRANSPORT_MENU
 };
 
@@ -203,7 +205,7 @@ const MenuItem menuItems[] = {
   { "BIN", "FFT Bins", ACTION_FFT_BINS },
   { "IN", "Inputs", ACTION_INPUTS },
   { "LCD", "Display", ACTION_DISPLAY_TEST },
-  { "INFO", "Stage", ACTION_ABOUT },
+  { "INFO", "About", ACTION_ABOUT },
   { "BT", "Connection", ACTION_BT_RECEIVER },
   { "DEV", "Device Name", ACTION_BT_DEVICE },
   { "I2S", "PCM5102 Bus", ACTION_BT_I2S },
@@ -212,7 +214,7 @@ const MenuItem menuItems[] = {
   { "AUD", "Test Audio", ACTION_AUDIO_TEST },
   { "PLAY", "Start", ACTION_SEQ_START },
   { "STOP", "Stop", ACTION_SEQ_STOP },
-  { "VIEW", "Synth View", ACTION_SEQ_POWER },
+  { "PWR", "Sequencer Power", ACTION_SEQ_POWER },
   { "BPM", "Seq BPM", ACTION_SEQ_BPM },
   { "STEP", "Seq Step", ACTION_SEQ_STEP },
   { "NOTE", "Seq Note", ACTION_SEQ_NOTE },
@@ -247,6 +249,7 @@ const MenuItem menuItems[] = {
   { "SLOT", "Preset Slot", ACTION_PRESET_SLOT },
   { "LOAD", "Load Preset", ACTION_PRESET_LOAD },
   { "SAVE", "Save Preset", ACTION_PRESET_SAVE },
+  { "VIEW", "Synth View", ACTION_SYNTH_VIEW },
   { "TRNS", "Transport", ACTION_TRANSPORT_MENU }
 };
 
@@ -304,6 +307,7 @@ const uint8_t MENU_ENVELOPE_ITEMS[] = {
   ITEM_RELEASE
 };
 const uint8_t MENU_SEQUENCER_ITEMS[] = {
+  ITEM_SYNTH_VIEW,
   ITEM_TRANSPORT_MENU,
   ITEM_SEQ_POWER,
   ITEM_SEQ_BPM,

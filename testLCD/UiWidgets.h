@@ -13,6 +13,11 @@ void drawBluetoothHeaderField(bool force) {
   int bars = getBluetoothSignalBars();
   uint16_t statusColor = connected ? COL_SKY : COL_MUTED;
 
+  if (!force && connected == lastBtHeaderConnected && bars == lastBtHeaderBars) {
+    lastBtHeaderRefreshMs = now;
+    return;
+  }
+
   tft.fillRect(100, 3, 58, 14, COL_HEADER);
 
   const int bx = 115;
@@ -37,6 +42,8 @@ void drawBluetoothHeaderField(bool force) {
   }
 
   lastBtHeaderRefreshMs = now;
+  lastBtHeaderConnected = connected;
+  lastBtHeaderBars = bars;
 }
 
 void drawHeader(const char* title) {
@@ -328,6 +335,13 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
         tft.fillRect(bx, cy + 6 - h, 3, h, color);
       }
       tft.drawFastHLine(cx - 8, cy + 7, 18, COL_GOLD);
+      break;
+
+    case ACTION_SYNTH_VIEW:
+      tft.drawRect(cx - 9, cy - 7, 18, 14, color);
+      tft.drawFastHLine(cx - 7, cy + 3, 14, COL_GOLD);
+      tft.fillCircle(cx - 4, cy - 1, 2, color);
+      tft.fillCircle(cx + 4, cy - 1, 2, COL_SKY);
       break;
 
     case ACTION_SEQ_BPM:
@@ -1043,7 +1057,7 @@ void drawVoiceScopeEdit(uint16_t accent) {
   tft.print(waveVoiceTune[voice]);
   tft.print(" F");
   tft.print(waveVoiceFold[voice]);
-  printRight(waveVoiceLevels[voice] > 0 ? "in mix" : "muted", 149, 120, 1, waveVoiceLevels[voice] > 0 ? COL_GOLD : COL_MUTED);
+  printRight(waveVoiceLevels[voice] > 0 ? "MIX" : "MUTE", 149, 120, 1, waveVoiceLevels[voice] > 0 ? COL_GOLD : COL_MUTED);
 }
 
 int getFilterCutoffMarkerX(int x, int width) {
@@ -1184,7 +1198,7 @@ void drawBluetoothFftEdit(uint16_t accent) {
   const char* status = getBluetoothStatusText();
 
   drawValueReadout(status, "BT FFT", accent);
-  printRight(streaming ? "pcm stream" : connected ? "waiting audio" : "not linked", 150, 67, 1, streaming ? COL_GOLD : COL_INK);
+  printRight(streaming ? "PCM" : connected ? "WAIT" : "PAIR", 150, 67, 1, streaming ? COL_GOLD : COL_INK);
 
   drawPanelFrame(10, 74, 140, 42, accent);
   drawBluetoothFftBars(14, 78, 132, 33, accent);
@@ -1194,7 +1208,7 @@ void drawBluetoothFftEdit(uint16_t accent) {
   tft.setCursor(11, 120);
   tft.print("BT");
   tft.setTextColor(streaming ? COL_GOLD : COL_MUTED);
-  tft.print(streaming ? " live" : connected ? " linked" : " pair");
+  tft.print(streaming ? " LIVE" : connected ? " CONN" : " PAIR");
   printRight("PCM FFT", 149, 120, 1, COL_MUTED);
 }
 
@@ -1211,7 +1225,7 @@ void drawFftRangeEdit(uint16_t accent) {
 
 void drawFftWindowEdit(uint16_t accent) {
   drawValueReadout(FFT_WINDOW_NAMES[fftWindow], "WINDOW", accent);
-  printRight("leakage", 150, 67, 1, COL_INK);
+  printRight("WINDOW", 150, 67, 1, COL_INK);
 
   drawPanelFrame(10, 74, 65, 43, accent);
   drawWindowCurve(14, 80, 57, 31, accent);
@@ -1228,7 +1242,7 @@ void drawFftWindowEdit(uint16_t accent) {
 
 void drawFftSmoothEdit(uint16_t accent) {
   drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), "AVG", accent);
-  printRight("temporal", 150, 67, 1, COL_INK);
+  printRight("SMOOTH", 150, 67, 1, COL_INK);
 
   drawPanelFrame(10, 74, 140, 34, accent);
   drawSpectrumBars(14, 78, 132, 26, accent, true);
@@ -1243,7 +1257,7 @@ void drawFftSmoothEdit(uint16_t accent) {
 
 void drawFftHoldEdit(uint16_t accent) {
   drawValueReadout(fftPeakHold ? "ON" : "OFF", "HOLD", accent);
-  printRight("peak caps", 150, 67, 1, COL_INK);
+  printRight("PEAKS", 150, 67, 1, COL_INK);
 
   drawPanelFrame(10, 74, 140, 41, accent);
   drawSpectrumBars(14, 78, 132, 33, accent, true);
@@ -1253,7 +1267,7 @@ void drawFftHoldEdit(uint16_t accent) {
   tft.setCursor(11, 120);
   tft.print("hold ");
   tft.setTextColor(fftPeakHold ? COL_GOLD : COL_MUTED);
-  tft.print(fftPeakHold ? "armed" : "bypassed");
+  tft.print(fftPeakHold ? "ON" : "OFF");
 }
 
 void drawFftBinsEdit(uint16_t accent) {
@@ -1370,6 +1384,109 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
   tft.drawRGBBitmap(x, y, canvas.getBuffer(), width, height);
 }
 
+void drawSynthViewVoiceMeters(int x, int y) {
+  for (int i = 0; i < WAVE_VOICE_COUNT; i++) {
+    int level = waveVoiceLevels[i];
+    int barH = map(level, 0, 100, 0, 18);
+    int bx = x + i * 16;
+    uint16_t color = ITEM_COLORS[i % ITEM_COLOR_COUNT];
+
+    tft.drawRect(bx, y, 10, 20, COL_LINE);
+    if (barH > 0) {
+      tft.fillRect(bx + 2, y + 18 - barH, 6, barH, color);
+    }
+
+    tft.setTextSize(1);
+    tft.setTextColor(level > 0 ? color : COL_MUTED);
+    tft.setCursor(bx - 1, y + 22);
+    tft.print("V");
+    tft.print(i + 1);
+  }
+}
+
+void drawSynthView(uint16_t accent, bool fullClear) {
+  if (fullClear) {
+    tft.fillScreen(COL_BG);
+    tft.drawFastHLine(0, 18, SCREEN_W, COL_LINE);
+    tft.drawFastHLine(0, 92, SCREEN_W, COL_LINE);
+  }
+
+  uint16_t runColor = transportRunning && sequencerEnabled ? COL_GOLD : COL_MUTED;
+  int step = sequencerCurrentStep + 1;
+
+  tft.fillRect(0, 0, SCREEN_W, 18, COL_BG);
+  tft.setTextSize(1);
+  tft.setTextColor(accent);
+  tft.setCursor(5, 5);
+  tft.print("SYNTH VIEW");
+  tft.fillRect(89, 3, 30, 12, runColor);
+  tft.setTextColor(COL_BG);
+  tft.setCursor(95, 5);
+  tft.print(transportRunning && sequencerEnabled ? "RUN" : "STOP");
+
+  char bpmText[12];
+  snprintf(bpmText, sizeof(bpmText), "%d BPM", sequencerBpm);
+  printRight(bpmText, 156, 5, 1, COL_INK);
+
+  drawPanelFrame(4, 22, 68, 28, accent);
+  int voice = getCurrentWaveVoiceIndex();
+  drawWaveShapePreviewForParams(8, 28, 60, 16, waveVoiceShape[voice], (float)waveVoiceFold[voice], (float)waveVoicePhase[voice], accent);
+
+  drawPanelFrame(78, 22, 78, 28, COL_SKY);
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(83, 28);
+  tft.print("FREQ");
+  tft.setTextColor(COL_INK);
+  tft.setCursor(115, 28);
+  tft.print(frequency);
+  tft.print("Hz");
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(83, 40);
+  tft.print("WAVE");
+  tft.setTextColor(COL_SKY);
+  tft.setCursor(115, 40);
+  tft.print(getWaveformShortName(waveVoiceShape[voice]));
+
+  drawPanelFrame(4, 54, 68, 34, COL_GOLD);
+  drawSynthViewVoiceMeters(10, 60);
+
+  drawPanelFrame(78, 54, 78, 34, accent);
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(83, 61);
+  tft.print("STEP");
+  tft.setTextColor(COL_GOLD);
+  tft.setCursor(118, 61);
+  tft.print(step);
+  tft.print("/");
+  tft.print(getSequencerLength());
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(83, 75);
+  tft.print("GATE");
+  tft.setTextColor(COL_INK);
+  tft.setCursor(118, 75);
+  tft.print(sequencerGate);
+  tft.print("%");
+
+  drawSequencerGrid(4, 96, 152, 24, accent);
+
+  tft.fillRect(0, 121, SCREEN_W, 7, COL_BG);
+  tft.setTextSize(1);
+  tft.setTextColor(filterEnabled ? COL_GOLD : COL_MUTED);
+  tft.setCursor(4, 121);
+  tft.print(filterEnabled ? FILTER_TYPE_NAMES[filterType] : "FLT OFF");
+  tft.setTextColor(delayMix > 0 ? COL_SKY : COL_MUTED);
+  tft.setCursor(58, 121);
+  tft.print("D");
+  tft.print(delayMix);
+  tft.setTextColor(reverbMix > 0 ? COL_NOTE : COL_MUTED);
+  tft.setCursor(91, 121);
+  tft.print("R");
+  tft.print(reverbMix);
+  printRight(isSynthAudioActive() ? "I2S" : "OFF", 156, 121, 1, isSynthAudioActive() ? COL_GOLD : COL_MUTED);
+}
+
 void formatSequencerNote(char* buffer, size_t size, int note) {
   snprintf(buffer, size, "%+dst", note);
 }
@@ -1429,7 +1546,7 @@ void drawSequencerBpmEdit(uint16_t accent) {
   snprintf(value, sizeof(value), "%d", sequencerBpm);
 
   drawValueReadout(value, "BPM", accent);
-  printRight("16th clock", 150, 67, 1, COL_INK);
+  printRight("16TH STEP", 150, 67, 1, COL_INK);
 
   drawPanelFrame(10, 74, 140, 42, accent);
   drawSequencerGrid(14, 79, 132, 32, accent);
@@ -1459,7 +1576,7 @@ void drawSequencerStepEdit(uint16_t accent) {
   tft.setCursor(11, 120);
   tft.print("note ");
   tft.print(noteText);
-  printRight("edit target", 149, 120, 1, COL_MUTED);
+  printRight("SELECTED", 149, 120, 1, COL_MUTED);
 }
 
 void drawSequencerNoteEdit(uint16_t accent) {
@@ -1493,16 +1610,16 @@ void drawSequencerLengthEdit(uint16_t accent) {
   char value[8];
   snprintf(value, sizeof(value), "%d", getSequencerLength());
 
-  drawSequencerUtilityFrame(accent, value, "LEN", "steps");
+  drawSequencerUtilityFrame(accent, value, "LEN", "STEPS");
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
-  tft.print("active pattern");
+  tft.print("pattern length");
   printRight(sequencerEnabled ? "LIVE" : "EDIT", 149, 120, 1, sequencerEnabled ? COL_GOLD : COL_MUTED);
 }
 
 void drawSequencerDirectionEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, SEQUENCER_DIRECTION_NAMES[sequencerDirection], "DIR", "playback");
+  drawSequencerUtilityFrame(accent, SEQUENCER_DIRECTION_NAMES[sequencerDirection], "DIR", "PLAY");
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
@@ -1514,7 +1631,7 @@ void drawSequencerGateEdit(uint16_t accent) {
   char value[10];
   snprintf(value, sizeof(value), "%d%%", sequencerGate);
 
-  drawSequencerUtilityFrame(accent, value, "GATE", "step hold");
+  drawSequencerUtilityFrame(accent, value, "GATE", "GATE");
   drawGrooveBar(50, 115, 60, 8, map(sequencerGate, 5, 100, 0, 58), accent);
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
@@ -1527,51 +1644,51 @@ void drawSequencerTransposeEdit(uint16_t accent) {
   char value[10];
   formatSequencerNote(value, sizeof(value), sequencerTranspose);
 
-  drawSequencerUtilityFrame(accent, value, "TRN", "global");
+  drawSequencerUtilityFrame(accent, value, "TRN", "TRANSPOSE");
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
   tft.print("base ");
   tft.print(frequency);
   tft.print("Hz");
-  printRight("all steps", 149, 120, 1, COL_MUTED);
+  printRight("ALL", 149, 120, 1, COL_MUTED);
 }
 
 void drawSequencerStepEnableEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, sequencerStepEnabled[sequencerSelectedStep] ? "ON" : "REST", "STEP", "mute");
+  drawSequencerUtilityFrame(accent, sequencerStepEnabled[sequencerSelectedStep] ? "ON" : "REST", "STEP", "MUTE");
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
   tft.print("step ");
   tft.print(sequencerSelectedStep + 1);
-  printRight(sequencerStepEnabled[sequencerSelectedStep] ? "plays" : "silent", 149, 120, 1, sequencerStepEnabled[sequencerSelectedStep] ? COL_GOLD : COL_CORAL);
+  printRight(sequencerStepEnabled[sequencerSelectedStep] ? "ON" : "REST", 149, 120, 1, sequencerStepEnabled[sequencerSelectedStep] ? COL_GOLD : COL_CORAL);
 }
 
 void drawSequencerRandomizeEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, "RAND", "SEQ", "generate");
+  drawSequencerUtilityFrame(accent, "RAND", "SEQ", "RANDOM");
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
   tft.print("notes + rests");
-  printRight("encoder", 149, 120, 1, COL_MUTED);
+  printRight("ROTATE", 149, 120, 1, COL_MUTED);
 }
 
 void drawSequencerClearEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, "ZERO", "SEQ", "clear");
+  drawSequencerUtilityFrame(accent, "ZERO", "SEQ", "CLEAR");
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
-  tft.print("all notes 0st");
-  printRight("encoder", 149, 120, 1, COL_MUTED);
+  tft.print("notes to 0");
+  printRight("ROTATE", 149, 120, 1, COL_MUTED);
 }
 
 void drawSequencerRotateEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, "ROT", "SEQ", "shift");
+  drawSequencerUtilityFrame(accent, "ROT", "SEQ", "SHIFT");
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
   tft.print("left / right");
-  printRight("pattern", 149, 120, 1, COL_MUTED);
+  printRight("PATTERN", 149, 120, 1, COL_MUTED);
 }
 
 int getMixerVoiceLevel(int voiceIndex) {
@@ -1722,10 +1839,10 @@ void drawBluetoothPowerEdit(uint16_t accent) {
   tft.print("Bluetooth receiver");
   tft.setTextColor(COL_INK);
   tft.setCursor(16, 101);
-  tft.print(bluetoothEnabled ? "Ready for pairing" : "Radio off");
+  tft.print(bluetoothEnabled ? "Pairing ready" : "Radio off");
   tft.setTextColor(COL_MUTED);
   tft.setCursor(16, 115);
-  tft.print("Rotate to switch");
+  tft.print("Rotate toggles");
 }
 
 void drawBluetoothPacketMeter(int x, int y, int width, int height, uint16_t accent) {
@@ -1790,7 +1907,7 @@ void drawBluetoothDeviceEdit(uint16_t accent) {
 
   tft.setTextColor(COL_MUTED);
   tft.setCursor(15, 115);
-  tft.print("Pair from phone or PC");
+  tft.print("Pair from phone/PC");
 }
 
 void drawBluetoothI2SEdit(uint16_t accent) {

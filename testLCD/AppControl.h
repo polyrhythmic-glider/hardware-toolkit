@@ -35,6 +35,7 @@ bool isDiscreteEditAction(MenuAction action) {
     case ACTION_SEQ_START:
     case ACTION_SEQ_STOP:
     case ACTION_SEQ_POWER:
+    case ACTION_SYNTH_VIEW:
     case ACTION_SEQ_STEP:
     case ACTION_SEQ_DIRECTION:
     case ACTION_SEQ_STEP_ENABLE:
@@ -491,6 +492,7 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_SEQ_START ||
          action == ACTION_SEQ_STOP ||
          action == ACTION_SEQ_POWER ||
+         action == ACTION_SYNTH_VIEW ||
          action == ACTION_SEQ_BPM ||
          action == ACTION_SEQ_STEP ||
          action == ACTION_SEQ_NOTE ||
@@ -719,7 +721,7 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_BT_DEVICE:
-      snprintf(buffer, sizeof(buffer), "Pair");
+      snprintf(buffer, sizeof(buffer), "NAME");
       break;
 
     case ACTION_BT_I2S:
@@ -727,7 +729,7 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_BT_OUTPUT:
-      snprintf(buffer, sizeof(buffer), "AUX");
+      snprintf(buffer, sizeof(buffer), "I2S");
       break;
 
     case ACTION_BT_POWER:
@@ -748,6 +750,10 @@ const char* getValueText(int itemIndex) {
 
     case ACTION_SEQ_POWER:
       snprintf(buffer, sizeof(buffer), "%s", sequencerEnabled ? "ON" : "OFF");
+      break;
+
+    case ACTION_SYNTH_VIEW:
+      snprintf(buffer, sizeof(buffer), "VIEW");
       break;
 
     case ACTION_SEQ_BPM:
@@ -866,7 +872,7 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_ABOUT:
-      snprintf(buffer, sizeof(buffer), "Info");
+      snprintf(buffer, sizeof(buffer), "ABOUT");
       break;
 
     default:
@@ -1096,6 +1102,9 @@ void changeCurrentValue(int delta) {
         resetSequencerClock();
       }
       break;
+
+    case ACTION_SYNTH_VIEW:
+      return;
 
     case ACTION_SEQ_BPM:
       sequencerBpm += delta * 2;

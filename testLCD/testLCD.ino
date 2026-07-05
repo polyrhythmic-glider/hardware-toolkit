@@ -281,6 +281,8 @@ uint32_t lastBtHeaderRefreshMs = 0;
 uint32_t lastBtRssiRequestMs = 0;
 int8_t btRssiDelta = 0;
 bool btRssiValid = false;
+bool lastBtHeaderConnected = false;
+int lastBtHeaderBars = -1;
 
 const uint32_t bootDurationMs = 3600;
 const uint32_t bootCompleteHoldMs = 240;

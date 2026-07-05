@@ -365,6 +365,7 @@ void drawEditValue() {
     action == ACTION_SEQ_START ||
     action == ACTION_SEQ_STOP ||
     action == ACTION_SEQ_POWER ||
+    action == ACTION_SYNTH_VIEW ||
     action == ACTION_SEQ_BPM ||
     action == ACTION_SEQ_STEP ||
     action == ACTION_SEQ_NOTE ||
@@ -521,6 +522,10 @@ void drawEditValue() {
       drawSequencerRunEdit(accent);
       break;
 
+    case ACTION_SYNTH_VIEW:
+      drawSynthView(accent, clearBody);
+      break;
+
     case ACTION_SEQ_BPM:
       drawSequencerBpmEdit(accent);
       break;
@@ -644,6 +649,25 @@ void drawEditValue() {
 }
 
 void updateEditFast() {
+  if (getSelectedAction() == ACTION_SYNTH_VIEW) {
+    bool clearView = fullRedraw || lastDrawnMode != MODE_EDIT || valueDirty;
+
+    if (!clearView && !editValueChanged()) {
+      return;
+    }
+
+    int itemIndex = getMenuItemIndex(selectedItem);
+    uint16_t accent = getAccentColor(itemIndex);
+
+    valueDirty = false;
+    fullRedraw = false;
+    lastDrawnMode = MODE_EDIT;
+    lastBtUiRefreshMs = millis();
+    saveLastValues();
+    drawSynthView(accent, clearView);
+    return;
+  }
+
   if (fullRedraw || lastDrawnMode != MODE_EDIT) {
     drawEditBase();
 
@@ -661,7 +685,7 @@ void updateEditFast() {
 void drawAboutScreen() {
   drawStageBackdrop();
 
-  drawHeader("STAGE NOTES");
+  drawHeader("ABOUT");
 
   tft.setTextColor(COL_GOLD);
   tft.setTextSize(2);
@@ -671,7 +695,7 @@ void drawAboutScreen() {
   tft.setTextColor(COL_NOTE);
   tft.setTextSize(1);
   tft.setCursor(10, 53);
-  tft.print("LCD JAM LAB");
+  tft.print("LCD SYNTH PANEL");
 
   tft.setTextColor(COL_INK);
   tft.setCursor(10, 68);
@@ -679,7 +703,7 @@ void drawAboutScreen() {
 
   tft.setTextColor(COL_MUTED);
   tft.setCursor(10, 81);
-  tft.print("encoder conducts UI");
+  tft.print("encoder + K0 control");
 
   drawMiniKeyboard(10, 93);
   drawWavePreview(86, 94, 62, 18, COL_NOTE);
@@ -716,5 +740,7 @@ void drawUi() {
     }
   }
 
-  drawBluetoothHeaderField(false);
+  if (!(uiMode == MODE_EDIT && getSelectedAction() == ACTION_SYNTH_VIEW)) {
+    drawBluetoothHeaderField(false);
+  }
 }

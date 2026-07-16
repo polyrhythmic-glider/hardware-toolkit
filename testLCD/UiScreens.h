@@ -262,6 +262,7 @@ void drawEditBase() {
   lastSequencerDirection = -1;
   lastSequencerGate = -1;
   lastSequencerTranspose = -999;
+  lastSequencerVoice = -1;
   lastSequencerSelectedStep = -1;
   lastSequencerCurrentStep = -1;
   lastSequencerNoteChecksum = -1;
@@ -304,6 +305,7 @@ bool editValueChanged() {
   if (sequencerDirection != lastSequencerDirection) return true;
   if (sequencerGate != lastSequencerGate) return true;
   if (sequencerTranspose != lastSequencerTranspose) return true;
+  if (activeSequencerVoice != lastSequencerVoice) return true;
   if (sequencerSelectedStep != lastSequencerSelectedStep) return true;
   if (sequencerCurrentStep != lastSequencerCurrentStep) return true;
   if (getSequencerNoteChecksum() != lastSequencerNoteChecksum) return true;
@@ -346,6 +348,7 @@ void saveLastValues() {
   lastSequencerDirection = sequencerDirection;
   lastSequencerGate = sequencerGate;
   lastSequencerTranspose = sequencerTranspose;
+  lastSequencerVoice = activeSequencerVoice;
   lastSequencerSelectedStep = sequencerSelectedStep;
   lastSequencerCurrentStep = sequencerCurrentStep;
   lastSequencerNoteChecksum = getSequencerNoteChecksum();
@@ -367,8 +370,10 @@ void drawEditValue() {
     action == ACTION_SEQ_POWER ||
     action == ACTION_SYNTH_VIEW ||
     action == ACTION_SEQ_BPM ||
+    action == ACTION_SEQ_VOICE ||
     action == ACTION_SEQ_STEP ||
     action == ACTION_SEQ_NOTE ||
+    action == ACTION_SEQ_SHAPE ||
     action == ACTION_SEQ_LENGTH ||
     action == ACTION_SEQ_DIRECTION ||
     action == ACTION_SEQ_GATE ||
@@ -530,12 +535,20 @@ void drawEditValue() {
       drawSequencerBpmEdit(accent);
       break;
 
+    case ACTION_SEQ_VOICE:
+      drawSequencerVoiceEdit(accent);
+      break;
+
     case ACTION_SEQ_STEP:
       drawSequencerStepEdit(accent);
       break;
 
     case ACTION_SEQ_NOTE:
       drawSequencerNoteEdit(accent);
+      break;
+
+    case ACTION_SEQ_SHAPE:
+      drawSequencerShapeEdit(accent);
       break;
 
     case ACTION_SEQ_LENGTH:
@@ -572,8 +585,6 @@ void drawEditValue() {
 
     case ACTION_MIX_SINE:
     case ACTION_MIX_SQUARE:
-    case ACTION_MIX_TRIANGLE:
-    case ACTION_MIX_SAW:
       drawMixerWaveEdit(getMixerWaveIndex(action), accent);
       break;
 

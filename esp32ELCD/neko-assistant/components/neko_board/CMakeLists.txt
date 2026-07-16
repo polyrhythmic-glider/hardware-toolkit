@@ -1,0 +1,19 @@
+idf_component_register(
+    SRCS
+        "board_bus.cpp"
+        "input_manager.cpp"
+        "rtc_manager.cpp"
+        "battery_manager.cpp"
+        "sensor_manager.cpp"
+        "audio_manager.cpp"
+        "storage_manager.cpp"
+    INCLUDE_DIRS "include"
+    REQUIRES
+        neko_events
+        driver
+        esp_adc
+        esp_driver_i2c
+        esp_driver_sdmmc
+        fatfs
+        codec_board
+)

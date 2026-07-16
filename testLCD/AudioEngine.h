@@ -46,15 +46,28 @@ float getAudioWaveMixSample(float baseFrequency) {
 
   float mixed = 0.0f;
   float totalGain = 0.0f;
+  int step = clampInt(sequencerCurrentStep, 0, SEQUENCER_STEP_COUNT - 1);
+  int activeVoice = getActiveSequencerVoice();
 
   for (int i = 0; i < WAVE_VOICE_COUNT; i++) {
     float gain = audioWaveVoiceLevels[i] / 100.0f;
     if (gain <= 0.001f) continue;
 
-    float tuneRatio = powf(2.0f, audioWaveVoiceTune[i] / 12.0f);
+    int shape = audioWaveVoiceShape[i];
+    float semitoneOffset = audioWaveVoiceTune[i];
+
+    if (sequencerEnabled) {
+      if (i != activeVoice) continue;
+      if (!isSequencerStepEnabled(i, step)) continue;
+
+      shape = getSequencerStepShape(i, step);
+      semitoneOffset += getSequencerStepNote(i, step) + sequencerTranspose;
+    }
+
+    float tuneRatio = powf(2.0f, semitoneOffset / 12.0f);
     float phaseStep = (baseFrequency * tuneRatio) / (float)SYNTH_AUDIO_SAMPLE_RATE;
 
-    mixed += getOscillatorSampleForParams(synthVoicePhases[i], audioWaveVoiceShape[i], audioWaveVoiceFold[i], audioWaveVoicePhase[i]) * gain;
+    mixed += getOscillatorSampleForParams(synthVoicePhases[i], shape, audioWaveVoiceFold[i], audioWaveVoicePhase[i]) * gain;
     totalGain += gain;
 
     synthVoicePhases[i] += phaseStep;
@@ -160,6 +173,10 @@ bool isPatternClockActive() {
   return transportRunning && (sequencerEnabled || isMixerLayerAudible());
 }
 
+bool isAudioTestActive() {
+  return uiMode == MODE_EDIT && getSelectedAction() == ACTION_AUDIO_TEST;
+}
+
 void triggerKickVoice() {
   kickPhase = 0.0f;
   kickSampleAge = 0;
@@ -176,11 +193,14 @@ int getSequencerGateSamples() {
 }
 
 int getSequencerNoteChecksum() {
-  int checksum = 0;
+  int checksum = getActiveSequencerVoice();
 
-  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    checksum = checksum * 31 + sequencerStepNotes[i];
-    checksum = checksum * 3 + (sequencerStepEnabled[i] ? 1 : 0);
+  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+      checksum = checksum * 31 + sequencerStepNotes[voice][step];
+      checksum = checksum * 31 + sequencerStepShapes[voice][step];
+      checksum = checksum * 3 + (sequencerStepEnabled[voice][step] ? 1 : 0);
+    }
   }
 
   return checksum;
@@ -268,11 +288,11 @@ void tickSequencerClock() {
 }
 
 float getSequencerGateLevel() {
-  if (!sequencerEnabled) return 1.0f;
+  if (!sequencerEnabled) return isAudioTestActive() ? 1.0f : 0.0f;
 
   int step = sequencerCurrentStep;
   if (step < 0 || step >= SEQUENCER_STEP_COUNT) return 0.0f;
-  if (!sequencerStepEnabled[step]) return 0.0f;
+  if (!isActiveSequencerStepEnabledAtStep(step)) return 0.0f;
 
   uint32_t gateSamples = (uint32_t)getSequencerGateSamples();
   if (sequencerSampleCounter < gateSamples) return 1.0f;
@@ -291,18 +311,7 @@ bool isSequencerStepAudible() {
 }
 
 float getActiveSynthFrequency() {
-  float activeFrequency = audioFrequency;
-
-  if (sequencerEnabled) {
-    int step = sequencerCurrentStep;
-    if (step < 0 || step >= SEQUENCER_STEP_COUNT) {
-      step = 0;
-    }
-
-    activeFrequency *= powf(2.0f, (sequencerStepNotes[step] + sequencerTranspose) / 12.0f);
-  }
-
-  return clampFloat(activeFrequency, 20.0f, 2000.0f);
+  return clampFloat(audioFrequency, 20.0f, 2000.0f);
 }
 
 float renderKickSample() {
@@ -341,7 +350,13 @@ bool isSynthAudioActive() {
   if (!dacI2sStarted) return false;
   if (uiMode == MODE_BOOT || uiMode == MODE_ABOUT) return false;
   if (isBluetoothStreaming()) return false;
+
+  if (isAudioTestActive()) {
+    return volume > 0 || audioVolume > 0.05f;
+  }
+
   if (!transportRunning) return false;
+  if (!sequencerEnabled && !isMixerLayerAudible()) return false;
 
   return volume > 0 || audioVolume > 0.05f || isMixerLayerAudible();
 }

@@ -27,7 +27,7 @@ const int SYNTH_AREA_INDEX = 0;
 const int MIXER_AREA_INDEX = 1;
 const int ENVELOPE_AREA_INDEX = 2;
 const int SEQUENCER_AREA_INDEX = 3;
-const int WAVE_VOICE_COUNT = 4;
+const int WAVE_VOICE_COUNT = 2;
 
 const int DELAY_MAX_MS = 600;
 const int DELAY_BUFFER_SAMPLES = (SYNTH_AUDIO_SAMPLE_RATE * DELAY_MAX_MS) / 1000;

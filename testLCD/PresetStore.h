@@ -3,7 +3,7 @@
 #include <Preferences.h>
 
 const uint32_t PRESET_MAGIC = 0x50474C44;
-const uint16_t PRESET_VERSION = 1;
+const uint16_t PRESET_VERSION = 3;
 const int PRESET_SLOT_COUNT = 8;
 
 struct SynthPreset {
@@ -34,8 +34,9 @@ struct SynthPreset {
   int sequencerDirection;
   int sequencerGate;
   int sequencerTranspose;
-  int sequencerStepNotes[SEQUENCER_STEP_COUNT];
-  bool sequencerStepEnabled[SEQUENCER_STEP_COUNT];
+  int sequencerStepNotes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int sequencerStepShapes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
   int delayMix;
   int delayTimeMs;
   int delayFeedback;
@@ -77,6 +78,7 @@ void capturePreset(SynthPreset& preset) {
   preset.sequencerTranspose = sequencerTranspose;
   memcpy(preset.sequencerStepNotes, sequencerStepNotes, sizeof(sequencerStepNotes));
   memcpy(preset.sequencerStepEnabled, sequencerStepEnabled, sizeof(sequencerStepEnabled));
+  memcpy(preset.sequencerStepShapes, sequencerStepShapes, sizeof(sequencerStepShapes));
   preset.delayMix = delayMix;
   preset.delayTimeMs = delayTimeMs;
   preset.delayFeedback = delayFeedback;
@@ -112,6 +114,7 @@ void applyPreset(const SynthPreset& preset) {
   sequencerTranspose = preset.sequencerTranspose;
   memcpy(sequencerStepNotes, preset.sequencerStepNotes, sizeof(sequencerStepNotes));
   memcpy(sequencerStepEnabled, preset.sequencerStepEnabled, sizeof(sequencerStepEnabled));
+  memcpy(sequencerStepShapes, preset.sequencerStepShapes, sizeof(sequencerStepShapes));
   delayMix = preset.delayMix;
   delayTimeMs = preset.delayTimeMs;
   delayFeedback = preset.delayFeedback;

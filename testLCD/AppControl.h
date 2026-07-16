@@ -36,8 +36,10 @@ bool isDiscreteEditAction(MenuAction action) {
     case ACTION_SEQ_STOP:
     case ACTION_SEQ_POWER:
     case ACTION_SYNTH_VIEW:
+    case ACTION_SEQ_VOICE:
     case ACTION_SEQ_STEP:
     case ACTION_SEQ_DIRECTION:
+    case ACTION_SEQ_SHAPE:
     case ACTION_SEQ_STEP_ENABLE:
     case ACTION_SEQ_RANDOMIZE:
     case ACTION_SEQ_CLEAR:
@@ -242,9 +244,7 @@ int getBluetoothSignalBars() {
 
 bool isWaveVoicePage(MenuPage page) {
   return page == MENU_PAGE_WAVE_SINE ||
-         page == MENU_PAGE_WAVE_SQUARE ||
-         page == MENU_PAGE_WAVE_TRIANGLE ||
-         page == MENU_PAGE_WAVE_SAW;
+         page == MENU_PAGE_WAVE_SQUARE;
 }
 
 int getWaveVoiceIndexForPage(MenuPage page) {
@@ -254,12 +254,6 @@ int getWaveVoiceIndexForPage(MenuPage page) {
 
     case MENU_PAGE_WAVE_SQUARE:
       return 1;
-
-    case MENU_PAGE_WAVE_TRIANGLE:
-      return 2;
-
-    case MENU_PAGE_WAVE_SAW:
-      return 3;
 
     default:
       return 0;
@@ -278,8 +272,6 @@ int getCurrentWaveVoiceIndex() {
 bool isMenuSubmenuAction(MenuAction action) {
   return action == ACTION_WAVE_SINE_MENU ||
          action == ACTION_WAVE_SQUARE_MENU ||
-         action == ACTION_WAVE_TRIANGLE_MENU ||
-         action == ACTION_WAVE_SAW_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_KICK_MENU ||
          action == ACTION_TRANSPORT_MENU;
@@ -336,12 +328,6 @@ MenuPage getSubmenuPageForAction(MenuAction action) {
 
     case ACTION_WAVE_SQUARE_MENU:
       return MENU_PAGE_WAVE_SQUARE;
-
-    case ACTION_WAVE_TRIANGLE_MENU:
-      return MENU_PAGE_WAVE_TRIANGLE;
-
-    case ACTION_WAVE_SAW_MENU:
-      return MENU_PAGE_WAVE_SAW;
 
     case ACTION_FILTER_MENU:
       return MENU_PAGE_FILTER;
@@ -468,8 +454,6 @@ MenuAction getSelectedAction() {
 bool isSynthAction(MenuAction action) {
   return action == ACTION_WAVE_SINE_MENU ||
          action == ACTION_WAVE_SQUARE_MENU ||
-         action == ACTION_WAVE_TRIANGLE_MENU ||
-         action == ACTION_WAVE_SAW_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_KICK_MENU ||
          action == ACTION_TRANSPORT_MENU ||
@@ -494,8 +478,10 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_SEQ_POWER ||
          action == ACTION_SYNTH_VIEW ||
          action == ACTION_SEQ_BPM ||
+         action == ACTION_SEQ_VOICE ||
          action == ACTION_SEQ_STEP ||
          action == ACTION_SEQ_NOTE ||
+         action == ACTION_SEQ_SHAPE ||
          action == ACTION_SEQ_LENGTH ||
          action == ACTION_SEQ_DIRECTION ||
          action == ACTION_SEQ_GATE ||
@@ -506,8 +492,6 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_SEQ_ROTATE ||
          action == ACTION_MIX_SINE ||
          action == ACTION_MIX_SQUARE ||
-         action == ACTION_MIX_TRIANGLE ||
-         action == ACTION_MIX_SAW ||
          action == ACTION_MIX_KICK ||
          action == ACTION_KICK_PITCH ||
          action == ACTION_KICK_DECAY ||
@@ -609,6 +593,53 @@ void applyTypeChoice(int typeIndex) {
   lastFftPeakHold = -1;
 }
 
+int getActiveSequencerVoice() {
+  activeSequencerVoice = clampInt(activeSequencerVoice, 0, WAVE_VOICE_COUNT - 1);
+  return activeSequencerVoice;
+}
+
+int getSequencerStepNote(int voiceIndex, int stepIndex) {
+  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
+  return sequencerStepNotes[voiceIndex][stepIndex];
+}
+
+int getSequencerStepShape(int voiceIndex, int stepIndex) {
+  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
+  return clampInt(sequencerStepShapes[voiceIndex][stepIndex], 0, WAVE_SHAPE_COUNT - 1);
+}
+
+bool isSequencerStepEnabled(int voiceIndex, int stepIndex) {
+  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
+  return sequencerStepEnabled[voiceIndex][stepIndex];
+}
+
+bool isActiveSequencerStepEnabledAtStep(int stepIndex) {
+  if (stepIndex < 0 || stepIndex >= SEQUENCER_STEP_COUNT) return false;
+
+  return sequencerStepEnabled[getActiveSequencerVoice()][stepIndex];
+}
+
+void setSequencerStepEnabled(int voiceIndex, int stepIndex, bool enabled) {
+  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
+  sequencerStepEnabled[voiceIndex][stepIndex] = enabled;
+}
+
+int getSelectedSequencerStepNote() {
+  return getSequencerStepNote(getActiveSequencerVoice(), sequencerSelectedStep);
+}
+
+int getSelectedSequencerStepShape() {
+  return getSequencerStepShape(getActiveSequencerVoice(), sequencerSelectedStep);
+}
+
+bool isSelectedSequencerStepEnabled() {
+  return isSequencerStepEnabled(getActiveSequencerVoice(), sequencerSelectedStep);
+}
+
 const char* getValueText(int itemIndex) {
   static char buffer[24];
   MenuAction action = menuItems[itemIndex].action;
@@ -616,8 +647,6 @@ const char* getValueText(int itemIndex) {
   switch (action) {
     case ACTION_WAVE_SINE_MENU:
     case ACTION_WAVE_SQUARE_MENU:
-    case ACTION_WAVE_TRIANGLE_MENU:
-    case ACTION_WAVE_SAW_MENU:
     case ACTION_FILTER_MENU:
     case ACTION_KICK_MENU:
     case ACTION_TRANSPORT_MENU:
@@ -760,12 +789,20 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%dBPM", sequencerBpm);
       break;
 
+    case ACTION_SEQ_VOICE:
+      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
+      break;
+
     case ACTION_SEQ_STEP:
       snprintf(buffer, sizeof(buffer), "S%d", sequencerSelectedStep + 1);
       break;
 
     case ACTION_SEQ_NOTE:
-      snprintf(buffer, sizeof(buffer), "%+dst", sequencerStepNotes[sequencerSelectedStep]);
+      snprintf(buffer, sizeof(buffer), "%+dst", getSelectedSequencerStepNote());
+      break;
+
+    case ACTION_SEQ_SHAPE:
+      snprintf(buffer, sizeof(buffer), "%s", waveformNames[getSelectedSequencerStepShape()]);
       break;
 
     case ACTION_SEQ_LENGTH:
@@ -785,28 +822,26 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_SEQ_STEP_ENABLE:
-      snprintf(buffer, sizeof(buffer), "%s", sequencerStepEnabled[sequencerSelectedStep] ? "ON" : "REST");
+      snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "ON" : "REST");
       break;
 
     case ACTION_SEQ_RANDOMIZE:
-      snprintf(buffer, sizeof(buffer), "GO");
+      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
       break;
 
     case ACTION_SEQ_CLEAR:
-      snprintf(buffer, sizeof(buffer), "GO");
+      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
       break;
 
     case ACTION_SEQ_ROTATE:
-      snprintf(buffer, sizeof(buffer), "GO");
+      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
       break;
 
     case ACTION_MIX_SINE:
     case ACTION_MIX_SQUARE:
-    case ACTION_MIX_TRIANGLE:
-    case ACTION_MIX_SAW:
     {
       int waveIndex = getMixerWaveIndex(action);
-      snprintf(buffer, sizeof(buffer), "%d%%", waveVoiceLevels[waveIndex]);
+      snprintf(buffer, sizeof(buffer), "%d%%", waveIndex >= 0 ? waveVoiceLevels[waveIndex] : 0);
       break;
     }
 
@@ -889,6 +924,7 @@ int getSequencerLength() {
 
 void clampSequencerIndexes() {
   int length = getSequencerLength();
+  activeSequencerVoice = clampInt(activeSequencerVoice, 0, WAVE_VOICE_COUNT - 1);
 
   if (sequencerSelectedStep >= length) {
     sequencerSelectedStep = length - 1;
@@ -904,20 +940,25 @@ void clampSequencerIndexes() {
 
 void randomizeSequencerPattern() {
   int length = getSequencerLength();
+  int voice = getActiveSequencerVoice();
 
   for (int i = 0; i < length; i++) {
-    sequencerStepNotes[i] = random(SEQUENCER_MIN_NOTE / 2, SEQUENCER_MAX_NOTE / 2 + 1);
-    sequencerStepEnabled[i] = random(0, 100) >= 18;
+    sequencerStepNotes[voice][i] = random(SEQUENCER_MIN_NOTE / 2, SEQUENCER_MAX_NOTE / 2 + 1);
+    sequencerStepShapes[voice][i] = random(0, WAVE_SHAPE_COUNT);
+    sequencerStepEnabled[voice][i] = random(0, 100) >= 18;
   }
 
-  sequencerStepEnabled[0] = true;
+  sequencerStepEnabled[voice][0] = true;
   resetSequencerClock();
 }
 
 void clearSequencerPattern() {
+  int voice = getActiveSequencerVoice();
+
   for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    sequencerStepNotes[i] = 0;
-    sequencerStepEnabled[i] = true;
+    sequencerStepNotes[voice][i] = 0;
+    sequencerStepShapes[voice][i] = waveVoiceShape[voice];
+    sequencerStepEnabled[voice][i] = false;
   }
 
   resetSequencerClock();
@@ -927,28 +968,36 @@ void rotateSequencerPattern(int direction) {
   int length = getSequencerLength();
   if (length <= 1) return;
 
+  int voice = getActiveSequencerVoice();
+
   if (direction >= 0) {
-    int lastNote = sequencerStepNotes[length - 1];
-    bool lastEnabled = sequencerStepEnabled[length - 1];
+    int lastNote = sequencerStepNotes[voice][length - 1];
+    int lastShape = sequencerStepShapes[voice][length - 1];
+    bool lastEnabled = sequencerStepEnabled[voice][length - 1];
 
     for (int i = length - 1; i > 0; i--) {
-      sequencerStepNotes[i] = sequencerStepNotes[i - 1];
-      sequencerStepEnabled[i] = sequencerStepEnabled[i - 1];
+      sequencerStepNotes[voice][i] = sequencerStepNotes[voice][i - 1];
+      sequencerStepShapes[voice][i] = sequencerStepShapes[voice][i - 1];
+      sequencerStepEnabled[voice][i] = sequencerStepEnabled[voice][i - 1];
     }
 
-    sequencerStepNotes[0] = lastNote;
-    sequencerStepEnabled[0] = lastEnabled;
+    sequencerStepNotes[voice][0] = lastNote;
+    sequencerStepShapes[voice][0] = lastShape;
+    sequencerStepEnabled[voice][0] = lastEnabled;
   } else {
-    int firstNote = sequencerStepNotes[0];
-    bool firstEnabled = sequencerStepEnabled[0];
+    int firstNote = sequencerStepNotes[voice][0];
+    int firstShape = sequencerStepShapes[voice][0];
+    bool firstEnabled = sequencerStepEnabled[voice][0];
 
     for (int i = 0; i < length - 1; i++) {
-      sequencerStepNotes[i] = sequencerStepNotes[i + 1];
-      sequencerStepEnabled[i] = sequencerStepEnabled[i + 1];
+      sequencerStepNotes[voice][i] = sequencerStepNotes[voice][i + 1];
+      sequencerStepShapes[voice][i] = sequencerStepShapes[voice][i + 1];
+      sequencerStepEnabled[voice][i] = sequencerStepEnabled[voice][i + 1];
     }
 
-    sequencerStepNotes[length - 1] = firstNote;
-    sequencerStepEnabled[length - 1] = firstEnabled;
+    sequencerStepNotes[voice][length - 1] = firstNote;
+    sequencerStepShapes[voice][length - 1] = firstShape;
+    sequencerStepEnabled[voice][length - 1] = firstEnabled;
   }
 
   resetSequencerClock();
@@ -1111,6 +1160,12 @@ void changeCurrentValue(int delta) {
       sequencerBpm = clampInt(sequencerBpm, 40, 240);
       break;
 
+    case ACTION_SEQ_VOICE:
+      activeSequencerVoice = wrapIndex(activeSequencerVoice + delta, WAVE_VOICE_COUNT);
+      resetSequencerClock();
+      synthRetriggerRequested = true;
+      break;
+
     case ACTION_SEQ_STEP:
       sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
       if (!sequencerEnabled && !isMixerLayerEnabled()) {
@@ -1120,9 +1175,23 @@ void changeCurrentValue(int delta) {
       break;
 
     case ACTION_SEQ_NOTE:
-      sequencerStepNotes[sequencerSelectedStep] += delta;
-      sequencerStepNotes[sequencerSelectedStep] = clampInt(sequencerStepNotes[sequencerSelectedStep], SEQUENCER_MIN_NOTE, SEQUENCER_MAX_NOTE);
+    {
+      int voice = getActiveSequencerVoice();
+      sequencerStepNotes[voice][sequencerSelectedStep] += delta;
+      sequencerStepNotes[voice][sequencerSelectedStep] = clampInt(sequencerStepNotes[voice][sequencerSelectedStep], SEQUENCER_MIN_NOTE, SEQUENCER_MAX_NOTE);
+      sequencerStepEnabled[voice][sequencerSelectedStep] = true;
+      synthRetriggerRequested = true;
       break;
+    }
+
+    case ACTION_SEQ_SHAPE:
+    {
+      int voice = getActiveSequencerVoice();
+      sequencerStepShapes[voice][sequencerSelectedStep] = wrapIndex(sequencerStepShapes[voice][sequencerSelectedStep] + delta, WAVE_SHAPE_COUNT);
+      sequencerStepEnabled[voice][sequencerSelectedStep] = true;
+      synthRetriggerRequested = true;
+      break;
+    }
 
     case ACTION_SEQ_LENGTH:
       sequencerLength += delta;
@@ -1149,7 +1218,8 @@ void changeCurrentValue(int delta) {
 
     case ACTION_SEQ_STEP_ENABLE:
       if (delta != 0) {
-        sequencerStepEnabled[sequencerSelectedStep] = !sequencerStepEnabled[sequencerSelectedStep];
+        int voice = getActiveSequencerVoice();
+        sequencerStepEnabled[voice][sequencerSelectedStep] = !sequencerStepEnabled[voice][sequencerSelectedStep];
       }
       break;
 
@@ -1173,10 +1243,9 @@ void changeCurrentValue(int delta) {
 
     case ACTION_MIX_SINE:
     case ACTION_MIX_SQUARE:
-    case ACTION_MIX_TRIANGLE:
-    case ACTION_MIX_SAW:
     {
       int waveIndex = getMixerWaveIndex(action);
+      if (waveIndex < 0) break;
       waveVoiceLevels[waveIndex] += delta * 5;
       waveVoiceLevels[waveIndex] = clampInt(waveVoiceLevels[waveIndex], 0, 100);
       break;

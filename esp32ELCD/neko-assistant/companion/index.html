@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111111">
+  <title>Neko Companion</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header><span class="mark">N</span><div><h1>Neko Companion</h1><p id="connection">Non connesso</p></div><button id="connect">Connetti</button></header>
+    <section class="metrics">
+      <article><small>Batteria</small><strong id="battery">--%</strong></article>
+      <article><small>Temperatura interna</small><strong id="temperature">-- °C</strong></article>
+      <article><small>Umidità</small><strong id="humidity">--%</strong></article>
+    </section>
+    <section><h2>Identità e ora</h2><label>Nome del gatto<input id="catName" maxlength="23" value="Neko"></label><div class="actions"><button id="saveName">Salva nome</button><button id="setTime">Sincronizza ora</button></div></section>
+    <section><h2>Notifica</h2><label>Messaggio<input id="notification" maxlength="95" placeholder="Una nota breve, con stile."></label><button id="sendNotification">Invia</button></section>
+    <section><h2>Sveglia</h2><div class="row"><label>Ora<input id="alarmTime" type="time" value="07:00"></label><label>Giorni<select id="alarmDays"><option value="127">Ogni giorno</option><option value="62">Lun–Ven</option><option value="65">Weekend</option></select></label></div><label>Etichetta<input id="alarmLabel" maxlength="28" value="Sveglia"></label><button id="saveAlarm">Configura sveglia</button></section>
+    <section><h2>Wi‑Fi</h2><p class="hint">Sul dispositivo: pressione lunga di KEY. La finestra cifrata dura due minuti.</p><label>SSID<input id="ssid" maxlength="32" autocomplete="off"></label><label>Password<input id="wifiPassword" type="password" maxlength="64" autocomplete="new-password"></label><button id="saveWifi">Invia credenziali</button></section>
+    <footer>Protocollo Neko GATT 1.0 · Web Bluetooth richiede HTTPS e Chrome/Edge compatibile.</footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

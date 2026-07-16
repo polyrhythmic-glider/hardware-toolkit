@@ -2,10 +2,10 @@
 
 ## Structure Rules
 
-- `Wave Engine` owns the four synth voices, global pitch, filter access, and audio test.
+- `Wave Engine` owns the two synth voices, global pitch, filter access, and audio test.
 - Each voice opens a submenu where the base wave can be selected and then shaped with tune, fold, phase, and scope.
 - `Mixer` owns master level, per-voice volume, kick volume, and the kick designer submenu.
-- `Sequencer` owns transport and pattern utilities.
+- `Sequencer` owns one active voice sequencer at a time, transport, and per-track pattern utilities.
 - `Envelope`, `Spectrum Lab`, `Bluetooth RX`, `Utility`, and `Hardware Test` stay separated by task.
 
 ## Wave Types
@@ -42,18 +42,6 @@
     - Voice Fold
     - Voice Phase
     - Voice Scope
-  - Voice 3
-    - Wave Type
-    - Voice Tune
-    - Voice Fold
-    - Voice Phase
-    - Voice Scope
-  - Voice 4
-    - Wave Type
-    - Voice Tune
-    - Voice Fold
-    - Voice Phase
-    - Voice Scope
   - Pitch
   - Filter
     - Filter Power
@@ -65,8 +53,6 @@
   - Master Level
   - Voice 1 Volume
   - Voice 2 Volume
-  - Voice 3 Volume
-  - Voice 4 Volume
   - Kick Volume
   - Kick Designer
     - Kick Pitch
@@ -74,6 +60,11 @@
     - Kick Sweep
     - Kick Click
     - Kick Drive
+  - Delay Mix
+  - Delay Time
+  - Delay Feedback
+  - Reverb Mix
+  - Reverb Room
 
 - Envelope
   - ADSR View
@@ -83,19 +74,24 @@
   - Release
 
 - Sequencer
-  - Start
-  - Stop
+  - Synth View
+  - Transport
+    - Start
+    - Stop
+  - Sequencer Power
   - Seq BPM
+  - Seq Voice / Active Sequencer
   - Seq Step
   - Seq Note
+  - Step Shape
   - Seq Length
   - Seq Direction
   - Seq Gate
   - Seq Transpose
   - Step On
-  - Randomize
-  - Clear Seq
-  - Rotate Seq
+  - Random Track
+  - Clear Track
+  - Rotate Track
 
 - Spectrum Lab
   - Analyzer
@@ -108,15 +104,17 @@
 
 - Bluetooth RX
   - Bluetooth
-  - Receiver
-  - Pair Name
-  - PCM5102 Bus
-  - Line Output
+  - Connection
+  - Device Name
+  - Audio Output
 
 - Utility
   - Inputs
   - Display
-  - Stage
+  - About
+  - Preset Slot
+  - Load Preset
+  - Save Preset
 
 - Hardware Test
   - Display
@@ -124,4 +122,4 @@
   - Test Audio
   - Wave Scope
   - Analyzer
-  - Stage
+  - About

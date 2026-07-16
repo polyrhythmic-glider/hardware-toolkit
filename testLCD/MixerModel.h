@@ -11,12 +11,6 @@ inline int getMixerWaveIndex(int action) {
     case ACTION_MIX_SQUARE:
       return 1;
 
-    case ACTION_MIX_TRIANGLE:
-      return 2;
-
-    case ACTION_MIX_SAW:
-      return 3;
-
     default:
       return -1;
   }

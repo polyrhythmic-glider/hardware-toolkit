@@ -1,5 +1,7 @@
 #pragma once
 
+#include "NeoKeySequencerPanel.h"
+
 void initApp() {
   Serial.begin(115200);
 
@@ -25,6 +27,8 @@ void initApp() {
 
   tft.fillScreen(COL_BG);
 
+  initNeoKeySequencerPanel();
+
   bootStartMs = millis();
   bootCompletedAtMs = 0;
   bootReady = false;
@@ -40,7 +44,9 @@ void initApp() {
 
 void runAppFrame() {
   updateButtons();
+  pollNeoKeySequencerKeys();
   applyBluetoothStartVolume(false);
   updateUiLogic();
+  refreshNeoKeySequencerPanel();
   drawUi();
 }

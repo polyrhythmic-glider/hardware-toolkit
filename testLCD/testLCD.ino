@@ -132,28 +132,39 @@ TaskHandle_t synthAudioTaskHandle = nullptr;
 int16_t synthAudioBuffer[SYNTH_AUDIO_BUFFER_FRAMES * 2];
 volatile bool synthRetriggerRequested = true;
 float synthPhase = 0.0f;
-float synthVoicePhases[WAVE_VOICE_COUNT] = { 0.0f, 0.0f, 0.0f, 0.0f };
+float synthVoicePhases[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
 uint32_t synthEnvelopeSample = 0;
 float synthEnvelopeSmoothed = 0.0f;
 bool synthWasActive = false;
-bool transportRunning = true;
+bool transportRunning = false;
 bool sequencerEnabled = false;
 int sequencerBpm = 120;
 int sequencerLength = SEQUENCER_STEP_COUNT;
 int sequencerDirection = 0;
 int sequencerGate = 70;
 int sequencerTranspose = 0;
+int activeSequencerVoice = 0;
 int sequencerSelectedStep = 0;
 volatile int sequencerCurrentStep = 0;
 uint32_t sequencerSampleCounter = 0;
-int sequencerStepNotes[SEQUENCER_STEP_COUNT] = { 0, 3, 5, 7, 10, 7, 5, 3 };
-bool sequencerStepEnabled[SEQUENCER_STEP_COUNT] = { true, true, true, true, true, true, true, true };
+int sequencerStepNotes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {
+  { 0, 0, 0, 0, 0, 0, 0, 0 },
+  { 0, 0, 0, 0, 0, 0, 0, 0 }
+};
+bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {
+  { false, false, false, false, false, false, false, false },
+  { false, false, false, false, false, false, false, false }
+};
+int sequencerStepShapes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {
+  { 0, 0, 0, 0, 0, 0, 0, 0 },
+  { 1, 1, 1, 1, 1, 1, 1, 1 }
+};
 bool sequencerPingPongForward = true;
-int waveVoiceLevels[WAVE_VOICE_COUNT] = { 100, 0, 0, 0 };
-int waveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1, 2, 3 };
-int waveVoiceTune[WAVE_VOICE_COUNT] = { 0, 0, 0, 0 };
-int waveVoiceFold[WAVE_VOICE_COUNT] = { 12, 12, 12, 12 };
-int waveVoicePhase[WAVE_VOICE_COUNT] = { 0, 0, 0, 0 };
+int waveVoiceLevels[WAVE_VOICE_COUNT] = { 100, 100 };
+int waveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
+int waveVoiceTune[WAVE_VOICE_COUNT] = { 0, 0 };
+int waveVoiceFold[WAVE_VOICE_COUNT] = { 12, 12 };
+int waveVoicePhase[WAVE_VOICE_COUNT] = { 0, 0 };
 int kickLevel = 0;
 int kickPitch = 48;
 int kickDecay = 420;
@@ -167,11 +178,11 @@ float audioFrequency = 220.0f;
 float audioVolume = 80.0f;
 float audioWaveFold = 12.0f;
 float audioWavePhase = 0.0f;
-float audioWaveVoiceLevels[WAVE_VOICE_COUNT] = { 100.0f, 0.0f, 0.0f, 0.0f };
-int audioWaveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1, 2, 3 };
-float audioWaveVoiceTune[WAVE_VOICE_COUNT] = { 0.0f, 0.0f, 0.0f, 0.0f };
-float audioWaveVoiceFold[WAVE_VOICE_COUNT] = { 12.0f, 12.0f, 12.0f, 12.0f };
-float audioWaveVoicePhase[WAVE_VOICE_COUNT] = { 0.0f, 0.0f, 0.0f, 0.0f };
+float audioWaveVoiceLevels[WAVE_VOICE_COUNT] = { 100.0f, 100.0f };
+int audioWaveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
+float audioWaveVoiceTune[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
+float audioWaveVoiceFold[WAVE_VOICE_COUNT] = { 12.0f, 12.0f };
+float audioWaveVoicePhase[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
 float audioKickLevel = 0.0f;
 float audioKickPitch = 48.0f;
 float audioKickDecay = 420.0f;
@@ -261,6 +272,7 @@ int lastSequencerLength = -1;
 int lastSequencerDirection = -1;
 int lastSequencerGate = -1;
 int lastSequencerTranspose = -999;
+int lastSequencerVoice = -1;
 int lastSequencerSelectedStep = -1;
 int lastSequencerCurrentStep = -1;
 int lastSequencerNoteChecksum = -1;

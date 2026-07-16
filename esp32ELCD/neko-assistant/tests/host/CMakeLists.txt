@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(neko_host_tests LANGUAGES CXX)
+enable_testing()
+add_executable(neko_algorithms_test test_algorithms.cpp)
+target_compile_features(neko_algorithms_test PRIVATE cxx_std_17)
+target_include_directories(neko_algorithms_test PRIVATE ../../components/neko_board/include)
+add_test(NAME algorithms COMMAND neko_algorithms_test)

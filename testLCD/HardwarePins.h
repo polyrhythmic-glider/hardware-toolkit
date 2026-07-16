@@ -13,6 +13,11 @@
 #define ENC_SW    25
 #define BTN_K0    26
 
+// Bus I2C STEMMA QT per 2x Adafruit NeoKey 1x4.
+// Usiamo i pin liberati dal vecchio TM1638 per non toccare l'audio I2S.
+#define NEOKEY_I2C_SDA  21
+#define NEOKEY_I2C_SCL  19
+
 // Uscita I2S verso PCM5102.
 #define PCM5102_BCK   27
 #define PCM5102_LRCK  14

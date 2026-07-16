@@ -1,0 +1,19 @@
+- [x] Aggiungi la possibilita di caricare e salvare preset
+- [x] Ingrandisci il carattere e rendi il menu circolare, mostrando le prime voci dopo l'ultima
+- [x] Aggiungi delay e riverbero
+- [x] Usa font ordinati e proporzionati e rendi circolari anche i sopramenu
+- [x] Dai a Start e Stop un menu dedicato
+- [x] Mostra nell'header il simbolo Bluetooth grigio se disconnesso e blu se connesso
+- [x] Migliora la visualizzazione dello step sequencer
+- [x] Ridisegna il simbolo Bluetooth e semplifica il menu Bluetooth
+- [x] Rimuovi LINK e i trattini dallo stato Bluetooth nell'header
+- [x] Mostra in maiuscolo tutti i titoli dei menu interni
+- [x] Mantieni l'ordine naturale nelle liste che entrano interamente a schermo
+- [x] Riduci e uniforma il font generale dei menu
+- [x] Rimuovi il cerchio e riduci il simbolo Bluetooth
+- [x] Completa il loading prima di mostrare il menu ed elimina il flicker del sequencer
+- [x] Aggiungi una Synth View con BPM, step, gate, forma d'onda e stato del transport
+- [x] La Synth View deve essere completamente diversa dai nostri soliti layout, deve essere un all in one e deve essere un item del menu a parte
+- [x] Controlla il flickering un po ovunque in LCDtest
+- [x] Controlla coerenza dei menu e refusi da AI
+- [ ] 

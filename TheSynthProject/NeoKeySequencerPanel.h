@@ -1,0 +1,414 @@
+#pragma once
+
+#include <Wire.h>
+#include "Adafruit_NeoKey_1x4.h"
+#include "seesaw_neopixel.h"
+#include "HardwarePins.h"
+#include "SerialDebug.h"
+
+// 4x Adafruit NeoKey 1x4 QT concatenati sul canale 4 del PCA9548A.
+// Ordine fisico/logico: 0x31, 0x30, 0x32, 0x33.
+
+const uint8_t NEOKEY_BOARD_COUNT = 4;
+const uint8_t NEOKEY_KEYS_PER_BOARD = 4;
+const uint8_t NEOKEY_TOTAL_KEYS = NEOKEY_BOARD_COUNT * NEOKEY_KEYS_PER_BOARD;
+const uint8_t NEOKEY_BOARD_ADDRESSES[NEOKEY_BOARD_COUNT] = { 0x31, 0x30, 0x32, 0x33 };
+const uint8_t NEOKEY_LOCAL_KEY_MAP[NEOKEY_KEYS_PER_BOARD] = { 3, 2, 1, 0 };
+const uint32_t NEOKEY_KEY_POLL_MS = 10;
+const uint32_t NEOKEY_KEY_DEBOUNCE_MS = 30;
+const uint32_t NEOKEY_REFRESH_MS = 25;
+const uint32_t NEOKEY_RECONNECT_MS = 1800;
+const uint8_t NEOKEY_BOOT_RETRY_COUNT = 4;
+const uint8_t NEOKEY_RUNTIME_FAILURE_LIMIT = 3;
+const uint8_t NEOKEY_BRIGHTNESS = 36;
+
+Adafruit_NeoKey_1x4 neokeyBoards[NEOKEY_BOARD_COUNT] = {
+  Adafruit_NeoKey_1x4(0x31),
+  Adafruit_NeoKey_1x4(0x30),
+  Adafruit_NeoKey_1x4(0x32),
+  Adafruit_NeoKey_1x4(0x33),
+};
+
+bool neokeyBoardReady[NEOKEY_BOARD_COUNT] = { false };
+bool neokeyAnyReady = false;
+uint16_t neokeyLastRawKeys = 0;
+uint16_t neokeyStableKeys = 0;
+uint32_t neokeyLastPollMs = 0;
+uint32_t neokeyLastRefreshMs = 0;
+uint32_t neokeyLastReconnectMs = 0;
+uint8_t neokeyBoardFailureCount[NEOKEY_BOARD_COUNT] = { 0 };
+bool neokeyButtonLastRaw[NEOKEY_TOTAL_KEYS] = { false };
+bool neokeyButtonStable[NEOKEY_TOTAL_KEYS] = { false };
+uint32_t neokeyButtonChangedAtMs[NEOKEY_TOTAL_KEYS] = { 0 };
+int neokeyLastVoice = -1;
+int neokeyLastStep = -1;
+int neokeyLastPlayStep = -1;
+int neokeyLastLedMask = -1;
+bool neokeyLastSequencerRunning = false;
+
+bool neokeySelectPcaChannel() {
+  Wire.setClock(NEOKEY_I2C_CLOCK_HZ);
+  Wire.beginTransmission(SURFACE_PCA9548A_ADDRESS);
+  Wire.write((uint8_t)(1U << NEOKEY_PCA_CHANNEL));
+  return Wire.endTransmission(true) == 0;
+}
+
+void neokeyRestoreDisplayBusClock() {
+  Wire.setClock(SURFACE_DISPLAY_I2C_CLOCK_HZ);
+}
+
+bool neokeyPingAddress(uint8_t address) {
+  if (!neokeySelectPcaChannel()) {
+    neokeyRestoreDisplayBusClock();
+    return false;
+  }
+
+  Wire.beginTransmission(address);
+  bool present = Wire.endTransmission(true) == 0;
+  neokeyRestoreDisplayBusClock();
+  return present;
+}
+
+bool neokeyBeginBoard(uint8_t board) {
+  if (board >= NEOKEY_BOARD_COUNT || !neokeySelectPcaChannel()) {
+    neokeyRestoreDisplayBusClock();
+    return false;
+  }
+
+  uint8_t address = NEOKEY_BOARD_ADDRESSES[board];
+  bool ready = neokeyBoards[board].begin(address);
+
+  if (ready) {
+    neokeyBoards[board].pixels.setBrightness(NEOKEY_BRIGHTNESS);
+    neokeyBoards[board].pixels.clear();
+    neokeyBoards[board].pixels.show();
+  }
+
+  neokeyRestoreDisplayBusClock();
+  return ready;
+}
+
+void neokeyRecomputeReadyState() {
+  neokeyAnyReady = false;
+  for (uint8_t board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+    neokeyAnyReady = neokeyAnyReady || neokeyBoardReady[board];
+  }
+}
+
+bool neokeySequencerControlActive() {
+  return uiMode != MODE_BOOT && uiMode != MODE_PREMENU && uiMode != MODE_ABOUT;
+}
+
+bool neokeySequencerRunning() {
+  return transportRunning && sequencerEnabled;
+}
+
+uint32_t neokeyColor(uint8_t r, uint8_t g, uint8_t b) {
+  return seesaw_NeoPixel::Color(r, g, b);
+}
+
+uint32_t neokeyStepColor(int stepIndex, bool selected, bool activePattern, bool playhead) {
+  (void)stepIndex;
+
+  (void)selected;
+
+  if (playhead) return neokeyColor(255, 255, 255);
+  if (activePattern) return neokeyColor(180, 0, 0);
+  return 0;
+}
+
+void neokeySetStepPixel(int stepIndex, uint32_t color) {
+  if (stepIndex < 0 || stepIndex >= NEOKEY_TOTAL_KEYS) return;
+
+  int board = stepIndex / NEOKEY_KEYS_PER_BOARD;
+  int localKey = NEOKEY_LOCAL_KEY_MAP[stepIndex % NEOKEY_KEYS_PER_BOARD];
+
+  if (!neokeyBoardReady[board]) return;
+
+  neokeyBoards[board].pixels.setPixelColor(localKey, color);
+}
+
+void neokeyShowAll() {
+  if (!neokeySelectPcaChannel()) {
+    neokeyRestoreDisplayBusClock();
+    return;
+  }
+
+  for (int board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+    if (neokeyBoardReady[board]) {
+      neokeyBoards[board].pixels.show();
+    }
+  }
+
+  neokeyRestoreDisplayBusClock();
+}
+
+void neokeyClearAll() {
+  for (int i = 0; i < NEOKEY_TOTAL_KEYS; i++) {
+    neokeySetStepPixel(i, 0);
+  }
+
+  neokeyShowAll();
+}
+
+void neokeyMarkSequencerDirty(bool retriggerAudio) {
+  valueDirty = true;
+  fullRedraw = false;
+
+  if (retriggerAudio) {
+    synthRetriggerRequested = true;
+  }
+}
+
+void neokeySelectStep(int stepIndex) {
+  if (stepIndex < 0 || stepIndex >= SEQUENCER_STEP_COUNT) return;
+
+  sequencerSelectedStep = stepIndex;
+
+  if (!sequencerEnabled && !isMixerLayerEnabled()) {
+    sequencerCurrentStep = sequencerSelectedStep;
+    resetSequencerClock();
+  }
+}
+
+void neokeyToggleStep(int stepIndex) {
+  if (stepIndex < 0 || stepIndex >= SEQUENCER_STEP_COUNT) return;
+
+  int voice = getActiveSequencerVoice();
+  neokeySelectStep(stepIndex);
+  sequencerStepEnabled[voice][stepIndex] = !sequencerStepEnabled[voice][stepIndex];
+  neokeyMarkSequencerDirty(true);
+}
+
+uint16_t neokeyReadButtonsRaw() {
+  uint16_t rawKeys = 0;
+  if (!neokeySelectPcaChannel()) {
+    neokeyRestoreDisplayBusClock();
+    return rawKeys;
+  }
+
+  for (int board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+    if (!neokeyBoardReady[board]) continue;
+
+    uint8_t boardKeys = neokeyBoards[board].read() & 0x0F;
+    uint8_t mappedKeys = 0;
+
+    for (int i = 0; i < NEOKEY_KEYS_PER_BOARD; i++) {
+      if (boardKeys & (1 << NEOKEY_LOCAL_KEY_MAP[i])) {
+        mappedKeys |= (1 << i);
+      }
+    }
+
+    rawKeys |= (uint16_t)mappedKeys << (board * NEOKEY_KEYS_PER_BOARD);
+  }
+
+  neokeyRestoreDisplayBusClock();
+  return rawKeys;
+}
+
+void neokeySyncButtonDebounce(uint16_t rawKeys, uint32_t now);
+
+void neokeyMaintainConnections(uint32_t now) {
+  if (now - neokeyLastReconnectMs < NEOKEY_RECONNECT_MS) return;
+  neokeyLastReconnectMs = now;
+
+  bool stateChanged = false;
+
+  for (uint8_t board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+    uint8_t address = NEOKEY_BOARD_ADDRESSES[board];
+
+    if (neokeyBoardReady[board]) {
+      if (neokeyPingAddress(address)) {
+        neokeyBoardFailureCount[board] = 0;
+      } else if (++neokeyBoardFailureCount[board] >= NEOKEY_RUNTIME_FAILURE_LIMIT) {
+        neokeyBoardReady[board] = false;
+        neokeyBoardFailureCount[board] = 0;
+        stateChanged = true;
+        Serial.print("[EVENT][NEOKEY] connection lost at 0x");
+        Serial.println(address, HEX);
+      }
+      continue;
+    }
+
+    if (neokeyBeginBoard(board)) {
+      neokeyBoardReady[board] = true;
+      neokeyBoardFailureCount[board] = 0;
+      stateChanged = true;
+      Serial.print("[EVENT][NEOKEY] recovered at 0x");
+      Serial.println(address, HEX);
+    }
+  }
+
+  neokeyRecomputeReadyState();
+
+  if (stateChanged) {
+    neokeyLastVoice = -1;
+    neokeyLastStep = -1;
+    neokeyLastPlayStep = -1;
+    neokeyLastLedMask = -1;
+    neokeySyncButtonDebounce(neokeyAnyReady ? neokeyReadButtonsRaw() : 0, now);
+  }
+}
+
+void neokeySyncButtonDebounce(uint16_t rawKeys, uint32_t now) {
+  neokeyLastRawKeys = rawKeys;
+  neokeyStableKeys = rawKeys;
+
+  for (int i = 0; i < NEOKEY_TOTAL_KEYS; i++) {
+    bool raw = (rawKeys & ((uint16_t)1U << i)) != 0;
+    neokeyButtonLastRaw[i] = raw;
+    neokeyButtonStable[i] = raw;
+    neokeyButtonChangedAtMs[i] = now;
+  }
+}
+
+void pollNeoKeySequencerKeys() {
+  uint32_t now = millis();
+  neokeyMaintainConnections(now);
+  if (!neokeyAnyReady) return;
+
+  if (now - neokeyLastPollMs < NEOKEY_KEY_POLL_MS) return;
+  neokeyLastPollMs = now;
+
+  uint16_t rawKeys = neokeyReadButtonsRaw();
+  neokeyLastRawKeys = rawKeys;
+
+  if (!neokeySequencerControlActive()) {
+    neokeySyncButtonDebounce(rawKeys, now);
+    return;
+  }
+
+  uint16_t stableMask = 0;
+  uint16_t pressed = 0;
+
+  for (int i = 0; i < NEOKEY_TOTAL_KEYS; i++) {
+    bool raw = (rawKeys & ((uint16_t)1U << i)) != 0;
+
+    if (raw != neokeyButtonLastRaw[i]) {
+      neokeyButtonLastRaw[i] = raw;
+      neokeyButtonChangedAtMs[i] = now;
+    }
+
+    if (now - neokeyButtonChangedAtMs[i] >= NEOKEY_KEY_DEBOUNCE_MS &&
+        raw != neokeyButtonStable[i]) {
+      neokeyButtonStable[i] = raw;
+
+      if (raw) {
+        pressed |= (uint16_t)1U << i;
+      }
+    }
+
+    if (neokeyButtonStable[i]) {
+      stableMask |= (uint16_t)1U << i;
+    }
+  }
+
+  neokeyStableKeys = stableMask;
+
+  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
+    if (pressed & ((uint16_t)1U << i)) {
+      neokeyToggleStep(i);
+    }
+  }
+}
+
+uint16_t neokeyBuildStepLedMask() {
+  if (neokeySequencerRunning()) {
+    int step = clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1);
+    return (uint16_t)1U << step;
+  }
+
+  int voice = getActiveSequencerVoice();
+  uint16_t mask = 0;
+
+  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
+    if (sequencerStepEnabled[voice][i]) {
+      mask |= (uint16_t)1U << i;
+    }
+  }
+
+  return mask;
+}
+
+void refreshNeoKeySequencerPanel() {
+  if (!neokeyAnyReady) return;
+
+  uint32_t now = millis();
+  int voice = getActiveSequencerVoice();
+  int step = clampInt(sequencerSelectedStep, 0, SEQUENCER_STEP_COUNT - 1);
+  int playStep = clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1);
+  bool running = neokeySequencerRunning();
+  uint16_t ledMask = neokeyBuildStepLedMask();
+  bool stateChanged =
+    voice != neokeyLastVoice ||
+    step != neokeyLastStep ||
+    playStep != neokeyLastPlayStep ||
+    running != neokeyLastSequencerRunning ||
+    ledMask != neokeyLastLedMask;
+
+  if (!stateChanged) return;
+  if (now - neokeyLastRefreshMs < NEOKEY_REFRESH_MS) return;
+
+  neokeyLastRefreshMs = now;
+  neokeyLastVoice = voice;
+  neokeyLastStep = step;
+  neokeyLastPlayStep = playStep;
+  neokeyLastSequencerRunning = running;
+  neokeyLastLedMask = ledMask;
+
+  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
+    bool activePattern = isSequencerStepEnabled(voice, i);
+    bool selected = neokeySequencerControlActive() && i == step;
+    bool playhead = running && (ledMask & ((uint16_t)1U << i));
+
+    neokeySetStepPixel(i, neokeyStepColor(i, selected, activePattern, playhead));
+  }
+
+  neokeyShowAll();
+}
+
+void initNeoKeySequencerPanel() {
+  Wire.begin(NEOKEY_I2C_SDA, NEOKEY_I2C_SCL);
+  Wire.setClock(NEOKEY_I2C_CLOCK_HZ);
+  neokeyAnyReady = false;
+  delay(180);
+
+  for (uint8_t attempt = 0; attempt < NEOKEY_BOOT_RETRY_COUNT; attempt++) {
+    for (uint8_t board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+      if (!neokeyBoardReady[board]) {
+        neokeyBoardReady[board] = neokeyBeginBoard(board);
+      }
+    }
+
+    neokeyRecomputeReadyState();
+    bool allReady = true;
+    for (uint8_t board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+      allReady = allReady && neokeyBoardReady[board];
+    }
+    if (allReady) break;
+    delay(120);
+  }
+
+  serialDebugBegin("NEOKEY INITIALIZATION");
+  for (uint8_t board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+    Serial.print("NeoKey PCA channel 4 ");
+    Serial.print(neokeyBoardReady[board] ? "found at 0x" : "missing at 0x");
+    Serial.println(NEOKEY_BOARD_ADDRESSES[board], HEX);
+  }
+  serialDebugEnd("NEOKEY INITIALIZATION");
+
+  neokeyRestoreDisplayBusClock();
+
+  if (neokeyAnyReady) {
+    for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
+      neokeySetStepPixel(i, neokeyColor(24, 24, 24));
+      neokeyShowAll();
+      delay(45);
+    }
+
+    neokeyClearAll();
+  }
+
+  neokeyLastReconnectMs = millis();
+  neokeySyncButtonDebounce(neokeyAnyReady ? neokeyReadButtonsRaw() : 0x00, millis());
+}

@@ -23,6 +23,11 @@
 #define SURFACE_DISPLAY_I2C_CLOCK_HZ 400000UL
 #define NEOKEY_I2C_CLOCK_HZ          100000UL
 
+// Tipo dei quattro OLED dietro al PCA9548A. Un bit a 1 indica SH1106;
+// un bit a 0 indica SSD1306. Configurazione attuale:
+// CH0, CH1, CH2 = AZDelivery 1.3" SH1106; CH3 = OLED piccolo SSD1306.
+#define SURFACE_OLED_SH1106_MASK 0x07
+
 // Secondo controller I2C indipendente, dedicato al MCP23017.
 #define SURFACE_ENCODER_I2C_SDA  19
 #define SURFACE_ENCODER_I2C_SCL  15

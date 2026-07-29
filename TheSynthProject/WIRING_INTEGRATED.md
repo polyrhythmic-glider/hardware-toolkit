@@ -23,7 +23,8 @@ lette usando quella legenda, senza dedurre collegamenti dai fili delle foto.
 - 1x TFT ST7735 160x128 SPI già usato da `TheSynthProject`;
 - 1x encoder master con pulsante e 1x pulsante back;
 - 1x PCA9548A, indirizzo `0x70`;
-- 4x OLED SSD1306 128x64 I2C, indirizzo `0x3C`;
+- 3x OLED AZDelivery 1,3 pollici SH1106 128x64 I2C, indirizzo `0x3C`;
+- 1x OLED piccolo SSD1306 128x64 I2C, indirizzo `0x3C`;
 - 4x encoder rotativi con pulsante;
 - 1x MCP23017 a 3,3 V, indirizzo `0x20`;
 - 4x Adafruit NeoKey 1x4 QT, indirizzi `0x30`-`0x33`;
@@ -190,17 +191,22 @@ OLED:
 
 | OLED | Canale PCA9548A |
 | --- | --- |
-| OLED sopra E1 | SD0 + SC0 |
-| OLED sopra E2 | SD1 + SC1 |
-| OLED sopra E3 | SD2 + SC2 |
-| OLED sopra E4 | SD3 + SC3 |
+| OLED sopra E1, AZDelivery SH1106 | SD0 + SC0 |
+| OLED sopra E2, AZDelivery SH1106 | SD1 + SC1 |
+| OLED sopra E3, AZDelivery SH1106 | SD2 + SC2 |
+| OLED sopra E4, piccolo SSD1306 | SD3 + SC3 |
 | catena 4x NeoKey | SD4 + SC4 |
 
-Ogni OLED va letto da sinistra verso destra come `GND`, `VCC`, `SCL`, `SDA`.
-VCC a 3V3, GND comune, indirizzo `0x3C`. Non collegare gli OLED
+Controllare sempre la serigrafia del singolo modulo prima di collegarlo; sui
+moduli attuali l'ordine e' `GND`, `VCC`, `SCL`, `SDA`. VCC a 3V3, GND comune,
+indirizzo `0x3C`. Non collegare gli OLED
 direttamente a D21/D22: SDA/SCL devono andare al rispettivo canale del mux.
-Ogni canale I2C deve avere pull-up: le normali breakout SSD1306 li includono;
+Ogni canale I2C deve avere pull-up: le normali breakout OLED li includono;
 con display nudi aggiungere 4,7 kOhm da SDx e SCx a 3V3 su ciascun canale usato.
+
+Il firmware usa automaticamente il driver SH1106 sui canali 0-2 e SSD1306 sul
+canale 3. La mappa e' configurata da `SURFACE_OLED_SH1106_MASK` in
+`HardwarePins.h`; il valore previsto per questa configurazione e' `0x07`.
 
 ### NeoKey
 
@@ -305,7 +311,8 @@ Valori attesi:
 - `PCA:70`: PCA9548A rilevato all'indirizzo `0x70`;
 - `ACK:F`: un OLED risponde su tutti e quattro i canali;
 - `INIT:F`: tutti e quattro gli OLED sono stati inizializzati;
-- `1:3C 2:3C 3:3C 4:3C`: indirizzo OLED per ciascun canale;
+- `1:3C 2:3C 3:3C 4:3C`: indirizzo OLED per ciascun canale; il rapporto seriale
+  indica anche `SH1106` per i primi tre e `SSD1306` per il quarto;
 - `K 30+31+32+33+`: tutti e quattro i NeoKey sono presenti sul canale PCA 4.
 
 Interpretazione rapida:
@@ -316,7 +323,7 @@ Interpretazione rapida:
   ordine `GND`, `VCC`, `SCL`, `SDA` degli OLED;
 - un solo bit mancante in `ACK`: controllare il relativo canale `SCx/SDx`;
 - bit presente in `ACK` ma assente in `INIT`: risposta elettrica presente ma
-  inizializzazione SSD1306 fallita.
+  inizializzazione del controller OLED configurato fallita.
 
 Il Serial Monitor a `115200` mostra anche tutti gli indirizzi del bus principale
 e una riga distinta per ciascun canale PCA.

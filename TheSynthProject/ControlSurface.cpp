@@ -45,6 +45,141 @@ constexpr float PONG_BASE_Y_SPEED = 0.75f * PONG_SPEED_MULTIPLIER;
 constexpr float PONG_MAX_X_SPEED = 3.0f * PONG_SPEED_MULTIPLIER;
 constexpr float PONG_MAX_Y_SPEED = 2.4f * PONG_SPEED_MULTIPLIER;
 
+enum class OledController : uint8_t {
+  SSD1306,
+  SH1106
+};
+
+constexpr OledController controllerForChannel(uint8_t channel) {
+  return (SURFACE_OLED_SH1106_MASK & (uint8_t)(1U << channel))
+           ? OledController::SH1106
+           : OledController::SSD1306;
+}
+
+const char* controllerName(OledController controller) {
+  return controller == OledController::SH1106 ? "SH1106" : "SSD1306";
+}
+
+// Adafruit_GFX usa lo stesso framebuffer 128x64 per entrambi i controller.
+// L'SH1106, pero', richiede page addressing e un offset orizzontale di due
+// colonne; il trasferimento SSD1306 standard usa invece column addressing.
+// Questa classe conserva tutte le primitive grafiche gia' usate dalla UI e
+// cambia soltanto inizializzazione e invio del framebuffer.
+class MixedOledDisplay : public Adafruit_SSD1306 {
+ public:
+  MixedOledDisplay(uint8_t width, uint8_t height, TwoWire* bus, int8_t resetPin)
+    : Adafruit_SSD1306(width,
+                       height,
+                       bus,
+                       resetPin,
+                       MAIN_I2C_CLOCK_HZ,
+                       MAIN_I2C_CLOCK_HZ) {}
+
+  bool beginController(OledController controller, uint8_t address) {
+    selectController(controller, address);
+
+    // Alloca il framebuffer e configura il bus. L'inizializzazione SSD1306
+    // temporanea viene subito sostituita dalla sequenza SH1106 quando serve.
+    if (!Adafruit_SSD1306::begin(SSD1306_SWITCHCAPVCC,
+                                 address,
+                                 false,
+                                 false)) {
+      return false;
+    }
+
+    selectController(controller, address);
+    if (controller == OledController::SH1106) return beginSh1106();
+    return true;
+  }
+
+  void selectController(OledController controller, uint8_t address) {
+    controller_ = controller;
+    if (address != 0) i2caddr = address;
+  }
+
+  void display() {
+    if (controller_ == OledController::SH1106) {
+      displaySh1106();
+    } else {
+      Adafruit_SSD1306::display();
+    }
+  }
+
+ private:
+  static constexpr uint8_t SH1106_COLUMN_OFFSET = 2;
+  static constexpr uint8_t I2C_DATA_CHUNK = 31;
+  OledController controller_ = OledController::SSD1306;
+
+  bool writeCommandList(const uint8_t* commands, size_t count) {
+    wire->setClock(MAIN_I2C_CLOCK_HZ);
+    wire->beginTransmission((uint8_t)i2caddr);
+    wire->write((uint8_t)0x00);
+    wire->write(commands, count);
+    bool ok = wire->endTransmission(true) == 0;
+    wire->setClock(MAIN_I2C_CLOCK_HZ);
+    return ok;
+  }
+
+  bool beginSh1106() {
+    // Sequenza per SH1106G 128x64, inclusi DC/DC interno e page addressing.
+    static const uint8_t initCommands[] = {
+      0xAE,             // display off
+      0xD5, 0x80,       // clock divide
+      0xA8, 0x3F,       // multiplex 64 righe
+      0xD3, 0x00,       // display offset
+      0x40,             // start line 0
+      0xAD, 0x8B,       // DC/DC on
+      0xA1,             // segment remap
+      0xC8,             // COM scan reverse
+      0xDA, 0x12,       // COM pins
+      0x81, 0xFF,       // contrast
+      0xD9, 0x1F,       // precharge
+      0xDB, 0x40,       // VCOM deselect
+      0x33,             // VPP 9 V
+      0xA6,             // normal display
+      0x20, 0x10,       // page addressing mode
+      0xA4              // display follows RAM
+    };
+    if (!writeCommandList(initCommands, sizeof(initCommands))) return false;
+
+    delay(100);
+    const uint8_t displayOn = 0xAF;
+    return writeCommandList(&displayOn, 1);
+  }
+
+  void displaySh1106() {
+    wire->setClock(MAIN_I2C_CLOCK_HZ);
+
+    for (uint8_t page = 0; page < SCREEN_HEIGHT / 8; page++) {
+      const uint8_t column = SH1106_COLUMN_OFFSET;
+      const uint8_t pageCommands[] = {
+        (uint8_t)(0xB0 + page),
+        (uint8_t)(0x10 + (column >> 4)),
+        (uint8_t)(column & 0x0F)
+      };
+      if (!writeCommandList(pageCommands, sizeof(pageCommands))) break;
+
+      uint16_t offset = (uint16_t)page * SCREEN_WIDTH;
+      uint8_t remaining = SCREEN_WIDTH;
+      while (remaining != 0) {
+        uint8_t chunk = min(remaining, I2C_DATA_CHUNK);
+        wire->beginTransmission((uint8_t)i2caddr);
+        wire->write((uint8_t)0x40);
+        wire->write(buffer + offset, chunk);
+        if (wire->endTransmission(true) != 0) {
+          wire->setClock(MAIN_I2C_CLOCK_HZ);
+          return;
+        }
+        offset += chunk;
+        remaining -= chunk;
+      }
+      yield();
+    }
+
+    wire->setClock(MAIN_I2C_CLOCK_HZ);
+  }
+};
+
 const int8_t QUADRATURE_TABLE[16] = {
    0, -1,  1,  0,
    1,  0,  0, -1,
@@ -74,7 +209,7 @@ struct InputFrame {
   bool pressed[4];
 };
 
-Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+MixedOledDisplay oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 TwoWire encoderWire(1);
 EncoderState encoders[4] = {};
 portMUX_TYPE encoderStateMux = portMUX_INITIALIZER_UNLOCKED;
@@ -530,6 +665,8 @@ void printOledDiagnosticReport() {
     if (oledChannelAddress[channel] != 0) {
       Serial.print("OLED ACK 0x");
       Serial.print(oledChannelAddress[channel], HEX);
+      Serial.print(" ");
+      Serial.print(controllerName(controllerForChannel(channel)));
       Serial.println((oledReadyMask & (1 << channel)) ? " INIT OK" : " INIT FAIL");
     } else {
       Serial.println("NO OLED - check GND/VCC/SCL/SDA");
@@ -567,7 +704,7 @@ bool beginOleds() {
     selectPcaChannel(channel);
 
     oledAddress = candidateAddress;
-    if (!oled.begin(SSD1306_SWITCHCAPVCC, oledAddress, false, false)) continue;
+    if (!oled.beginController(controllerForChannel(channel), oledAddress)) continue;
 
     oledReadyMask |= (1 << channel);
     oled.clearDisplay();
@@ -583,6 +720,8 @@ bool beginOleds() {
 void setDisplay(uint8_t index) {
   activeDisplay = index % DISPLAY_COUNT;
   selectPcaChannel(activeDisplay);
+  oled.selectController(controllerForChannel(activeDisplay),
+                        oledChannelAddress[activeDisplay]);
 }
 
 void centerText(const char* text, int y, uint8_t size) {

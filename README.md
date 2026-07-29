@@ -7,7 +7,7 @@ Il repository ora ha un solo firmware principale per ESP32:
 
 `TheSynthProject` unisce il pannello TFT ST7735 con encoder singolo e tasto back alla
 control surface originale con 4 encoder, 4 OLED SSD1306, PCA9548A e Pong. Il
-motore audio, il sequencer, Bluetooth, NeoKey, preset, analyzer e tutte le
+motore audio nativo ESP32, il sequencer essenziale, Bluetooth, NeoKey, preset e le
 schermate TFT restano nel firmware principale.
 
 La scheda 4 encoder/4 OLED già montata è la base consigliata: PCA, OLED e

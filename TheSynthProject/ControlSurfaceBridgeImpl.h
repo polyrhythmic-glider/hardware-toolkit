@@ -28,14 +28,14 @@ const char* parameterLabel(uint8_t page, uint8_t encoderIndex) {
   static const char* VOICE_LABELS[] = { "WAVE", "FOLD", "PHASE" };
   static const char* TUNING_LABELS[] = { "PITCH", "V1 TUNE", "V2 TUNE" };
   static const char* ENVELOPE_LABELS[] = { "ATTACK", "DECAY", "SUSTAIN" };
-  static const char* ENVELOPE_CLOCK_LABELS[] = { "RELEASE", "GATE", "BPM" };
+  static const char* ENVELOPE_CLOCK_LABELS[] = { "RELEASE", "BPM", "LENGTH" };
   static const char* MIXER_LABELS[] = { "MASTER", "VOICE 1", "VOICE 2" };
   static const char* FILTER_LABELS[] = { "CUTOFF", "TYPE", "POWER" };
   static const char* DELAY_REVERB_LABELS[] = { "DELAY", "FEEDBACK", "REVERB" };
   static const char* KICK_LABELS[] = { "LEVEL", "PITCH", "DECAY" };
   static const char* KICK_SHAPE_LABELS[] = { "SWEEP", "CLICK", "DRIVE" };
   static const char* SEQUENCER_LABELS[] = { "VOICE", "STEP", "NOTE" };
-  static const char* TRANSPORT_LABELS[] = { "LENGTH", "DIRECTION", "TRANSPOSE" };
+  static const char* TRANSPORT_LABELS[] = { "LENGTH", "BPM", "STEP" };
 
   switch (page % PAGE_COUNT) {
     case PAGE_VOICE_1:
@@ -101,8 +101,8 @@ void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size
   if (page == PAGE_ENVELOPE_CLOCK) {
     switch (encoderIndex) {
       case 0: snprintf(output, outputSize, "%d ms", releaseMs); return;
-      case 1: snprintf(output, outputSize, "%d%%", sequencerGate); return;
-      default: snprintf(output, outputSize, "%d", sequencerBpm); return;
+      case 1: snprintf(output, outputSize, "%d", sequencerBpm); return;
+      default: snprintf(output, outputSize, "%d", getSequencerLength()); return;
     }
   }
 
@@ -158,8 +158,8 @@ void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size
 
   switch (encoderIndex) {
     case 0: snprintf(output, outputSize, "%d", getSequencerLength()); return;
-    case 1: snprintf(output, outputSize, "%s", SEQUENCER_DIRECTION_NAMES[sequencerDirection]); return;
-    default: snprintf(output, outputSize, "%+d st", sequencerTranspose); return;
+    case 1: snprintf(output, outputSize, "%d", sequencerBpm); return;
+    default: snprintf(output, outputSize, "%d/%d", sequencerSelectedStep + 1, getSequencerLength()); return;
   }
 }
 
@@ -197,8 +197,12 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
   } else if (page == PAGE_ENVELOPE_CLOCK) {
     switch (encoderIndex) {
       case 0: releaseMs = clampInt(releaseMs + delta * 20, 0, 3000); break;
-      case 1: sequencerGate = clampInt(sequencerGate + delta * 5, 5, 100); break;
-      default: sequencerBpm = clampInt(sequencerBpm + delta * 2, 40, 240); break;
+      case 1: sequencerBpm = clampInt(sequencerBpm + delta * 2, 40, 240); break;
+      default:
+        sequencerLength = clampInt(sequencerLength + delta, 1, SEQUENCER_STEP_COUNT);
+        clampSequencerIndexes();
+        resetSequencerClock();
+        break;
     }
   } else if (page == PAGE_MIXER) {
     switch (encoderIndex) {
@@ -267,11 +271,15 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
         resetSequencerClock();
         break;
       case 1:
-        sequencerDirection = wrapIndex(sequencerDirection + delta, SEQUENCER_DIRECTION_COUNT);
-        sequencerPingPongForward = true;
-        resetSequencerClock();
+        sequencerBpm = clampInt(sequencerBpm + delta * 2, 40, 240);
         break;
-      default: sequencerTranspose = clampInt(sequencerTranspose + delta, SEQUENCER_MIN_TRANSPOSE, SEQUENCER_MAX_TRANSPOSE); break;
+      default:
+        sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
+        if (!sequencerEnabled && !isMixerLayerEnabled()) {
+          sequencerCurrentStep = sequencerSelectedStep;
+          resetSequencerClock();
+        }
+        break;
     }
   }
 
@@ -326,7 +334,7 @@ uint32_t stateHash() {
     delayMix, delayFeedback, reverbMix,
     sequencerBpm, activeSequencerVoice, sequencerSelectedStep, sequencerLength,
     getSelectedSequencerStepNote(), isSelectedSequencerStepEnabled() ? 1 : 0,
-    sequencerDirection, sequencerGate, sequencerTranspose, transportRunning ? 1 : 0
+    transportRunning ? 1 : 0
   };
 
   for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {

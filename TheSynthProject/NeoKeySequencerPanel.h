@@ -7,15 +7,15 @@
 #include "SerialDebug.h"
 
 // 4x Adafruit NeoKey 1x4 QT concatenati sul canale 4 del PCA9548A.
-// Ordine fisico/logico: 0x31, 0x30, 0x32, 0x33.
+// Ordine fisico/logico da sinistra a destra: 0x30, 0x31, 0x32, 0x33.
 
 const uint8_t NEOKEY_BOARD_COUNT = 4;
 const uint8_t NEOKEY_KEYS_PER_BOARD = 4;
 const uint8_t NEOKEY_TOTAL_KEYS = NEOKEY_BOARD_COUNT * NEOKEY_KEYS_PER_BOARD;
-const uint8_t NEOKEY_BOARD_ADDRESSES[NEOKEY_BOARD_COUNT] = { 0x31, 0x30, 0x32, 0x33 };
-const uint8_t NEOKEY_LOCAL_KEY_MAP[NEOKEY_KEYS_PER_BOARD] = { 3, 2, 1, 0 };
+const uint8_t NEOKEY_BOARD_ADDRESSES[NEOKEY_BOARD_COUNT] = { 0x30, 0x31, 0x32, 0x33 };
+const uint8_t NEOKEY_LOCAL_KEY_MAP[NEOKEY_KEYS_PER_BOARD] = { 0, 1, 2, 3 };
 const uint32_t NEOKEY_KEY_POLL_MS = 10;
-const uint32_t NEOKEY_KEY_DEBOUNCE_MS = 30;
+const uint32_t NEOKEY_KEY_DEBOUNCE_MS = 20;
 const uint32_t NEOKEY_REFRESH_MS = 25;
 const uint32_t NEOKEY_RECONNECT_MS = 1800;
 const uint8_t NEOKEY_BOOT_RETRY_COUNT = 4;
@@ -23,8 +23,8 @@ const uint8_t NEOKEY_RUNTIME_FAILURE_LIMIT = 3;
 const uint8_t NEOKEY_BRIGHTNESS = 36;
 
 Adafruit_NeoKey_1x4 neokeyBoards[NEOKEY_BOARD_COUNT] = {
-  Adafruit_NeoKey_1x4(0x31),
   Adafruit_NeoKey_1x4(0x30),
+  Adafruit_NeoKey_1x4(0x31),
   Adafruit_NeoKey_1x4(0x32),
   Adafruit_NeoKey_1x4(0x33),
 };
@@ -45,6 +45,8 @@ int neokeyLastStep = -1;
 int neokeyLastPlayStep = -1;
 int neokeyLastLedMask = -1;
 bool neokeyLastSequencerRunning = false;
+uint32_t neokeyLastStepColors[NEOKEY_TOTAL_KEYS] = { 0 };
+bool neokeyStepColorCacheValid = false;
 
 bool neokeySelectPcaChannel() {
   Wire.setClock(NEOKEY_I2C_CLOCK_HZ);
@@ -149,6 +151,7 @@ void neokeyClearAll() {
   }
 
   neokeyShowAll();
+  neokeyStepColorCacheValid = false;
 }
 
 void neokeyMarkSequencerDirty(bool retriggerAudio) {
@@ -171,12 +174,24 @@ void neokeySelectStep(int stepIndex) {
   }
 }
 
-void neokeyToggleStep(int stepIndex) {
-  if (stepIndex < 0 || stepIndex >= SEQUENCER_STEP_COUNT) return;
-
+void neokeyTogglePressedSteps(uint16_t pressed) {
+  if (pressed == 0) return;
   int voice = getActiveSequencerVoice();
-  neokeySelectStep(stepIndex);
-  sequencerStepEnabled[voice][stepIndex] = !sequencerStepEnabled[voice][stepIndex];
+  int selectedStep = -1;
+
+  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+    if ((pressed & ((uint16_t)1U << step)) == 0) continue;
+    sequencerStepEnabled[voice][step] = !sequencerStepEnabled[voice][step];
+    selectedStep = step;
+  }
+
+  if (selectedStep < 0) return;
+  sequencerSelectedStep = selectedStep;
+  if (!sequencerEnabled && !isMixerLayerEnabled()) {
+    sequencerCurrentStep = selectedStep;
+    resetSequencerClock();
+  }
+
   neokeyMarkSequencerDirty(true);
 }
 
@@ -246,6 +261,7 @@ void neokeyMaintainConnections(uint32_t now) {
     neokeyLastStep = -1;
     neokeyLastPlayStep = -1;
     neokeyLastLedMask = -1;
+    neokeyStepColorCacheValid = false;
     neokeySyncButtonDebounce(neokeyAnyReady ? neokeyReadButtonsRaw() : 0, now);
   }
 }
@@ -305,11 +321,7 @@ void pollNeoKeySequencerKeys() {
 
   neokeyStableKeys = stableMask;
 
-  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    if (pressed & ((uint16_t)1U << i)) {
-      neokeyToggleStep(i);
-    }
-  }
+  neokeyTogglePressedSteps(pressed);
 }
 
 uint16_t neokeyBuildStepLedMask() {
@@ -349,22 +361,42 @@ void refreshNeoKeySequencerPanel() {
   if (!stateChanged) return;
   if (now - neokeyLastRefreshMs < NEOKEY_REFRESH_MS) return;
 
+  if (!neokeySelectPcaChannel()) {
+    neokeyRestoreDisplayBusClock();
+    return;
+  }
+
+  uint8_t changedBoards = 0;
+
+  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
+    bool activePattern = isSequencerStepEnabled(voice, i);
+    bool selected = neokeySequencerControlActive() && i == step;
+    bool playhead = running && (ledMask & ((uint16_t)1U << i));
+    uint32_t color = neokeyStepColor(i, selected, activePattern, playhead);
+
+    if (!neokeyStepColorCacheValid || color != neokeyLastStepColors[i]) {
+      neokeySetStepPixel(i, color);
+      neokeyLastStepColors[i] = color;
+      changedBoards |= (uint8_t)1U << (i / NEOKEY_KEYS_PER_BOARD);
+    }
+  }
+
+  // setPixelColor() writes to seesaw immediately, so avoid 16 I2C writes on
+  // every playhead movement and latch only boards whose pixels changed.
+  for (int board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+    if ((changedBoards & ((uint8_t)1U << board)) && neokeyBoardReady[board]) {
+      neokeyBoards[board].pixels.show();
+    }
+  }
+  neokeyRestoreDisplayBusClock();
+
   neokeyLastRefreshMs = now;
   neokeyLastVoice = voice;
   neokeyLastStep = step;
   neokeyLastPlayStep = playStep;
   neokeyLastSequencerRunning = running;
   neokeyLastLedMask = ledMask;
-
-  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    bool activePattern = isSequencerStepEnabled(voice, i);
-    bool selected = neokeySequencerControlActive() && i == step;
-    bool playhead = running && (ledMask & ((uint16_t)1U << i));
-
-    neokeySetStepPixel(i, neokeyStepColor(i, selected, activePattern, playhead));
-  }
-
-  neokeyShowAll();
+  neokeyStepColorCacheValid = true;
 }
 
 void initNeoKeySequencerPanel() {

@@ -204,59 +204,6 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.fillTriangle(cx + 7, cy + 5, cx + 3, cy + 4, cx + 5, cy + 1, color);
       break;
 
-    case ACTION_SPECTRUM:
-      for (int i = 0; i < 5; i++) {
-        int h = 3 + i * 2;
-        tft.fillRect(cx - 8 + i * 4, cy + 6 - h, 2, h, color);
-      }
-      break;
-
-    case ACTION_BT_FFT:
-      tft.drawCircle(cx - 6, cy - 3, 2, color);
-      tft.drawCircle(cx - 6, cy - 3, 5, rgb565(62, 68, 82));
-      for (int i = 0; i < 4; i++) {
-        int h = 3 + ((i + 1) % 4) * 3;
-        tft.fillRect(cx - 1 + i * 4, cy + 6 - h, 2, h, color);
-      }
-      break;
-
-    case ACTION_FFT_RANGE:
-      tft.drawFastHLine(cx - 8, cy + 5, 16, color);
-      tft.drawFastVLine(cx - 8, cy + 2, 4, color);
-      tft.drawFastVLine(cx + 7, cy - 5, 11, color);
-      tft.drawLine(cx - 8, cy + 4, cx + 7, cy - 5, color);
-      break;
-
-    case ACTION_FFT_WINDOW:
-      for (int i = 0; i < 16; i++) {
-        float p = (float)i / 15.0f;
-        int h = (int)(sinf(p * 3.14159f) * 11.0f);
-        tft.drawPixel(cx - 8 + i, cy + 6 - h, color);
-      }
-      break;
-
-    case ACTION_FFT_SMOOTH:
-      tft.drawLine(cx - 8, cy + 4, cx - 3, cy + 1, color);
-      tft.drawLine(cx - 3, cy + 1, cx + 1, cy - 3, color);
-      tft.drawLine(cx + 1, cy - 3, cx + 7, cy - 5, color);
-      tft.drawFastHLine(cx - 7, cy + 6, 14, rgb565(62, 68, 82));
-      break;
-
-    case ACTION_FFT_HOLD:
-      for (int i = 0; i < 4; i++) {
-        int h = 4 + i * 3;
-        int bx = cx - 7 + i * 5;
-        tft.fillRect(bx, cy + 6 - h, 2, h, color);
-        tft.drawFastHLine(bx - 1, cy + 3 - h, 4, COL_GOLD);
-      }
-      break;
-
-    case ACTION_FFT_BINS:
-      for (int i = 0; i < 4; i++) {
-        tft.drawRect(cx - 8 + i * 4, cy - 5, 3, 11, color);
-      }
-      break;
-
     case ACTION_SCOPE:
       drawWavePreview(cx - 8, cy - 5, 16, 10, color);
       break;
@@ -360,14 +307,6 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.fillCircle(cx + 5, cy + 5, 3, COL_GOLD);
       break;
 
-    case ACTION_SEQ_SHAPE:
-    {
-      int voice = getActiveSequencerVoice();
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, getSelectedSequencerStepShape(), (float)waveVoiceFold[voice], (float)waveVoicePhase[voice], color);
-      tft.drawFastHLine(cx - 8, cy + 7, 16, COL_GOLD);
-      break;
-    }
-
     case ACTION_SEQ_LENGTH:
     {
       int filledSegments = (sequencerLength * 4 + SEQUENCER_STEP_COUNT - 1) / SEQUENCER_STEP_COUNT;
@@ -377,26 +316,6 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       break;
     }
 
-    case ACTION_SEQ_DIRECTION:
-      tft.drawLine(cx - 8, cy, cx + 6, cy, color);
-      tft.fillTriangle(cx + 6, cy - 4, cx + 6, cy + 4, cx + 10, cy, color);
-      if (sequencerDirection == 1) {
-        tft.fillTriangle(cx - 8, cy - 4, cx - 8, cy + 4, cx - 12, cy, COL_GOLD);
-      }
-      break;
-
-    case ACTION_SEQ_GATE:
-      tft.drawRect(cx - 8, cy - 5, 16, 10, color);
-      tft.fillRect(cx - 7, cy - 4, map(sequencerGate, 5, 100, 1, 14), 8, COL_GOLD);
-      break;
-
-    case ACTION_SEQ_TRANSPOSE:
-      tft.drawFastVLine(cx, cy - 8, 16, color);
-      tft.drawFastHLine(cx - 6, cy - 4, 13, color);
-      tft.drawFastHLine(cx - 6, cy + 4, 13, color);
-      tft.fillTriangle(cx + 8, cy - 3, cx + 8, cy + 3, cx + 12, cy, COL_GOLD);
-      break;
-
     case ACTION_SEQ_STEP_ENABLE:
       tft.drawCircle(cx, cy, 8, color);
       if (isSelectedSequencerStepEnabled()) {
@@ -404,24 +323,6 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       } else {
         tft.drawLine(cx - 6, cy + 6, cx + 6, cy - 6, COL_CORAL);
       }
-      break;
-
-    case ACTION_SEQ_RANDOMIZE:
-      for (int i = 0; i < 6; i++) {
-        tft.drawPixel(cx - 7 + (i * 5) % 15, cy - 6 + (i * 7) % 13, color);
-      }
-      tft.drawCircle(cx, cy, 7, COL_GOLD);
-      break;
-
-    case ACTION_SEQ_CLEAR:
-      tft.drawRect(cx - 8, cy - 6, 16, 12, color);
-      tft.drawLine(cx - 6, cy - 4, cx + 6, cy + 4, COL_CORAL);
-      tft.drawLine(cx + 6, cy - 4, cx - 6, cy + 4, COL_CORAL);
-      break;
-
-    case ACTION_SEQ_ROTATE:
-      tft.drawCircle(cx, cy, 7, color);
-      tft.fillTriangle(cx + 4, cy - 8, cx + 10, cy - 8, cx + 8, cy - 2, COL_GOLD);
       break;
 
     case ACTION_MIX_SINE:
@@ -617,124 +518,6 @@ void drawScopeGrid(int x, int y, int width, int height) {
   }
 }
 
-void drawSpectrumBars(int x, int y, int width, int height, uint16_t accent, bool normalizeOutput) {
-  float magnitudes[SPECTRUM_MAX_BARS];
-  int bins = getSpectrumBarCount();
-  int maxH = height - 4;
-  int markerIndex = clampInt((int)getSpectrumPosition(frequency), 0, bins - 1);
-  int markerX = x + (markerIndex * width) / bins + (width / bins) / 2;
-
-  buildOscillatorSpectrum(magnitudes, normalizeOutput);
-
-  for (int i = 0; i < bins; i++) {
-    int barH = clampInt((int)(magnitudes[i] * maxH), 1, maxH);
-    int barLeft = x + (i * width) / bins;
-    int barRight = x + ((i + 1) * width) / bins;
-    int bx = barLeft + 1;
-    int by = y + height - 2 - barH;
-    int fillW = barRight - barLeft - 2;
-    if (fillW < 1) fillW = 1;
-
-    uint16_t color = i == markerIndex ? accent : rgb565(54, 63, 79);
-
-    if (magnitudes[i] > 0.55f) {
-      color = i == markerIndex ? COL_GOLD : COL_SKY;
-    }
-
-    tft.fillRect(bx, by, fillW, barH, color);
-
-    if (fftPeakHold && magnitudes[i] > 0.08f) {
-      int capY = clampInt(by - 2 - (i % 3), y + 2, y + height - 3);
-      tft.drawFastHLine(bx, capY, fillW, COL_GOLD);
-    }
-  }
-
-  markerX = clampInt(markerX, x + 2, x + width - 3);
-  tft.drawFastVLine(markerX, y + 2, height - 4, COL_GOLD);
-}
-
-bool buildBluetoothFftMagnitudes(uint8_t magnitudes[], int count) {
-  int16_t samples[BT_FFT_SAMPLES];
-  uint32_t available = btFftSampleCount;
-  uint16_t writeIndex = btFftWriteIndex;
-
-  if (available > BT_FFT_SAMPLES) {
-    available = BT_FFT_SAMPLES;
-  }
-
-  for (int i = 0; i < BT_FFT_SAMPLES; i++) {
-    samples[i] = 0;
-  }
-
-  if (available < 16) {
-    for (int i = 0; i < count; i++) {
-      magnitudes[i] = 0;
-    }
-
-    return false;
-  }
-
-  uint16_t start = (writeIndex + BT_FFT_SAMPLES - available) % BT_FFT_SAMPLES;
-  int pad = BT_FFT_SAMPLES - available;
-  int32_t mean = 0;
-
-  for (uint32_t i = 0; i < available; i++) {
-    int16_t sample = btFftSamples[(start + i) % BT_FFT_SAMPLES];
-    samples[pad + i] = sample;
-    mean += sample;
-  }
-
-  mean /= (int32_t)available;
-
-  for (int bin = 0; bin < count; bin++) {
-    int maxK = BT_FFT_SAMPLES / 2 - 2;
-    int k = 1;
-
-    if (count > 1) {
-      long curved = (long)bin * (long)bin * maxK;
-      k += curved / ((long)(count - 1) * (long)(count - 1));
-    }
-
-    float real = 0.0f;
-    float imag = 0.0f;
-
-    for (int n = 0; n < BT_FFT_SAMPLES; n++) {
-      float window = 0.5f - 0.5f * cosf(TWO_PI_F * n / (BT_FFT_SAMPLES - 1));
-      float sample = ((float)samples[n] - mean) / 32768.0f * window;
-      float angle = TWO_PI_F * k * n / BT_FFT_SAMPLES;
-
-      real += sample * cosf(angle);
-      imag -= sample * sinf(angle);
-    }
-
-    float magnitude = sqrtf(real * real + imag * imag) / (BT_FFT_SAMPLES * 0.18f);
-    magnitudes[bin] = (uint8_t)clampInt((int)(magnitude * 100.0f), 0, 100);
-  }
-
-  return true;
-}
-
-void drawBluetoothFftBars(int x, int y, int width, int height, uint16_t accent) {
-  uint8_t magnitudes[BT_FFT_BARS];
-  bool hasSamples = buildBluetoothFftMagnitudes(magnitudes, BT_FFT_BARS);
-  int maxH = height - 4;
-
-  for (int i = 0; i < BT_FFT_BARS; i++) {
-    int barLeft = x + (i * width) / BT_FFT_BARS;
-    int barRight = x + ((i + 1) * width) / BT_FFT_BARS;
-    int fillW = barRight - barLeft - 2;
-    if (fillW < 1) fillW = 1;
-
-    int level = hasSamples ? magnitudes[i] : 4 + (i % 4) * 2;
-    int barH = clampInt(map(level, 0, 100, 1, maxH), 1, maxH);
-    int bx = barLeft + 1;
-    int by = y + height - 2 - barH;
-    uint16_t color = hasSamples ? (level > 72 ? COL_GOLD : accent) : rgb565(54, 63, 79);
-
-    tft.fillRect(bx, by, fillW, barH, color);
-  }
-}
-
 void drawOscilloscopeTrace(int x, int y, int width, int height, uint16_t accent, bool useLevel) {
   float amplitude = useLevel ? volume / 100.0f : 1.0f;
   int centerY = y + height / 2;
@@ -896,43 +679,6 @@ void drawAdsrCurve(uint16_t accent) {
   printRight(label, 150, 122, 1, overview || focus == ACTION_RELEASE ? releaseColor : COL_MUTED);
 }
 
-void drawSpectrumScale(int y) {
-  tft.setTextSize(1);
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(11, y);
-  tft.print("20");
-  printRight(getSpectrumMaxLabel(), 149, y, 1, COL_MUTED);
-}
-
-void drawWindowCurve(int x, int y, int width, int height, uint16_t accent) {
-  int prevX = x;
-  int prevY = y + height - 3;
-
-  for (int i = 0; i < width; i++) {
-    float p = (float)i / (float)(width - 1);
-    float value = 1.0f;
-
-    if (fftWindow == 0) {
-      value = 0.5f - 0.5f * cosf(TWO_PI_F * p);
-    } else if (fftWindow == 2) {
-      value = 0.42f - 0.5f * cosf(TWO_PI_F * p) + 0.08f * cosf(TWO_PI_F * 2.0f * p);
-    } else if (fftWindow == 3) {
-      value = 0.22f - 0.42f * cosf(TWO_PI_F * p) + 0.28f * cosf(TWO_PI_F * 2.0f * p) - 0.08f * cosf(TWO_PI_F * 3.0f * p);
-      value = clampInt((int)(value * 100.0f), 0, 100) / 100.0f;
-    }
-
-    int nextX = x + i;
-    int nextY = y + height - 3 - (int)(value * (height - 6));
-
-    if (i > 0) {
-      tft.drawLine(prevX, prevY, nextX, nextY, accent);
-    }
-
-    prevX = nextX;
-    prevY = nextY;
-  }
-}
-
 void drawPitchEdit(uint16_t accent) {
   char pitchLabel[12];
   getPitchLabel(pitchLabel, sizeof(pitchLabel));
@@ -940,9 +686,9 @@ void drawPitchEdit(uint16_t accent) {
   drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), "PITCH", accent);
   printRight(pitchLabel, 150, 67, 1, COL_INK);
   drawPanelFrame(10, 74, 140, 41, accent);
-  drawSpectrumBars(14, 78, 132, 33, accent, true);
-
-  drawSpectrumScale(120);
+  drawScopeGrid(10, 74, 140, 41);
+  drawOscilloscopeTrace(14, 78, 132, 33, accent, false);
+  printRight("native osc", 149, 120, 1, COL_MUTED);
 }
 
 void drawLevelEdit(uint16_t accent) {
@@ -966,7 +712,7 @@ void drawLevelEdit(uint16_t accent) {
   tft.print("RMS");
 
   drawPanelFrame(10, 103, 140, 22, accent);
-  drawSpectrumBars(14, 107, 132, 14, accent, false);
+  drawGrooveBar(14, 109, 132, 9, map(volume, 0, 100, 0, 130), accent);
 }
 
 uint16_t getMixerVoiceColor(int voiceIndex, uint16_t accent);
@@ -1196,121 +942,6 @@ void drawReleaseEdit(uint16_t accent) {
   drawAdsrCurve(accent);
 }
 
-void drawSpectrumEdit(uint16_t accent) {
-  char pitchLabel[12];
-  getPitchLabel(pitchLabel, sizeof(pitchLabel));
-
-  drawValueReadout("HARM", "SPEC", accent);
-  printRight(pitchLabel, 150, 67, 1, COL_INK);
-  drawPanelFrame(10, 74, 140, 41, accent);
-  drawSpectrumBars(14, 78, 132, 33, accent, true);
-
-  tft.setTextSize(1);
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(11, 120);
-  tft.print(waveformNames[waveform]);
-  tft.print(" ");
-  tft.print(FFT_BIN_VALUES[fftBinsIndex]);
-  tft.print("b");
-  printRight(getSpectrumMaxLabel(), 149, 120, 1, COL_MUTED);
-}
-
-void drawBluetoothFftEdit(uint16_t accent) {
-  bool streaming = isBluetoothStreaming();
-  bool connected = bluetoothEnabled && btAudioStarted && a2dpSink.is_connected();
-  const char* status = getBluetoothStatusText();
-
-  drawValueReadout(status, "BT FFT", accent);
-  printRight(streaming ? "PCM" : connected ? "WAIT" : "PAIR", 150, 67, 1, streaming ? COL_GOLD : COL_INK);
-
-  drawPanelFrame(10, 74, 140, 42, accent);
-  drawBluetoothFftBars(14, 78, 132, 33, accent);
-
-  tft.setTextSize(1);
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(11, 120);
-  tft.print("BT");
-  tft.setTextColor(streaming ? COL_GOLD : COL_MUTED);
-  tft.print(streaming ? " LIVE" : connected ? " CONN" : " PAIR");
-  printRight("PCM FFT", 149, 120, 1, COL_MUTED);
-}
-
-void drawFftRangeEdit(uint16_t accent) {
-  char value[14];
-  snprintf(value, sizeof(value), "20-%s", getSpectrumMaxLabel());
-
-  drawValueReadout(value, "RANGE", accent);
-  printRight("log bins", 150, 67, 1, COL_INK);
-  drawPanelFrame(10, 74, 140, 41, accent);
-  drawSpectrumBars(14, 78, 132, 33, accent, true);
-  drawSpectrumScale(120);
-}
-
-void drawFftWindowEdit(uint16_t accent) {
-  drawValueReadout(FFT_WINDOW_NAMES[fftWindow], "WINDOW", accent);
-  printRight("WINDOW", 150, 67, 1, COL_INK);
-
-  drawPanelFrame(10, 74, 65, 43, accent);
-  drawWindowCurve(14, 80, 57, 31, accent);
-
-  drawPanelFrame(84, 74, 66, 43, accent);
-  drawSpectrumBars(88, 79, 58, 34, accent, true);
-
-  tft.setTextSize(1);
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(12, 121);
-  tft.print("window");
-  printRight(FFT_WINDOW_NAMES[fftWindow], 149, 121, 1, COL_MUTED);
-}
-
-void drawFftSmoothEdit(uint16_t accent) {
-  drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), "AVG", accent);
-  printRight("SMOOTH", 150, 67, 1, COL_INK);
-
-  drawPanelFrame(10, 74, 140, 34, accent);
-  drawSpectrumBars(14, 78, 132, 26, accent, true);
-
-  tft.setTextSize(1);
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(10, 112);
-  tft.print("FAST");
-  printRight("STABLE", 150, 112, 1, COL_MUTED);
-  drawGrooveBar(50, 115, 60, 8, map(fftSmoothing, 0, 95, 0, 58), accent);
-}
-
-void drawFftHoldEdit(uint16_t accent) {
-  drawValueReadout(fftPeakHold ? "ON" : "OFF", "HOLD", accent);
-  printRight("PEAKS", 150, 67, 1, COL_INK);
-
-  drawPanelFrame(10, 74, 140, 41, accent);
-  drawSpectrumBars(14, 78, 132, 33, accent, true);
-
-  tft.setTextSize(1);
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(11, 120);
-  tft.print("hold ");
-  tft.setTextColor(fftPeakHold ? COL_GOLD : COL_MUTED);
-  tft.print(fftPeakHold ? "ON" : "OFF");
-}
-
-void drawFftBinsEdit(uint16_t accent) {
-  char value[10];
-  snprintf(value, sizeof(value), "%d BIN", FFT_BIN_VALUES[fftBinsIndex]);
-
-  drawValueReadout(value, "RES", accent);
-  printRight("display", 150, 67, 1, COL_INK);
-
-  drawPanelFrame(10, 74, 140, 41, accent);
-  drawSpectrumBars(14, 78, 132, 33, accent, true);
-
-  tft.setTextSize(1);
-  tft.setTextColor(COL_MUTED);
-  tft.setCursor(11, 120);
-  tft.print("range ");
-  tft.print(getSpectrumMaxLabel());
-  printRight("log FFT", 149, 120, 1, COL_MUTED);
-}
-
 void drawScopeEdit(uint16_t accent) {
   drawValueReadout("LIVE", "SCOPE", accent);
   drawPanelFrame(10, 74, 140, 42, accent);
@@ -1327,20 +958,18 @@ void drawScopeEdit(uint16_t accent) {
 }
 
 void drawAudioTestEdit(uint16_t accent) {
-  drawValueReadout(waveformNames[waveform], "TEST", accent);
-  printRight("DAC wave", 150, 67, 1, COL_INK);
+  drawValueReadout("SINE", "TEST", accent);
+  printRight("DIRECT I2S", 150, 67, 1, COL_INK);
 
   drawPanelFrame(10, 74, 140, 42, accent);
   drawScopeGrid(10, 74, 140, 42);
-  drawOscilloscopeTrace(14, 79, 132, 33, accent, false);
+  drawWaveShapePreviewForParams(14, 79, 132, 33, 0, 0.0f, 0.0f, accent);
 
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(11, 120);
-  tft.print(frequency);
-  tft.print("Hz ");
-  tft.print(volume);
-  tft.print("%");
+  tft.print(AUDIO_TEST_FREQUENCY_HZ);
+  tft.print("Hz fixed");
   printRight(isSynthAudioActive() ? "I2S ON" : "I2S OFF", 149, 120, 1, isSynthAudioActive() ? COL_GOLD : COL_MUTED);
 }
 
@@ -1435,7 +1064,7 @@ void drawSynthView(uint16_t accent, bool fullClear) {
     ? clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1)
     : clampInt(sequencerSelectedStep, 0, getSequencerLength() - 1);
   bool stepEnabled = isSequencerStepEnabled(voice, shownStep);
-  int previewShape = stepEnabled ? getSequencerStepShape(voice, shownStep) : waveVoiceShape[voice];
+  int previewShape = waveVoiceShape[voice];
 
   tft.fillRect(0, 0, SCREEN_W, 18, COL_BG);
   tft.drawFastHLine(0, 17, SCREEN_W, COL_LINE);
@@ -1496,12 +1125,9 @@ void drawSynthView(uint16_t accent, bool fullClear) {
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(4, 106);
-  tft.print("G");
-  tft.print(sequencerGate);
-  tft.print(" L");
+  tft.print("L");
   tft.print(getSequencerLength());
-  tft.print(" ");
-  tft.print(SEQUENCER_DIRECTION_NAMES[sequencerDirection]);
+  tft.print(" FWD");
   char voiceLevelText[12];
   snprintf(voiceLevelText, sizeof(voiceLevelText), "V1 %d", waveVoiceLevels[0]);
   printRight(voiceLevelText, 156, 106, 1, waveVoiceLevels[0] > 0 ? ITEM_COLORS[0] : COL_MUTED);
@@ -1565,9 +1191,9 @@ void drawSequencerRunEdit(uint16_t accent) {
   drawSequencerEditBody(bpmText, transportRunning && sequencerEnabled ? "RUN" : "STOP", accent);
   char stepText[16];
   snprintf(stepText, sizeof(stepText), "STEP %02d/%02d", sequencerCurrentStep + 1, getSequencerLength());
-  char gateText[12];
-  snprintf(gateText, sizeof(gateText), "GATE %d", sequencerGate);
-  drawSequencerEditFooter(stepText, gateText);
+  char lengthText[12];
+  snprintf(lengthText, sizeof(lengthText), "LEN %d", getSequencerLength());
+  drawSequencerEditFooter(stepText, lengthText);
 }
 
 void drawSequencerBpmEdit(uint16_t accent) {
@@ -1614,18 +1240,6 @@ void drawSequencerNoteEdit(uint16_t accent) {
                           COL_MUTED, sequencerEnabled ? COL_GOLD : COL_MUTED);
 }
 
-void drawSequencerShapeEdit(uint16_t accent) {
-  int voice = getActiveSequencerVoice();
-  int shape = getSelectedSequencerStepShape();
-
-  drawSequencerEditBody(getWaveformShortName(shape), "SHAPE", accent);
-  char stepText[12];
-  snprintf(stepText, sizeof(stepText), "V%d  S%02d", voice + 1, sequencerSelectedStep + 1);
-  drawSequencerEditFooter(stepText, isSelectedSequencerStepEnabled() ? "ON" : "REST",
-                          ITEM_COLORS[voice % ITEM_COLOR_COUNT],
-                          isSelectedSequencerStepEnabled() ? COL_GOLD : COL_CORAL);
-}
-
 void drawSequencerUtilityFrame(uint16_t accent, const char* value, const char* tag, const char* rightText) {
   (void)rightText;
   drawSequencerEditBody(value, tag, accent);
@@ -1640,30 +1254,6 @@ void drawSequencerLengthEdit(uint16_t accent) {
                           COL_MUTED, sequencerEnabled ? COL_GOLD : COL_MUTED);
 }
 
-void drawSequencerDirectionEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, SEQUENCER_DIRECTION_NAMES[sequencerDirection], "DIRECTION", "PLAY");
-  drawSequencerEditFooter("FWD REV PEND RND", sequencerEnabled ? "LIVE" : "EDIT",
-                          COL_MUTED, sequencerEnabled ? COL_GOLD : COL_MUTED);
-}
-
-void drawSequencerGateEdit(uint16_t accent) {
-  char value[10];
-  snprintf(value, sizeof(value), "%d%%", sequencerGate);
-
-  drawSequencerUtilityFrame(accent, value, "GATE", "GATE");
-  drawSequencerEditFooter("SHORT", "LONG");
-}
-
-void drawSequencerTransposeEdit(uint16_t accent) {
-  char value[10];
-  formatSequencerNote(value, sizeof(value), sequencerTranspose);
-
-  drawSequencerUtilityFrame(accent, value, "TRANSPOSE", "TRANSPOSE");
-  char baseText[16];
-  snprintf(baseText, sizeof(baseText), "BASE %dHz", frequency);
-  drawSequencerEditFooter(baseText, "ALL STEPS");
-}
-
 void drawSequencerStepEnableEdit(uint16_t accent) {
   bool enabled = isSelectedSequencerStepEnabled();
   drawSequencerUtilityFrame(accent, enabled ? "ON" : "REST", "STEP", "MUTE");
@@ -1671,27 +1261,6 @@ void drawSequencerStepEnableEdit(uint16_t accent) {
   snprintf(stepText, sizeof(stepText), "V%d  S%02d", getActiveSequencerVoice() + 1, sequencerSelectedStep + 1);
   drawSequencerEditFooter(stepText, enabled ? "ACTIVE" : "MUTED",
                           COL_MUTED, enabled ? COL_GOLD : COL_CORAL);
-}
-
-void drawSequencerRandomizeEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, "RAND", "SEQ", "RANDOM");
-  char trackText[12];
-  snprintf(trackText, sizeof(trackText), "TRACK V%d", getActiveSequencerVoice() + 1);
-  drawSequencerEditFooter(trackText, "NOTE+SHAPE");
-}
-
-void drawSequencerClearEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, "ZERO", "SEQ", "CLEAR");
-  char trackText[12];
-  snprintf(trackText, sizeof(trackText), "TRACK V%d", getActiveSequencerVoice() + 1);
-  drawSequencerEditFooter(trackText, "EMPTY");
-}
-
-void drawSequencerRotateEdit(uint16_t accent) {
-  drawSequencerUtilityFrame(accent, "ROT", "SEQ", "SHIFT");
-  char trackText[12];
-  snprintf(trackText, sizeof(trackText), "TRACK V%d", getActiveSequencerVoice() + 1);
-  drawSequencerEditFooter(trackText, "SHIFT");
 }
 
 int getMixerVoiceLevel(int voiceIndex) {

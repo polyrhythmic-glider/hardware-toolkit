@@ -16,7 +16,7 @@ Firmware principale per una ESP32 DevKit V1 / ESP32-WROOM-32. Riunisce:
 - 4 NeoKey 1x4 agli indirizzi `0x30`-`0x33`, per un sequencer a 16 step;
 - PCM5102 su I2S;
 - synth a due voci, kick, ADSR, filtro, delay, riverbero, preset e sequencer;
-- Bluetooth A2DP, analyzer e schermate di test;
+- Bluetooth A2DP e schermate di test, incluso un tono I2S diretto a 440 Hz;
 - modalità storiche Encoder View, Waveform, Pong, Diagnostics e Splash.
 
 La conversione è pensata per partire dalla vecchia board 4 encoder/4 OLED già
@@ -37,6 +37,11 @@ dell'encoder sottostante.
 Pagine synth: Voice 1, Voice 2, Envelope, Mixer, Filter + FX, Sequencer e
 Transport. Le modifiche agiscono sullo stesso stato e sullo stesso motore audio
 visualizzato dal TFT.
+
+Il sequencer espone solo le funzioni essenziali: play/stop, attivazione, BPM,
+voce, step, nota, lunghezza e step on/rest. La riproduzione procede sempre in
+avanti e il clock continua anche con volume a zero. I NeoKey applicano insieme
+le pressioni simultanee e aggiornano solo i LED realmente cambiati.
 
 Nel menu TFT, `Hardware Test > Control Surface` permette di scegliere con
 l'encoder master una delle sei modalità OLED. Control surface e diagnostica
@@ -74,7 +79,7 @@ Verificato con:
 - ESP32-A2DP `1.8.11`.
 
 La compilazione completa genera correttamente il firmware. La build corrente
-usa 1.252.863 byte e entra ancora nella partizione app standard, ma occupa
+usa 1.252.440 byte e entra ancora nella partizione app standard, ma occupa
 circa il 95% dello spazio:
 in Arduino IDE scegliere `Huge APP (3MB No OTA/1MB SPIFFS)` per lasciare margine
 alle prossime integrazioni.

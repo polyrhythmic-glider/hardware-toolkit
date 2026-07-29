@@ -206,8 +206,8 @@ con display nudi aggiungere 4,7 kOhm da SDx e SCx a 3V3 su ciascun canale usato.
 
 | NeoKey | Indirizzo | Collegamento |
 | --- | --- | --- |
-| step 1-4 | `0x31` | SDA→SD4, SCL→SC4, 3V3, GND; chiudere solo jumper A0 |
-| step 5-8 | `0x30` | concatenato via STEMMA QT al primo |
+| step 1-4 | `0x30` | SDA→SD4, SCL→SC4, 3V3, GND |
+| step 5-8 | `0x31` | concatenato via STEMMA QT al primo; chiudere solo jumper A0 |
 | step 9-12 | `0x32` | concatenato; chiudere solo jumper A1 |
 | step 13-16 | `0x33` | concatenato; chiudere jumper A0 e A1 |
 
@@ -215,6 +215,10 @@ La catena entra nel primo NeoKey tramite SD4/SC4 e prosegue attraverso le prese
 STEMMA QT libere fino al quarto NeoKey. Non usare SD5/SC5. Le board NeoKey
 includono pull-up I2C; con cavi corti non aggiungere altri pull-up se non
 necessari.
+
+L'ordine degli step segue il montaggio fisico da sinistra verso destra: prima i
+moduli `0x30`, `0x31`, `0x32`, `0x33`, poi i quattro tasti di ogni modulo nello
+stesso verso.
 
 ## 4. MCP23017 e quattro encoder
 

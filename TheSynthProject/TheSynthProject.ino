@@ -6,6 +6,8 @@
 #include "BluetoothA2DPSink.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <math.h>
 #include <string.h>
 #include "AudioConfig.h"
@@ -114,23 +116,22 @@ int reverbRoom = 65;
 int presetSlot = 1;
 bool presetOperationOk = true;
 const char* presetOperationText = "SELECT";
-int fftRangeIndex = 1;
-int fftWindow = 0;
-int fftSmoothing = 35;
-int fftBinsIndex = 1;
-bool fftPeakHold = true;
 bool dacI2sStarted = false;
+volatile bool audioOutputTransition = false;
 bool bluetoothEnabled = false;
 bool btAudioStarted = false;
 uint32_t btStartedAtMs = 0;
 volatile uint32_t btLastAudioMs = 0;
 volatile uint32_t btPacketCount = 0;
-volatile int16_t btFftSamples[BT_FFT_SAMPLES];
-volatile uint16_t btFftWriteIndex = 0;
-volatile uint32_t btFftSampleCount = 0;
-uint8_t btFftDecimator = 0;
 TaskHandle_t synthAudioTaskHandle = nullptr;
 int16_t synthAudioBuffer[SYNTH_AUDIO_BUFFER_FRAMES * 2];
+volatile uint32_t synthAudioRenderedBuffers = 0;
+volatile uint32_t synthAudioMaxRenderUs = 0;
+volatile uint32_t synthAudioMaxI2sUs = 0;
+volatile uint32_t synthAudioDspRecoveries = 0;
+uint32_t synthAudioLastI2sErrorMs = 0;
+float directAudioTestPhase = 0.0f;
+bool directAudioTestWasActive = false;
 volatile bool synthRetriggerRequested = true;
 float synthPhase = 0.0f;
 float synthVoicePhases[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
@@ -144,20 +145,12 @@ bool transportRunning = false;
 bool sequencerEnabled = false;
 int sequencerBpm = 120;
 int sequencerLength = SEQUENCER_STEP_COUNT;
-int sequencerDirection = 0;
-int sequencerGate = 70;
-int sequencerTranspose = 0;
 int activeSequencerVoice = 0;
 int sequencerSelectedStep = 0;
 volatile int sequencerCurrentStep = 0;
 uint32_t sequencerSampleCounter = 0;
 int sequencerStepNotes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
-int sequencerStepShapes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {
-  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }
-};
-bool sequencerPingPongForward = true;
 int waveVoiceLevels[WAVE_VOICE_COUNT] = { 100, 100 };
 int waveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
 int waveVoiceTune[WAVE_VOICE_COUNT] = { 0, 0 };
@@ -212,9 +205,6 @@ void resetSequencerClock();
 void triggerKickVoice();
 int getSequencerLength();
 void clampSequencerIndexes();
-void randomizeSequencerPattern();
-void clearSequencerPattern();
-void rotateSequencerPattern(int direction);
 bool isMixerLayerEnabled();
 bool isMixerLayerAudible();
 
@@ -262,18 +252,10 @@ int lastSurfaceMode = -1;
 int lastSurfacePage = -1;
 uint16_t lastMcpRawPorts = 0;
 long lastMcpEncoderCount[4] = { 0, 0, 0, 0 };
-int lastFftRangeIndex = -1;
-int lastFftWindow = -1;
-int lastFftSmoothing = -1;
-int lastFftBinsIndex = -1;
-int lastFftPeakHold = -1;
 int lastTransportRunning = -1;
 int lastSequencerEnabled = -1;
 int lastSequencerBpm = -1;
 int lastSequencerLength = -1;
-int lastSequencerDirection = -1;
-int lastSequencerGate = -1;
-int lastSequencerTranspose = -999;
 int lastSequencerVoice = -1;
 int lastSequencerSelectedStep = -1;
 int lastSequencerCurrentStep = -1;

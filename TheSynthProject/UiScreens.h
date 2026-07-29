@@ -254,18 +254,10 @@ void drawEditBase() {
   lastMcpRawPorts = 0;
   for (uint8_t i = 0; i < 4; i++) lastMcpEncoderCount[i] = 0;
   lastWaveVoiceParamChecksum = -1;
-  lastFftRangeIndex = -1;
-  lastFftWindow = -1;
-  lastFftSmoothing = -1;
-  lastFftBinsIndex = -1;
-  lastFftPeakHold = -1;
   lastTransportRunning = -1;
   lastSequencerEnabled = -1;
   lastSequencerBpm = -1;
   lastSequencerLength = -1;
-  lastSequencerDirection = -1;
-  lastSequencerGate = -1;
-  lastSequencerTranspose = -999;
   lastSequencerVoice = -1;
   lastSequencerSelectedStep = -1;
   lastSequencerCurrentStep = -1;
@@ -305,18 +297,10 @@ bool editValueChanged() {
     }
   }
   if (getWaveVoiceParamChecksum() != lastWaveVoiceParamChecksum) return true;
-  if (fftRangeIndex != lastFftRangeIndex) return true;
-  if (fftWindow != lastFftWindow) return true;
-  if (fftSmoothing != lastFftSmoothing) return true;
-  if (fftBinsIndex != lastFftBinsIndex) return true;
-  if ((int)fftPeakHold != lastFftPeakHold) return true;
   if ((int)transportRunning != lastTransportRunning) return true;
   if ((int)sequencerEnabled != lastSequencerEnabled) return true;
   if (sequencerBpm != lastSequencerBpm) return true;
   if (sequencerLength != lastSequencerLength) return true;
-  if (sequencerDirection != lastSequencerDirection) return true;
-  if (sequencerGate != lastSequencerGate) return true;
-  if (sequencerTranspose != lastSequencerTranspose) return true;
   if (activeSequencerVoice != lastSequencerVoice) return true;
   if (sequencerSelectedStep != lastSequencerSelectedStep) return true;
   if (sequencerCurrentStep != lastSequencerCurrentStep) return true;
@@ -354,18 +338,10 @@ void saveLastValues() {
     lastMcpEncoderCount[i] = ControlSurface::getEncoderCount(i);
   }
   lastWaveVoiceParamChecksum = getWaveVoiceParamChecksum();
-  lastFftRangeIndex = fftRangeIndex;
-  lastFftWindow = fftWindow;
-  lastFftSmoothing = fftSmoothing;
-  lastFftBinsIndex = fftBinsIndex;
-  lastFftPeakHold = (int)fftPeakHold;
   lastTransportRunning = (int)transportRunning;
   lastSequencerEnabled = (int)sequencerEnabled;
   lastSequencerBpm = sequencerBpm;
   lastSequencerLength = sequencerLength;
-  lastSequencerDirection = sequencerDirection;
-  lastSequencerGate = sequencerGate;
-  lastSequencerTranspose = sequencerTranspose;
   lastSequencerVoice = activeSequencerVoice;
   lastSequencerSelectedStep = sequencerSelectedStep;
   lastSequencerCurrentStep = sequencerCurrentStep;
@@ -380,8 +356,7 @@ void drawEditValue() {
   bool clearBody = valueDirty;
   bool dynamicBluetoothView =
     action == ACTION_BT_RECEIVER ||
-    action == ACTION_BT_OUTPUT ||
-    action == ACTION_BT_FFT;
+    action == ACTION_BT_OUTPUT;
   bool dynamicSequencerView =
     action == ACTION_SEQ_START ||
     action == ACTION_SEQ_STOP ||
@@ -391,15 +366,8 @@ void drawEditValue() {
     action == ACTION_SEQ_VOICE ||
     action == ACTION_SEQ_STEP ||
     action == ACTION_SEQ_NOTE ||
-    action == ACTION_SEQ_SHAPE ||
     action == ACTION_SEQ_LENGTH ||
-    action == ACTION_SEQ_DIRECTION ||
-    action == ACTION_SEQ_GATE ||
-    action == ACTION_SEQ_TRANSPOSE ||
-    action == ACTION_SEQ_STEP_ENABLE ||
-    action == ACTION_SEQ_RANDOMIZE ||
-    action == ACTION_SEQ_CLEAR ||
-    action == ACTION_SEQ_ROTATE;
+    action == ACTION_SEQ_STEP_ENABLE;
   dynamicSequencerView = dynamicSequencerView || action == ACTION_SURFACE_MODE;
   bool dynamicView = dynamicBluetoothView || dynamicSequencerView;
   bool bluetoothStreaming = dynamicBluetoothView ? isBluetoothStreaming() : false;
@@ -498,34 +466,6 @@ void drawEditValue() {
       drawReleaseEdit(accent);
       break;
 
-    case ACTION_SPECTRUM:
-      drawSpectrumEdit(accent);
-      break;
-
-    case ACTION_BT_FFT:
-      drawBluetoothFftEdit(accent);
-      break;
-
-    case ACTION_FFT_RANGE:
-      drawFftRangeEdit(accent);
-      break;
-
-    case ACTION_FFT_WINDOW:
-      drawFftWindowEdit(accent);
-      break;
-
-    case ACTION_FFT_SMOOTH:
-      drawFftSmoothEdit(accent);
-      break;
-
-    case ACTION_FFT_HOLD:
-      drawFftHoldEdit(accent);
-      break;
-
-    case ACTION_FFT_BINS:
-      drawFftBinsEdit(accent);
-      break;
-
     case ACTION_SCOPE:
       drawScopeEdit(accent);
       break;
@@ -566,40 +506,12 @@ void drawEditValue() {
       drawSequencerNoteEdit(accent);
       break;
 
-    case ACTION_SEQ_SHAPE:
-      drawSequencerShapeEdit(accent);
-      break;
-
     case ACTION_SEQ_LENGTH:
       drawSequencerLengthEdit(accent);
       break;
 
-    case ACTION_SEQ_DIRECTION:
-      drawSequencerDirectionEdit(accent);
-      break;
-
-    case ACTION_SEQ_GATE:
-      drawSequencerGateEdit(accent);
-      break;
-
-    case ACTION_SEQ_TRANSPOSE:
-      drawSequencerTransposeEdit(accent);
-      break;
-
     case ACTION_SEQ_STEP_ENABLE:
       drawSequencerStepEnableEdit(accent);
-      break;
-
-    case ACTION_SEQ_RANDOMIZE:
-      drawSequencerRandomizeEdit(accent);
-      break;
-
-    case ACTION_SEQ_CLEAR:
-      drawSequencerClearEdit(accent);
-      break;
-
-    case ACTION_SEQ_ROTATE:
-      drawSequencerRotateEdit(accent);
       break;
 
     case ACTION_MIX_SINE:

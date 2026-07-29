@@ -8,6 +8,59 @@ float getOscillatorSample(float phase) {
   return getOscillatorSampleForParams(phase, waveform, (float)waveFold, (float)wavePhase);
 }
 
+// Values below are owned by the audio task. UI-facing parameters are sampled
+// only at block boundaries and never read repeatedly inside the sample loop.
+static float audioVoicePhaseSteps[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
+static float audioFilterCoefficient = 0.1f;
+static float audioDelayMixAmount = 0.0f;
+static float audioDelayFeedbackAmount = 0.35f;
+static float audioDelayTargetSamples = (280.0f * SYNTH_AUDIO_SAMPLE_RATE) / 1000.0f;
+static float audioDelayCurrentSamples = (280.0f * SYNTH_AUDIO_SAMPLE_RATE) / 1000.0f;
+static float audioReverbMixAmount = 0.0f;
+static float audioReverbRoomAmount = 0.65f;
+static uint32_t audioAttackSamples = (10U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
+static uint32_t audioDecaySamples = (80U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
+static uint32_t audioReleaseSamples = (320U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
+static uint32_t audioKickMaxSamples = (420U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
+static uint32_t audioSequencerStepSamples = (SYNTH_AUDIO_SAMPLE_RATE * 15U) / 120U;
+static uint32_t audioSequencerGateSamples = ((SYNTH_AUDIO_SAMPLE_RATE * 15U) / 120U) * 70U / 100U;
+static float audioSustainLevel = 0.68f;
+static bool audioDelayRequested = false;
+static bool audioReverbRequested = false;
+static bool audioDelayPathActive = false;
+static bool audioReverbPathActive = false;
+
+void clearSynthFilterState() {
+  filterLowState = 0.0f;
+  filterBandState = 0.0f;
+}
+
+void clearSynthDelayState() {
+  memset(delayBuffer, 0, sizeof(delayBuffer));
+  delayWriteIndex = 0;
+}
+
+void clearSynthReverbState() {
+  memset(reverbBufferA, 0, sizeof(reverbBufferA));
+  memset(reverbBufferB, 0, sizeof(reverbBufferB));
+  memset(reverbBufferC, 0, sizeof(reverbBufferC));
+  reverbIndexA = 0;
+  reverbIndexB = 0;
+  reverbIndexC = 0;
+}
+
+void resetSynthDspState(bool clearEffectBuffers) {
+  clearSynthFilterState();
+  synthEnvelopeSmoothed = 0.0f;
+
+  if (clearEffectBuffers) {
+    clearSynthDelayState();
+    clearSynthReverbState();
+    audioDelayPathActive = false;
+    audioReverbPathActive = false;
+  }
+}
+
 float getCrossfadedVoiceSample(int voiceIndex, float phase, int targetShape) {
   targetShape = clampInt(targetShape, 0, WAVE_SHAPE_COUNT - 1);
 
@@ -39,42 +92,78 @@ float getCrossfadedVoiceSample(int voiceIndex, float phase, int targetShape) {
   return previousSample + (currentSample - previousSample) * mix;
 }
 
-void updateAudioParameterSmoothing() {
-  audioFrequency = smoothToward(audioFrequency, (float)frequency, 0.0012f);
-  audioVolume = smoothToward(audioVolume, (float)volume, 0.0010f);
-  audioWaveFold = smoothToward(audioWaveFold, (float)waveFold, 0.0012f);
-  audioWavePhase = smoothAngleDegrees(audioWavePhase, (float)wavePhase, 0.0010f);
-  audioKickLevel = smoothToward(audioKickLevel, (float)kickLevel, 0.0015f);
-  audioKickPitch = smoothToward(audioKickPitch, (float)kickPitch, 0.0015f);
-  audioKickDecay = smoothToward(audioKickDecay, (float)kickDecay, 0.0015f);
-  audioKickSweep = smoothToward(audioKickSweep, (float)kickSweep, 0.0015f);
-  audioKickClick = smoothToward(audioKickClick, (float)kickClick, 0.0015f);
-  audioKickDrive = smoothToward(audioKickDrive, (float)kickDrive, 0.0015f);
-  audioFilterAmount = smoothToward(audioFilterAmount, filterEnabled ? 1.0f : 0.0f, 0.0015f);
-  audioFilterCutoff = smoothToward(audioFilterCutoff, (float)filterCutoff, 0.0015f);
-  audioFilterType = filterType;
+void updateAudioVoicePhaseSteps() {
+  int step = clampInt(sequencerCurrentStep, 0, SEQUENCER_STEP_COUNT - 1);
 
   for (int i = 0; i < WAVE_VOICE_COUNT; i++) {
-    audioWaveVoiceLevels[i] = smoothToward(audioWaveVoiceLevels[i], (float)waveVoiceLevels[i], 0.0015f);
-    audioWaveVoiceShape[i] = waveVoiceShape[i];
-    audioWaveVoiceTune[i] = smoothToward(audioWaveVoiceTune[i], (float)waveVoiceTune[i], 0.0012f);
-    audioWaveVoiceFold[i] = smoothToward(audioWaveVoiceFold[i], (float)waveVoiceFold[i], 0.0012f);
-    audioWaveVoicePhase[i] = smoothAngleDegrees(audioWaveVoicePhase[i], (float)waveVoicePhase[i], 0.0010f);
+    float semitoneOffset = audioWaveVoiceTune[i];
+    if (sequencerEnabled) semitoneOffset += getSequencerStepNote(i, step);
+
+    float tuneRatio = powf(2.0f, semitoneOffset / 12.0f);
+    audioVoicePhaseSteps[i] = (audioFrequency * tuneRatio) / (float)SYNTH_AUDIO_SAMPLE_RATE;
   }
 }
 
-float getAudioWaveMixSample(float baseFrequency) {
-  if (uiMode == MODE_EDIT && getSelectedAction() == ACTION_AUDIO_TEST) {
-    float sample = getOscillatorSampleForParams(synthPhase, waveform, audioWaveFold, audioWavePhase);
-    synthPhase += baseFrequency / (float)SYNTH_AUDIO_SAMPLE_RATE;
+void updateAudioParametersForBlock() {
+  const float amount = SYNTH_PARAMETER_SMOOTH_BLOCK;
+  int targetFrequency = clampInt(frequency, 20, 2000);
+  int targetVolume = clampInt(volume, 0, 100);
 
-    if (synthPhase >= 1.0f) {
-      synthPhase -= floorf(synthPhase);
-    }
+  audioFrequency = smoothToward(audioFrequency, (float)targetFrequency, amount);
+  audioVolume = smoothToward(audioVolume, (float)targetVolume, amount);
+  audioWaveFold = smoothToward(audioWaveFold, (float)clampInt(waveFold, 0, 100), amount);
+  audioWavePhase = smoothAngleDegrees(audioWavePhase, (float)wrapIndex(wavePhase, 360), amount);
+  audioKickLevel = smoothToward(audioKickLevel, (float)clampInt(kickLevel, 0, 100), amount);
+  audioKickPitch = smoothToward(audioKickPitch, (float)clampInt(kickPitch, 25, 120), amount);
+  audioKickDecay = smoothToward(audioKickDecay, (float)clampInt(kickDecay, 80, 1200), amount);
+  audioKickSweep = smoothToward(audioKickSweep, (float)clampInt(kickSweep, 0, 260), amount);
+  audioKickClick = smoothToward(audioKickClick, (float)clampInt(kickClick, 0, 100), amount);
+  audioKickDrive = smoothToward(audioKickDrive, (float)clampInt(kickDrive, 0, 100), amount);
+  audioFilterAmount = smoothToward(audioFilterAmount, filterEnabled ? 1.0f : 0.0f, amount);
+  audioFilterCutoff = smoothToward(
+    audioFilterCutoff,
+    (float)clampInt(filterCutoff, FILTER_MIN_CUTOFF_HZ, FILTER_MAX_CUTOFF_HZ),
+    amount
+  );
+  audioFilterType = clampInt(filterType, 0, FILTER_TYPE_COUNT - 1);
 
-    return sample;
+  for (int i = 0; i < WAVE_VOICE_COUNT; i++) {
+    audioWaveVoiceLevels[i] = smoothToward(audioWaveVoiceLevels[i], (float)clampInt(waveVoiceLevels[i], 0, 100), amount);
+    audioWaveVoiceShape[i] = clampInt(waveVoiceShape[i], 0, WAVE_SHAPE_COUNT - 1);
+    audioWaveVoiceTune[i] = smoothToward(audioWaveVoiceTune[i], (float)clampInt(waveVoiceTune[i], -24, 24), amount);
+    audioWaveVoiceFold[i] = smoothToward(audioWaveVoiceFold[i], (float)clampInt(waveVoiceFold[i], 0, 100), amount);
+    audioWaveVoicePhase[i] = smoothAngleDegrees(audioWaveVoicePhase[i], (float)wrapIndex(waveVoicePhase[i], 360), amount);
   }
 
+  float cutoffRadians = TWO_PI_F * audioFilterCutoff / (float)SYNTH_AUDIO_SAMPLE_RATE;
+  audioFilterCoefficient = clampFloat(1.0f - expf(-cutoffRadians), 0.001f, 0.95f);
+
+  int targetDelayMix = clampInt(delayMix, 0, 100);
+  int targetReverbMix = clampInt(reverbMix, 0, 100);
+  audioDelayMixAmount = smoothToward(audioDelayMixAmount, targetDelayMix / 100.0f, amount);
+  audioDelayFeedbackAmount = smoothToward(audioDelayFeedbackAmount, clampInt(delayFeedback, 0, 90) / 100.0f, amount);
+  audioDelayTargetSamples = (float)((clampInt(delayTimeMs, 20, DELAY_MAX_MS) * SYNTH_AUDIO_SAMPLE_RATE) / 1000);
+  audioReverbMixAmount = smoothToward(audioReverbMixAmount, targetReverbMix / 100.0f, amount);
+  audioReverbRoomAmount = smoothToward(audioReverbRoomAmount, clampInt(reverbRoom, 0, 95) / 100.0f, amount);
+  audioDelayRequested = targetDelayMix > 0 || audioDelayMixAmount > 0.001f;
+  audioReverbRequested = targetReverbMix > 0 || audioReverbMixAmount > 0.001f;
+
+  audioAttackSamples = ((uint32_t)clampInt(attack, 0, 500) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
+  audioDecaySamples = ((uint32_t)clampInt(decay, 0, 2000) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
+  audioReleaseSamples = ((uint32_t)clampInt(releaseMs, 0, 3000) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
+  audioSustainLevel = clampInt(sustain, 0, 100) / 100.0f;
+  audioKickMaxSamples = (uint32_t)((audioKickDecay * (float)SYNTH_AUDIO_SAMPLE_RATE) / 1000.0f);
+  if (audioKickMaxSamples < 80) audioKickMaxSamples = 80;
+
+  int safeBpm = clampInt(sequencerBpm, 40, 240);
+  audioSequencerStepSamples = (uint32_t)max(1, (SYNTH_AUDIO_SAMPLE_RATE * 15) / safeBpm);
+  audioSequencerGateSamples = (audioSequencerStepSamples * 70U) / 100U;
+  if (audioSequencerGateSamples < 1) audioSequencerGateSamples = 1;
+
+  updateAudioVoicePhaseSteps();
+}
+
+float getAudioWaveMixSample() {
   float mixed = 0.0f;
   float totalGain = 0.0f;
   int step = clampInt(sequencerCurrentStep, 0, SEQUENCER_STEP_COUNT - 1);
@@ -83,25 +172,16 @@ float getAudioWaveMixSample(float baseFrequency) {
     float gain = audioWaveVoiceLevels[i] / 100.0f;
     if (gain <= 0.001f) continue;
 
-    int shape = audioWaveVoiceShape[i];
-    float semitoneOffset = audioWaveVoiceTune[i];
-
     if (sequencerEnabled) {
       if (!isSequencerStepEnabled(i, step)) continue;
-
-      shape = getSequencerStepShape(i, step);
-      semitoneOffset += getSequencerStepNote(i, step) + sequencerTranspose;
     }
 
-    float tuneRatio = powf(2.0f, semitoneOffset / 12.0f);
-    float phaseStep = (baseFrequency * tuneRatio) / (float)SYNTH_AUDIO_SAMPLE_RATE;
-
-    mixed += getCrossfadedVoiceSample(i, synthVoicePhases[i], shape) * gain;
+    mixed += getCrossfadedVoiceSample(i, synthVoicePhases[i], audioWaveVoiceShape[i]) * gain;
     totalGain += gain;
 
-    synthVoicePhases[i] += phaseStep;
+    synthVoicePhases[i] += audioVoicePhaseSteps[i];
     if (synthVoicePhases[i] >= 1.0f) {
-      synthVoicePhases[i] -= floorf(synthVoicePhases[i]);
+      synthVoicePhases[i] -= 1.0f;
     }
   }
 
@@ -112,16 +192,16 @@ float getAudioWaveMixSample(float baseFrequency) {
 }
 
 float applySynthFilter(float input) {
-  if (audioFilterAmount <= 0.001f) return input;
+  if (audioFilterAmount <= 0.001f) {
+    clearSynthFilterState();
+    return input;
+  }
 
-  float safeCutoff = clampFloat(audioFilterCutoff, (float)FILTER_MIN_CUTOFF_HZ, (float)FILTER_MAX_CUTOFF_HZ);
-  float f = 2.0f * sinf((3.1415926f * safeCutoff) / (float)SYNTH_AUDIO_SAMPLE_RATE);
-  f = clampFloat(f, 0.001f, 0.95f);
-
-  const float damping = 0.72f;
-  filterLowState += f * filterBandState;
-  float high = input - filterLowState - damping * filterBandState;
-  filterBandState += f * high;
+  // Two bounded one-pole states are cheaper and cannot run away at high
+  // cutoff like the previous state-variable filter could.
+  filterLowState += audioFilterCoefficient * (input - filterLowState);
+  float high = input - filterLowState;
+  filterBandState += audioFilterCoefficient * (high - filterBandState);
 
   float filtered = filterLowState;
   if (audioFilterType == 1) {
@@ -130,44 +210,94 @@ float applySynthFilter(float input) {
     filtered = filterBandState;
   }
 
+  if (!isfinite(filtered)) {
+    clearSynthFilterState();
+    synthAudioDspRecoveries = synthAudioDspRecoveries + 1;
+    return input;
+  }
+
   return input + (filtered - input) * audioFilterAmount;
 }
 
-float processDelayAndReverb(float input) {
-  int delaySamples = clampInt((delayTimeMs * SYNTH_AUDIO_SAMPLE_RATE) / 1000, 1, DELAY_BUFFER_SAMPLES - 1);
-  uint32_t delayReadIndex = (delayWriteIndex + DELAY_BUFFER_SAMPLES - delaySamples) % DELAY_BUFFER_SAMPLES;
-  float delayed = delayBuffer[delayReadIndex] / 32767.0f;
-  float delayStored = input + delayed * (delayFeedback / 100.0f);
-  delayBuffer[delayWriteIndex] = (int16_t)(clampFloat(delayStored, -1.0f, 1.0f) * 32767.0f);
-  delayWriteIndex = (delayWriteIndex + 1) % DELAY_BUFFER_SAMPLES;
+float processSynthDelay(float input) {
+  if (!audioDelayRequested) {
+    if (audioDelayPathActive) clearSynthDelayState();
+    audioDelayPathActive = false;
+    return input;
+  }
 
-  float delayOutput = input + (delayed - input) * (delayMix / 100.0f);
-  float room = reverbRoom / 100.0f;
+  if (!audioDelayPathActive) {
+    clearSynthDelayState();
+    audioDelayCurrentSamples = audioDelayTargetSamples;
+    audioDelayPathActive = true;
+  }
+
+  // Slew plus linear interpolation prevents a moving delay tap from jumping
+  // between unrelated samples when the encoder changes the delay time.
+  audioDelayCurrentSamples = smoothToward(audioDelayCurrentSamples, audioDelayTargetSamples, 0.00035f);
+  audioDelayCurrentSamples = clampFloat(audioDelayCurrentSamples, 1.0f, (float)(DELAY_BUFFER_SAMPLES - 2));
+
+  float readPosition = (float)delayWriteIndex - audioDelayCurrentSamples;
+  if (readPosition < 0.0f) readPosition += (float)DELAY_BUFFER_SAMPLES;
+  uint32_t firstIndex = (uint32_t)readPosition;
+  uint32_t secondIndex = firstIndex + 1;
+  if (secondIndex >= DELAY_BUFFER_SAMPLES) secondIndex = 0;
+  float fraction = readPosition - (float)firstIndex;
+  float first = delayBuffer[firstIndex] / 32767.0f;
+  float second = delayBuffer[secondIndex] / 32767.0f;
+  float delayed = first + (second - first) * fraction;
+  float delayStored = input + delayed * audioDelayFeedbackAmount;
+  delayBuffer[delayWriteIndex] = (int16_t)(clampFloat(delayStored, -1.0f, 1.0f) * 32767.0f);
+  delayWriteIndex++;
+  if (delayWriteIndex >= DELAY_BUFFER_SAMPLES) delayWriteIndex = 0;
+
+  return input + (delayed - input) * audioDelayMixAmount;
+}
+
+float processSynthReverb(float input) {
+  if (!audioReverbRequested) {
+    if (audioReverbPathActive) clearSynthReverbState();
+    audioReverbPathActive = false;
+    return input;
+  }
+
+  if (!audioReverbPathActive) {
+    clearSynthReverbState();
+    audioReverbPathActive = true;
+  }
+
   float combA = reverbBufferA[reverbIndexA] / 32767.0f;
   float combB = reverbBufferB[reverbIndexB] / 32767.0f;
   float combC = reverbBufferC[reverbIndexC] / 32767.0f;
-  reverbBufferA[reverbIndexA] = (int16_t)(clampFloat(delayOutput + combA * room, -1.0f, 1.0f) * 32767.0f);
-  reverbBufferB[reverbIndexB] = (int16_t)(clampFloat(delayOutput + combB * room * 0.96f, -1.0f, 1.0f) * 32767.0f);
-  reverbBufferC[reverbIndexC] = (int16_t)(clampFloat(delayOutput + combC * room * 0.92f, -1.0f, 1.0f) * 32767.0f);
-  reverbIndexA = (reverbIndexA + 1) % REVERB_BUFFER_A_SAMPLES;
-  reverbIndexB = (reverbIndexB + 1) % REVERB_BUFFER_B_SAMPLES;
-  reverbIndexC = (reverbIndexC + 1) % REVERB_BUFFER_C_SAMPLES;
+  reverbBufferA[reverbIndexA] = (int16_t)(clampFloat(input + combA * audioReverbRoomAmount, -1.0f, 1.0f) * 32767.0f);
+  reverbBufferB[reverbIndexB] = (int16_t)(clampFloat(input + combB * audioReverbRoomAmount * 0.96f, -1.0f, 1.0f) * 32767.0f);
+  reverbBufferC[reverbIndexC] = (int16_t)(clampFloat(input + combC * audioReverbRoomAmount * 0.92f, -1.0f, 1.0f) * 32767.0f);
+  if (++reverbIndexA >= REVERB_BUFFER_A_SAMPLES) reverbIndexA = 0;
+  if (++reverbIndexB >= REVERB_BUFFER_B_SAMPLES) reverbIndexB = 0;
+  if (++reverbIndexC >= REVERB_BUFFER_C_SAMPLES) reverbIndexC = 0;
 
   float reverbWet = (combA + combB + combC) / 3.0f;
-  return delayOutput + (reverbWet - delayOutput) * (reverbMix / 100.0f);
+  return input + (reverbWet - input) * audioReverbMixAmount;
+}
+
+float processDelayAndReverb(float input) {
+  if (!isfinite(input)) {
+    resetSynthDspState(true);
+    synthAudioDspRecoveries = synthAudioDspRecoveries + 1;
+    return 0.0f;
+  }
+
+  return processSynthReverb(processSynthDelay(input));
 }
 
 float getSynthEnvelopeLevel() {
-  float sustainLevel = sustain / 100.0f;
-  uint32_t attackSamples = ((uint32_t)attack * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
-  uint32_t decaySamples = ((uint32_t)decay * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
-  float level = sustainLevel;
+  float level = audioSustainLevel;
 
-  if (attackSamples > 0 && synthEnvelopeSample < attackSamples) {
-    level = (float)synthEnvelopeSample / (float)attackSamples;
-  } else if (decaySamples > 0 && synthEnvelopeSample < attackSamples + decaySamples) {
-    float t = (float)(synthEnvelopeSample - attackSamples) / (float)decaySamples;
-    level = 1.0f - (1.0f - sustainLevel) * clampFloat(t, 0.0f, 1.0f);
+  if (audioAttackSamples > 0 && synthEnvelopeSample < audioAttackSamples) {
+    level = (float)synthEnvelopeSample / (float)audioAttackSamples;
+  } else if (audioDecaySamples > 0 && synthEnvelopeSample < audioAttackSamples + audioDecaySamples) {
+    float t = (float)(synthEnvelopeSample - audioAttackSamples) / (float)audioDecaySamples;
+    level = 1.0f - (1.0f - audioSustainLevel) * clampFloat(t, 0.0f, 1.0f);
   }
 
   synthEnvelopeSample++;
@@ -213,12 +343,11 @@ void triggerKickVoice() {
 }
 
 int getSequencerStepSamples() {
-  return max(1, (SYNTH_AUDIO_SAMPLE_RATE * 15) / sequencerBpm);
+  return (int)audioSequencerStepSamples;
 }
 
 int getSequencerGateSamples() {
-  int stepSamples = getSequencerStepSamples();
-  return clampInt((stepSamples * sequencerGate) / 100, 1, stepSamples);
+  return (int)audioSequencerGateSamples;
 }
 
 int getSequencerNoteChecksum() {
@@ -227,7 +356,6 @@ int getSequencerNoteChecksum() {
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
     for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
       checksum = checksum * 31 + sequencerStepNotes[voice][step];
-      checksum = checksum * 31 + sequencerStepShapes[voice][step];
       checksum = checksum * 3 + (sequencerStepEnabled[voice][step] ? 1 : 0);
     }
   }
@@ -261,7 +389,6 @@ void resetSequencerClock() {
   clampSequencerIndexes();
   sequencerCurrentStep = sequencerSelectedStep;
   sequencerSampleCounter = 0;
-  sequencerPingPongForward = true;
 }
 
 void tickSequencerClock() {
@@ -269,44 +396,13 @@ void tickSequencerClock() {
 
   sequencerSampleCounter++;
 
-  if (sequencerSampleCounter >= (uint32_t)getSequencerStepSamples()) {
+  if (sequencerSampleCounter >= audioSequencerStepSamples) {
     int length = getSequencerLength();
 
     sequencerSampleCounter = 0;
 
-    switch (sequencerDirection) {
-      case 1:
-        sequencerCurrentStep = (sequencerCurrentStep + length - 1) % length;
-        break;
-
-      case 2:
-        if (length <= 1) {
-          sequencerCurrentStep = 0;
-        } else if (sequencerPingPongForward) {
-          if (sequencerCurrentStep >= length - 1) {
-            sequencerPingPongForward = false;
-            sequencerCurrentStep--;
-          } else {
-            sequencerCurrentStep++;
-          }
-        } else {
-          if (sequencerCurrentStep <= 0) {
-            sequencerPingPongForward = true;
-            sequencerCurrentStep++;
-          } else {
-            sequencerCurrentStep--;
-          }
-        }
-        break;
-
-      case 3:
-        sequencerCurrentStep = random(0, length);
-        break;
-
-      default:
-        sequencerCurrentStep = (sequencerCurrentStep + 1) % length;
-        break;
-    }
+    sequencerCurrentStep = (sequencerCurrentStep + 1) % length;
+    updateAudioVoicePhaseSteps();
 
     if (kickLevel > 0 && (sequencerCurrentStep == 0 || (getSequencerLength() > 4 && sequencerCurrentStep == 4))) {
       triggerKickVoice();
@@ -323,22 +419,20 @@ float getSequencerGateLevel() {
   if (step < 0 || step >= SEQUENCER_STEP_COUNT) return 0.0f;
   if (!isAnySequencerVoiceEnabledAtStep(step)) return 0.0f;
 
-  uint32_t gateSamples = (uint32_t)getSequencerGateSamples();
-  if (sequencerSampleCounter < gateSamples) return 1.0f;
+  if (sequencerSampleCounter < audioSequencerGateSamples) return 1.0f;
 
-  uint32_t releaseSamples = ((uint32_t)releaseMs * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
-  if (releaseSamples == 0) return 0.0f;
+  if (audioReleaseSamples == 0) return 0.0f;
 
-  uint32_t releaseAge = sequencerSampleCounter - gateSamples;
-  if (releaseAge >= releaseSamples) return 0.0f;
+  uint32_t releaseAge = sequencerSampleCounter - audioSequencerGateSamples;
+  if (releaseAge >= audioReleaseSamples) return 0.0f;
 
-  return 1.0f - ((float)releaseAge / (float)releaseSamples);
+  return 1.0f - ((float)releaseAge / (float)audioReleaseSamples);
 }
 
 float getSequencerStepEdgeFade() {
   if (!sequencerEnabled) return 1.0f;
 
-  int stepSamples = getSequencerStepSamples();
+  int stepSamples = (int)audioSequencerStepSamples;
   int fadeSamples = min(SYNTH_STEP_EDGE_FADE_SAMPLES, max(1, stepSamples / 4));
   uint32_t age = sequencerSampleCounter;
   uint32_t remaining = age < (uint32_t)stepSamples ? (uint32_t)stepSamples - age : 0;
@@ -352,22 +446,15 @@ bool isSequencerStepAudible() {
   return getSequencerGateLevel() > 0.001f;
 }
 
-float getActiveSynthFrequency() {
-  return clampFloat(audioFrequency, 20.0f, 2000.0f);
-}
-
 float renderKickSample() {
   if (!kickVoiceActive || audioKickLevel <= 0.01f) return 0.0f;
 
-  uint32_t maxSamples = (uint32_t)((audioKickDecay * (float)SYNTH_AUDIO_SAMPLE_RATE) / 1000.0f);
-  if (maxSamples < 80) maxSamples = 80;
-
-  if (kickSampleAge >= maxSamples) {
+  if (kickSampleAge >= audioKickMaxSamples) {
     kickVoiceActive = false;
     return 0.0f;
   }
 
-  float t = kickSampleAge / (float)maxSamples;
+  float t = kickSampleAge / (float)audioKickMaxSamples;
   float tail = 1.0f - t;
   float envelope = tail * tail * tail;
   float pitchDrop = tail * tail;
@@ -375,13 +462,11 @@ float renderKickSample() {
   float click = kickSampleAge < 70 ? (1.0f - kickSampleAge / 70.0f) * (audioKickClick / 100.0f) * 0.5f : 0.0f;
 
   kickPhase += freq / (float)SYNTH_AUDIO_SAMPLE_RATE;
-  if (kickPhase >= 1.0f) {
-    kickPhase -= floorf(kickPhase);
-  }
+  if (kickPhase >= 1.0f) kickPhase -= 1.0f;
 
   kickSampleAge++;
 
-  float sample = sinf(kickPhase * TWO_PI_F) * envelope + click;
+  float sample = getFastSineSample(kickPhase) * envelope + click;
   float drive = 1.0f + audioKickDrive / 35.0f;
   sample *= drive;
   sample = (sample / (1.0f + fabsf(sample))) * 1.7f;
@@ -390,6 +475,7 @@ float renderKickSample() {
 
 bool isSynthAudioActive() {
   if (!dacI2sStarted) return false;
+  if (audioOutputTransition) return false;
   if (uiMode == MODE_BOOT || uiMode == MODE_ABOUT) return false;
   if (isBluetoothStreaming()) return false;
 
@@ -398,51 +484,66 @@ bool isSynthAudioActive() {
   }
 
   if (isAudioTestActive()) {
-    return volume > 0 || audioVolume > 0.05f;
+    return true;
   }
 
   if (!transportRunning) return false;
   if (!sequencerEnabled && !isMixerLayerAudible()) return false;
 
-  return volume > 0 || audioVolume > 0.05f || isMixerLayerAudible();
+  // Silent buffers still drive the sample-accurate transport clock.
+  return true;
 }
 
-void fillSynthAudioBuffer(bool active) {
+void fillDirectAudioTestBuffer() {
+  const float phaseIncrement = (float)AUDIO_TEST_FREQUENCY_HZ / (float)SYNTH_AUDIO_SAMPLE_RATE;
+
+  for (int frame = 0; frame < SYNTH_AUDIO_BUFFER_FRAMES; frame++) {
+    int16_t sample = (int16_t)(getFastSineSample(directAudioTestPhase) * AUDIO_TEST_AMPLITUDE);
+    directAudioTestPhase += phaseIncrement;
+    if (directAudioTestPhase >= 1.0f) directAudioTestPhase -= 1.0f;
+    synthAudioBuffer[frame * 2] = sample;
+    synthAudioBuffer[frame * 2 + 1] = sample;
+    tickSequencerClock();
+  }
+}
+
+void fillLegacyWaveformAudioBuffer() {
   for (int i = 0; i < SYNTH_AUDIO_BUFFER_FRAMES; i++) {
-    int16_t pcm = 0;
+    float sample = ControlSurface::renderLegacyWaveformSample(synthPhase) * 0.28f;
+    synthPhase += 220.0f / (float)SYNTH_AUDIO_SAMPLE_RATE;
+    if (synthPhase >= 1.0f) synthPhase -= 1.0f;
+    int16_t pcm = (int16_t)(clampFloat(sample, -1.0f, 1.0f) * 32767.0f);
 
-    if (active) {
-      if (ControlSurface::isLegacyWaveformAudioActive()) {
-        float sample = ControlSurface::renderLegacyWaveformSample(synthPhase) * 0.28f;
-        synthPhase += 220.0f / (float)SYNTH_AUDIO_SAMPLE_RATE;
-        if (synthPhase >= 1.0f) synthPhase -= floorf(synthPhase);
-        pcm = (int16_t)(clampFloat(sample, -1.0f, 1.0f) * 32767.0f);
-        synthAudioBuffer[i * 2] = pcm;
-        synthAudioBuffer[i * 2 + 1] = pcm;
-        continue;
-      }
+    synthAudioBuffer[i * 2] = pcm;
+    synthAudioBuffer[i * 2 + 1] = pcm;
+  }
+}
 
-      tickSequencerClock();
-      updateAudioParameterSmoothing();
+void fillSynthAudioBuffer() {
+  for (int i = 0; i < SYNTH_AUDIO_BUFFER_FRAMES; i++) {
+    tickSequencerClock();
 
-      float mixedSample = 0.0f;
+    float mixedSample = 0.0f;
+    float gateLevel = getSequencerGateLevel();
+    float targetEnvelope = audioVolume > 0.01f ? getSynthEnvelopeLevel() * gateLevel : 0.0f;
+    float envelope = getDeclickedEnvelopeLevel(targetEnvelope) * getSequencerStepEdgeFade();
 
-      float gateLevel = getSequencerGateLevel();
-      float targetEnvelope = audioVolume > 0.01f ? getSynthEnvelopeLevel() * gateLevel : 0.0f;
-      float envelope = getDeclickedEnvelopeLevel(targetEnvelope) * getSequencerStepEdgeFade();
-
-      if (audioVolume > 0.01f && envelope > 0.0005f) {
-        float activeFrequency = getActiveSynthFrequency();
-        float level = (audioVolume / 100.0f) * SYNTH_OUTPUT_GAIN;
-        float waveSample = getAudioWaveMixSample(activeFrequency) * envelope * level;
-        mixedSample += applySynthFilter(waveSample);
-      }
-
-      mixedSample += renderKickSample();
-      mixedSample = processDelayAndReverb(mixedSample);
-
-      pcm = (int16_t)(clampFloat(mixedSample, -1.0f, 1.0f) * 32767.0f);
+    if (audioVolume > 0.01f && envelope > 0.0005f) {
+      float level = (audioVolume / 100.0f) * SYNTH_OUTPUT_GAIN;
+      float waveSample = getAudioWaveMixSample() * envelope * level;
+      mixedSample = applySynthFilter(waveSample);
     }
+
+    mixedSample += renderKickSample();
+    mixedSample = processDelayAndReverb(mixedSample);
+
+    if (!isfinite(mixedSample)) {
+      resetSynthDspState(true);
+      synthAudioDspRecoveries = synthAudioDspRecoveries + 1;
+      mixedSample = 0.0f;
+    }
+
+    int16_t pcm = (int16_t)(clampFloat(mixedSample, -1.0f, 1.0f) * 32767.0f);
 
     synthAudioBuffer[i * 2] = pcm;
     synthAudioBuffer[i * 2 + 1] = pcm;
@@ -454,6 +555,8 @@ void synthAudioTask(void* parameter) {
 
   while (true) {
     bool active = isSynthAudioActive();
+    bool directTestActive = active && isAudioTestActive();
+    bool legacyWaveformActive = active && ControlSurface::isLegacyWaveformAudioActive();
 
     if (active && (!synthWasActive || synthRetriggerRequested)) {
       if (!synthWasActive && sequencerEnabled) {
@@ -468,16 +571,48 @@ void synthAudioTask(void* parameter) {
     }
 
     if (active) {
-      fillSynthAudioBuffer(true);
-      btI2s.write((const uint8_t*)synthAudioBuffer, sizeof(synthAudioBuffer));
+      uint32_t renderStartedUs = micros();
+      updateAudioParametersForBlock();
+
+      if (directTestActive) {
+        if (!directAudioTestWasActive) {
+          directAudioTestPhase = 0.0f;
+        }
+        fillDirectAudioTestBuffer();
+      } else if (legacyWaveformActive) {
+        fillLegacyWaveformAudioBuffer();
+      } else {
+        fillSynthAudioBuffer();
+      }
+      directAudioTestWasActive = directTestActive;
+
+      uint32_t renderElapsedUs = micros() - renderStartedUs;
+      uint32_t i2sStartedUs = micros();
+      size_t written = btI2s.write((const uint8_t*)synthAudioBuffer, sizeof(synthAudioBuffer));
+      uint32_t i2sElapsedUs = micros() - i2sStartedUs;
+      if (renderElapsedUs > synthAudioMaxRenderUs) synthAudioMaxRenderUs = renderElapsedUs;
+      if (i2sElapsedUs > synthAudioMaxI2sUs) synthAudioMaxI2sUs = i2sElapsedUs;
+      synthAudioRenderedBuffers = synthAudioRenderedBuffers + 1;
+
+      if (written != sizeof(synthAudioBuffer)) {
+        uint32_t now = millis();
+        if (now - synthAudioLastI2sErrorMs >= 1000) {
+          synthAudioLastI2sErrorMs = now;
+          Serial.print("[AUDIO][I2S] short write=");
+          Serial.println(written);
+        }
+        vTaskDelay(1);
+      }
       synthWasActive = true;
     } else {
-      if (synthWasActive && !isBluetoothStreaming()) {
-        fillSynthAudioBuffer(false);
+      if (synthWasActive && !audioOutputTransition && !btAudioStarted) {
+        memset(synthAudioBuffer, 0, sizeof(synthAudioBuffer));
         btI2s.write((const uint8_t*)synthAudioBuffer, sizeof(synthAudioBuffer));
+        resetSynthDspState(true);
       }
 
       synthWasActive = false;
+      directAudioTestWasActive = false;
       synthEnvelopeSample = 0;
       synthEnvelopeSmoothed = 0.0f;
       vTaskDelay(pdMS_TO_TICKS(8));
@@ -488,7 +623,13 @@ void synthAudioTask(void* parameter) {
 void startSynthAudio() {
   if (synthAudioTaskHandle != nullptr) return;
 
-  if (xTaskCreatePinnedToCore(synthAudioTask, "lcdSynthAudio", 4096, nullptr, 1, &synthAudioTaskHandle, 0) != pdPASS) {
+  initializeSynthMath();
+  resetSynthDspState(true);
+
+  if (xTaskCreatePinnedToCore(synthAudioTask, "lcdSynthAudio", 4096, nullptr, SYNTH_AUDIO_TASK_PRIORITY, &synthAudioTaskHandle, 0) != pdPASS) {
     synthAudioTaskHandle = nullptr;
+    Serial.println("[AUDIO] native render task allocation failed");
+  } else {
+    Serial.println("[AUDIO] native ESP32 render task started");
   }
 }

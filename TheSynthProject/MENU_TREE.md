@@ -5,8 +5,8 @@
 - `Wave Engine` owns the two synth voices, global pitch, filter access, and audio test.
 - Each voice opens a submenu where the base wave can be selected and then shaped with tune, fold, phase, and scope.
 - `Mixer` owns master level, per-voice volume, kick volume, and the kick designer submenu.
-- `Sequencer` owns one active voice sequencer at a time, transport, and per-track pattern utilities.
-- `Envelope`, `Spectrum Lab`, `Bluetooth RX`, `Utility`, and `Hardware Test` stay separated by task.
+- `Sequencer` owns one active voice sequencer at a time and its basic transport controls.
+- `Envelope`, `Bluetooth RX`, `Utility`, and `Hardware Test` stay separated by task.
 
 ## Wave Types
 
@@ -83,24 +83,8 @@
   - Seq Voice / Active Sequencer
   - Seq Step
   - Seq Note
-  - Step Shape
   - Seq Length
-  - Seq Direction
-  - Seq Gate
-  - Seq Transpose
   - Step On
-  - Random Track
-  - Clear Track
-  - Rotate Track
-
-- Spectrum Lab
-  - Analyzer
-  - BT FFT
-  - FFT Range
-  - Window
-  - Smoothing
-  - Peak Hold
-  - FFT Bins
 
 - Bluetooth RX
   - Bluetooth
@@ -139,6 +123,6 @@
     - raw port value
     - live E1-E4 counters
   - Test Audio
+    - fixed 440 Hz direct I2S sine
   - Wave Scope
-  - Analyzer
   - About

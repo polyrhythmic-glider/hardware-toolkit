@@ -34,12 +34,12 @@ struct SynthPreset {
   int kickDrive;
   int sequencerBpm;
   int sequencerLength;
-  int sequencerDirection;
-  int sequencerGate;
-  int sequencerTranspose;
+  int reservedSequencerA;
+  int reservedSequencerB;
+  int reservedSequencerC;
   int sequencerStepNotes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
   bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
-  int sequencerStepShapes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int reservedStepData[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
   int delayMix;
   int delayTimeMs;
   int delayFeedback;
@@ -73,12 +73,12 @@ struct LegacySynthPresetV3 {
   int kickDrive;
   int sequencerBpm;
   int sequencerLength;
-  int sequencerDirection;
-  int sequencerGate;
-  int sequencerTranspose;
+  int reservedSequencerA;
+  int reservedSequencerB;
+  int reservedSequencerC;
   int sequencerStepNotes[WAVE_VOICE_COUNT][LEGACY_SEQUENCER_STEP_COUNT];
   bool sequencerStepEnabled[WAVE_VOICE_COUNT][LEGACY_SEQUENCER_STEP_COUNT];
-  int sequencerStepShapes[WAVE_VOICE_COUNT][LEGACY_SEQUENCER_STEP_COUNT];
+  int reservedStepData[WAVE_VOICE_COUNT][LEGACY_SEQUENCER_STEP_COUNT];
   int delayMix;
   int delayTimeMs;
   int delayFeedback;
@@ -115,12 +115,18 @@ void capturePreset(SynthPreset& preset) {
   preset.kickDrive = kickDrive;
   preset.sequencerBpm = sequencerBpm;
   preset.sequencerLength = sequencerLength;
-  preset.sequencerDirection = sequencerDirection;
-  preset.sequencerGate = sequencerGate;
-  preset.sequencerTranspose = sequencerTranspose;
+  // Keep the v4 binary layout readable, but store fixed values for the basic
+  // forward sequencer now exposed by the firmware.
+  preset.reservedSequencerA = 0;
+  preset.reservedSequencerB = 70;
+  preset.reservedSequencerC = 0;
   memcpy(preset.sequencerStepNotes, sequencerStepNotes, sizeof(sequencerStepNotes));
   memcpy(preset.sequencerStepEnabled, sequencerStepEnabled, sizeof(sequencerStepEnabled));
-  memcpy(preset.sequencerStepShapes, sequencerStepShapes, sizeof(sequencerStepShapes));
+  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+      preset.reservedStepData[voice][step] = waveVoiceShape[voice];
+    }
+  }
   preset.delayMix = delayMix;
   preset.delayTimeMs = delayTimeMs;
   preset.delayFeedback = delayFeedback;
@@ -151,12 +157,8 @@ void applyPreset(const SynthPreset& preset) {
   kickDrive = preset.kickDrive;
   sequencerBpm = preset.sequencerBpm;
   sequencerLength = preset.sequencerLength;
-  sequencerDirection = preset.sequencerDirection;
-  sequencerGate = preset.sequencerGate;
-  sequencerTranspose = preset.sequencerTranspose;
   memcpy(sequencerStepNotes, preset.sequencerStepNotes, sizeof(sequencerStepNotes));
   memcpy(sequencerStepEnabled, preset.sequencerStepEnabled, sizeof(sequencerStepEnabled));
-  memcpy(sequencerStepShapes, preset.sequencerStepShapes, sizeof(sequencerStepShapes));
   delayMix = preset.delayMix;
   delayTimeMs = preset.delayTimeMs;
   delayFeedback = preset.delayFeedback;
@@ -192,20 +194,14 @@ void applyLegacyPreset(const LegacySynthPresetV3& preset) {
   sequencerLength = preset.sequencerLength;
   if (sequencerLength < 1) sequencerLength = 1;
   if (sequencerLength > LEGACY_SEQUENCER_STEP_COUNT) sequencerLength = LEGACY_SEQUENCER_STEP_COUNT;
-  sequencerDirection = preset.sequencerDirection;
-  sequencerGate = preset.sequencerGate;
-  sequencerTranspose = preset.sequencerTranspose;
-
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
     for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
       if (step < LEGACY_SEQUENCER_STEP_COUNT) {
         sequencerStepNotes[voice][step] = preset.sequencerStepNotes[voice][step];
         sequencerStepEnabled[voice][step] = preset.sequencerStepEnabled[voice][step];
-        sequencerStepShapes[voice][step] = preset.sequencerStepShapes[voice][step];
       } else {
         sequencerStepNotes[voice][step] = 0;
         sequencerStepEnabled[voice][step] = false;
-        sequencerStepShapes[voice][step] = waveVoiceShape[voice];
       }
     }
   }

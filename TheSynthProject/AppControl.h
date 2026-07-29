@@ -22,16 +22,38 @@ const int DISCRETE_EDIT_STEP_THRESHOLD = 1;
 int discreteEditAccumulator = 0;
 int lastDiscreteEditAction = -1;
 
+const char* getResetReasonText(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt-wdt";
+    case ESP_RST_TASK_WDT: return "task-wdt";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_BROWNOUT: return "brownout";
+    default: return "other";
+  }
+}
+
+void logAudioMemory(const char* stage) {
+  Serial.print("[AUDIO][MEM] ");
+  Serial.print(stage);
+  Serial.print(" free/min/largest=");
+  Serial.print(heap_caps_get_free_size(MALLOC_CAP_8BIT));
+  Serial.print("/");
+  Serial.print(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+  Serial.print("/");
+  Serial.print(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+  Serial.print(" psram=");
+  Serial.println(ESP.getPsramSize());
+}
+
 bool isDiscreteEditAction(MenuAction action) {
   switch (action) {
     case ACTION_VOICE_WAVE:
     case ACTION_VOICE_TUNE:
     case ACTION_FILTER_POWER:
     case ACTION_FILTER_TYPE:
-    case ACTION_FFT_RANGE:
-    case ACTION_FFT_WINDOW:
-    case ACTION_FFT_HOLD:
-    case ACTION_FFT_BINS:
     case ACTION_BT_POWER:
     case ACTION_AUDIO_TEST:
     case ACTION_SEQ_START:
@@ -40,12 +62,7 @@ bool isDiscreteEditAction(MenuAction action) {
     case ACTION_SYNTH_VIEW:
     case ACTION_SEQ_VOICE:
     case ACTION_SEQ_STEP:
-    case ACTION_SEQ_DIRECTION:
-    case ACTION_SEQ_SHAPE:
     case ACTION_SEQ_STEP_ENABLE:
-    case ACTION_SEQ_RANDOMIZE:
-    case ACTION_SEQ_CLEAR:
-    case ACTION_SEQ_ROTATE:
     case ACTION_PRESET_SLOT:
     case ACTION_SURFACE_MODE:
     case ACTION_OLED_DEBUG:
@@ -87,37 +104,6 @@ int getEditDeltaForAction(MenuAction action, int delta) {
 void btAudioDataReceived() {
   btLastAudioMs = millis();
   btPacketCount++;
-}
-
-void captureBluetoothFftSamples(const uint8_t* data, uint32_t length) {
-  const int16_t* pcm = (const int16_t*)data;
-  uint32_t frames = length / 4;
-
-  for (uint32_t i = 0; i < frames; i++) {
-    btFftDecimator++;
-
-    if (btFftDecimator < BT_FFT_DECIMATE) {
-      continue;
-    }
-
-    btFftDecimator = 0;
-
-    int32_t left = pcm[i * 2];
-    int32_t right = pcm[i * 2 + 1];
-    int16_t mono = (int16_t)((left + right) / 2);
-
-    btFftSamples[btFftWriteIndex] = mono;
-    btFftWriteIndex = (btFftWriteIndex + 1) % BT_FFT_SAMPLES;
-
-    if (btFftSampleCount < BT_FFT_SAMPLES) {
-      btFftSampleCount++;
-    }
-  }
-}
-
-void btAudioStreamReceived(const uint8_t* data, uint32_t length) {
-  captureBluetoothFftSamples(data, length);
-  btAudioDataReceived();
 }
 
 void btRssiReceived(esp_bt_gap_cb_param_t::read_rssi_delta_param& rssi) {
@@ -162,21 +148,46 @@ void applyBluetoothStartVolume(bool force) {
 void startDacI2s() {
   if (dacI2sStarted) return;
 
-  auto cfg = btI2s.defaultConfig();
+  auto cfg = btI2s.defaultConfig(TX_MODE);
+  cfg.sample_rate = SYNTH_AUDIO_SAMPLE_RATE;
+  cfg.channels = 2;
+  cfg.bits_per_sample = 16;
   cfg.pin_bck = PCM5102_BCK;
   cfg.pin_ws = PCM5102_LCK;
   cfg.pin_data = PCM5102_DIN;
-  btI2s.begin(cfg);
+  cfg.buffer_count = SYNTH_I2S_DMA_BUFFER_COUNT;
+  cfg.buffer_size = SYNTH_I2S_DMA_BUFFER_SIZE;
 
-  dacI2sStarted = true;
+  logAudioMemory("before I2S");
+  dacI2sStarted = btI2s.begin(cfg);
+
+  Serial.print("[AUDIO][I2S] begin=");
+  Serial.print(dacI2sStarted ? "ok" : "failed");
+  Serial.print(" rate/ch/bits dma=");
+  Serial.print(cfg.sample_rate);
+  Serial.print("/");
+  Serial.print(cfg.channels);
+  Serial.print("/");
+  Serial.print(cfg.bits_per_sample);
+  Serial.print(" ");
+  Serial.print(cfg.buffer_count);
+  Serial.print("x");
+  Serial.println(cfg.buffer_size);
+  logAudioMemory("after I2S");
 }
 
 void startBluetoothAudio() {
   if (!bluetoothEnabled || btAudioStarted) return;
 
+  audioOutputTransition = true;
+  vTaskDelay(pdMS_TO_TICKS(4));
   startDacI2s();
+  if (!dacI2sStarted) {
+    Serial.println("[AUDIO][BT] I2S unavailable");
+    audioOutputTransition = false;
+    return;
+  }
 
-  a2dpSink.set_stream_reader(btAudioStreamReceived, true);
   a2dpSink.set_on_data_received(btAudioDataReceived);
   a2dpSink.set_rssi_active(true);
   a2dpSink.set_rssi_callback(btRssiReceived);
@@ -184,6 +195,7 @@ void startBluetoothAudio() {
 
   btAudioStarted = true;
   btStartedAtMs = millis();
+  audioOutputTransition = false;
 
   // Default locale del sink; verra ribadito anche appena il PC si collega.
   a2dpSink.set_volume(BT_START_VOLUME);
@@ -192,7 +204,10 @@ void startBluetoothAudio() {
 void stopBluetoothAudio() {
   if (!btAudioStarted) return;
 
+  audioOutputTransition = true;
   a2dpSink.end();
+  // BluetoothA2DPSink::end() closes the AudioTools output as well.
+  dacI2sStarted = false;
 
   btAudioStarted = false;
   btLastAudioMs = 0;
@@ -200,6 +215,8 @@ void stopBluetoothAudio() {
   btStartVolumeApplied = false;
   btStartVolumeApplyCount = 0;
   btRssiValid = false;
+  startDacI2s();
+  audioOutputTransition = false;
 }
 
 bool isBluetoothStreaming() {
@@ -296,6 +313,13 @@ void startTransport() {
   sequencerEnabled = true;
   resetSequencerClock();
   synthRetriggerRequested = true;
+
+  Serial.print("[SEQ] start bpm/length/step=");
+  Serial.print(sequencerBpm);
+  Serial.print("/");
+  Serial.print(getSequencerLength());
+  Serial.print("/");
+  Serial.println(sequencerCurrentStep + 1);
 
   if (kickLevel > 0) {
     triggerKickVoice();
@@ -492,15 +516,8 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_SEQ_VOICE ||
          action == ACTION_SEQ_STEP ||
          action == ACTION_SEQ_NOTE ||
-         action == ACTION_SEQ_SHAPE ||
          action == ACTION_SEQ_LENGTH ||
-         action == ACTION_SEQ_DIRECTION ||
-         action == ACTION_SEQ_GATE ||
-         action == ACTION_SEQ_TRANSPOSE ||
          action == ACTION_SEQ_STEP_ENABLE ||
-         action == ACTION_SEQ_RANDOMIZE ||
-         action == ACTION_SEQ_CLEAR ||
-         action == ACTION_SEQ_ROTATE ||
          action == ACTION_MIX_SINE ||
          action == ACTION_MIX_SQUARE ||
          action == ACTION_MIX_KICK ||
@@ -597,11 +614,6 @@ void applyTypeChoice(int typeIndex) {
   lastWavePhase = -1;
   lastWaveVoiceParamChecksum = -1;
   lastKickParamChecksum = -1;
-  lastFftRangeIndex = -1;
-  lastFftWindow = -1;
-  lastFftSmoothing = -1;
-  lastFftBinsIndex = -1;
-  lastFftPeakHold = -1;
 }
 
 int getActiveSequencerVoice() {
@@ -613,12 +625,6 @@ int getSequencerStepNote(int voiceIndex, int stepIndex) {
   voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
   stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
   return sequencerStepNotes[voiceIndex][stepIndex];
-}
-
-int getSequencerStepShape(int voiceIndex, int stepIndex) {
-  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
-  stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
-  return clampInt(sequencerStepShapes[voiceIndex][stepIndex], 0, WAVE_SHAPE_COUNT - 1);
 }
 
 bool isSequencerStepEnabled(int voiceIndex, int stepIndex) {
@@ -650,13 +656,8 @@ void setWaveVoiceShapeForTrack(int voiceIndex, int shapeIndex) {
   shapeIndex = wrapIndex(shapeIndex, WAVE_SHAPE_COUNT);
   waveVoiceShape[voiceIndex] = shapeIndex;
 
-  // Voice Wave e un parametro di traccia. Gli shape dei singoli step vengono
-  // riallineati qui; Step Shape puo poi creare variazioni sullo step scelto.
-  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
-    sequencerStepShapes[voiceIndex][step] = shapeIndex;
-  }
-
-  synthRetriggerRequested = true;
+  // The audio task crossfades shapes; restarting the envelope at every encoder
+  // detent only adds a transient while browsing waveforms.
 }
 
 void setSequencerStepEnabled(int voiceIndex, int stepIndex, bool enabled) {
@@ -667,10 +668,6 @@ void setSequencerStepEnabled(int voiceIndex, int stepIndex, bool enabled) {
 
 int getSelectedSequencerStepNote() {
   return getSequencerStepNote(getActiveSequencerVoice(), sequencerSelectedStep);
-}
-
-int getSelectedSequencerStepShape() {
-  return getSequencerStepShape(getActiveSequencerVoice(), sequencerSelectedStep);
 }
 
 bool isSelectedSequencerStepEnabled() {
@@ -750,34 +747,6 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%dms", releaseMs);
       break;
 
-    case ACTION_SPECTRUM:
-      snprintf(buffer, sizeof(buffer), "Live");
-      break;
-
-    case ACTION_BT_FFT:
-      snprintf(buffer, sizeof(buffer), "%s", getBluetoothStatusText());
-      break;
-
-    case ACTION_FFT_RANGE:
-      snprintf(buffer, sizeof(buffer), "%s", FFT_RANGE_LABELS[fftRangeIndex]);
-      break;
-
-    case ACTION_FFT_WINDOW:
-      snprintf(buffer, sizeof(buffer), "%s", FFT_WINDOW_NAMES[fftWindow]);
-      break;
-
-    case ACTION_FFT_SMOOTH:
-      snprintf(buffer, sizeof(buffer), "%d%%", fftSmoothing);
-      break;
-
-    case ACTION_FFT_HOLD:
-      snprintf(buffer, sizeof(buffer), "%s", fftPeakHold ? "ON" : "OFF");
-      break;
-
-    case ACTION_FFT_BINS:
-      snprintf(buffer, sizeof(buffer), "%d", FFT_BIN_VALUES[fftBinsIndex]);
-      break;
-
     case ACTION_SCOPE:
       snprintf(buffer, sizeof(buffer), "Live");
       break;
@@ -838,40 +807,12 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%+dst", getSelectedSequencerStepNote());
       break;
 
-    case ACTION_SEQ_SHAPE:
-      snprintf(buffer, sizeof(buffer), "%s", waveformNames[getSelectedSequencerStepShape()]);
-      break;
-
     case ACTION_SEQ_LENGTH:
       snprintf(buffer, sizeof(buffer), "%d", sequencerLength);
       break;
 
-    case ACTION_SEQ_DIRECTION:
-      snprintf(buffer, sizeof(buffer), "%s", SEQUENCER_DIRECTION_NAMES[sequencerDirection]);
-      break;
-
-    case ACTION_SEQ_GATE:
-      snprintf(buffer, sizeof(buffer), "%d%%", sequencerGate);
-      break;
-
-    case ACTION_SEQ_TRANSPOSE:
-      snprintf(buffer, sizeof(buffer), "%+dst", sequencerTranspose);
-      break;
-
     case ACTION_SEQ_STEP_ENABLE:
       snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "ON" : "REST");
-      break;
-
-    case ACTION_SEQ_RANDOMIZE:
-      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
-      break;
-
-    case ACTION_SEQ_CLEAR:
-      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
-      break;
-
-    case ACTION_SEQ_ROTATE:
-      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
       break;
 
     case ACTION_MIX_SINE:
@@ -991,71 +932,6 @@ void clampSequencerIndexes() {
   if (sequencerCurrentStep < 0) sequencerCurrentStep = 0;
 }
 
-void randomizeSequencerPattern() {
-  int length = getSequencerLength();
-  int voice = getActiveSequencerVoice();
-
-  for (int i = 0; i < length; i++) {
-    sequencerStepNotes[voice][i] = random(SEQUENCER_MIN_NOTE / 2, SEQUENCER_MAX_NOTE / 2 + 1);
-    sequencerStepShapes[voice][i] = random(0, WAVE_SHAPE_COUNT);
-    sequencerStepEnabled[voice][i] = random(0, 100) >= 18;
-  }
-
-  sequencerStepEnabled[voice][0] = true;
-  resetSequencerClock();
-}
-
-void clearSequencerPattern() {
-  int voice = getActiveSequencerVoice();
-
-  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    sequencerStepNotes[voice][i] = 0;
-    sequencerStepShapes[voice][i] = waveVoiceShape[voice];
-    sequencerStepEnabled[voice][i] = false;
-  }
-
-  resetSequencerClock();
-}
-
-void rotateSequencerPattern(int direction) {
-  int length = getSequencerLength();
-  if (length <= 1) return;
-
-  int voice = getActiveSequencerVoice();
-
-  if (direction >= 0) {
-    int lastNote = sequencerStepNotes[voice][length - 1];
-    int lastShape = sequencerStepShapes[voice][length - 1];
-    bool lastEnabled = sequencerStepEnabled[voice][length - 1];
-
-    for (int i = length - 1; i > 0; i--) {
-      sequencerStepNotes[voice][i] = sequencerStepNotes[voice][i - 1];
-      sequencerStepShapes[voice][i] = sequencerStepShapes[voice][i - 1];
-      sequencerStepEnabled[voice][i] = sequencerStepEnabled[voice][i - 1];
-    }
-
-    sequencerStepNotes[voice][0] = lastNote;
-    sequencerStepShapes[voice][0] = lastShape;
-    sequencerStepEnabled[voice][0] = lastEnabled;
-  } else {
-    int firstNote = sequencerStepNotes[voice][0];
-    int firstShape = sequencerStepShapes[voice][0];
-    bool firstEnabled = sequencerStepEnabled[voice][0];
-
-    for (int i = 0; i < length - 1; i++) {
-      sequencerStepNotes[voice][i] = sequencerStepNotes[voice][i + 1];
-      sequencerStepShapes[voice][i] = sequencerStepShapes[voice][i + 1];
-      sequencerStepEnabled[voice][i] = sequencerStepEnabled[voice][i + 1];
-    }
-
-    sequencerStepNotes[voice][length - 1] = firstNote;
-    sequencerStepShapes[voice][length - 1] = firstShape;
-    sequencerStepEnabled[voice][length - 1] = firstEnabled;
-  }
-
-  resetSequencerClock();
-}
-
 void changeCurrentValue(int delta) {
   MenuAction action = getSelectedAction();
   delta = getEditDeltaForAction(action, delta);
@@ -1142,29 +1018,6 @@ void changeCurrentValue(int delta) {
       releaseMs = clampInt(releaseMs, 0, 3000);
       break;
 
-    case ACTION_FFT_RANGE:
-      fftRangeIndex = wrapIndex(fftRangeIndex + delta, FFT_RANGE_COUNT);
-      break;
-
-    case ACTION_FFT_WINDOW:
-      fftWindow = wrapIndex(fftWindow + delta, FFT_WINDOW_COUNT);
-      break;
-
-    case ACTION_FFT_SMOOTH:
-      fftSmoothing += delta * 5;
-      fftSmoothing = clampInt(fftSmoothing, 0, 95);
-      break;
-
-    case ACTION_FFT_HOLD:
-      if (delta != 0) {
-        fftPeakHold = !fftPeakHold;
-      }
-      break;
-
-    case ACTION_FFT_BINS:
-      fftBinsIndex = wrapIndex(fftBinsIndex + delta, FFT_BIN_COUNT);
-      break;
-
     case ACTION_BT_POWER:
       if (delta != 0) {
         bluetoothEnabled = !bluetoothEnabled;
@@ -1180,9 +1033,7 @@ void changeCurrentValue(int delta) {
       break;
 
     case ACTION_AUDIO_TEST:
-      waveform += delta;
-      waveform = wrapIndex(waveform, WAVE_SHAPE_COUNT);
-      break;
+      return;
 
     case ACTION_SEQ_START:
       if (delta != 0) {
@@ -1236,15 +1087,6 @@ void changeCurrentValue(int delta) {
       break;
     }
 
-    case ACTION_SEQ_SHAPE:
-    {
-      int voice = getActiveSequencerVoice();
-      sequencerStepShapes[voice][sequencerSelectedStep] = wrapIndex(sequencerStepShapes[voice][sequencerSelectedStep] + delta, WAVE_SHAPE_COUNT);
-      sequencerStepEnabled[voice][sequencerSelectedStep] = true;
-      synthRetriggerRequested = true;
-      break;
-    }
-
     case ACTION_SEQ_LENGTH:
       sequencerLength += delta;
       sequencerLength = clampInt(sequencerLength, 1, SEQUENCER_STEP_COUNT);
@@ -1252,44 +1094,10 @@ void changeCurrentValue(int delta) {
       resetSequencerClock();
       break;
 
-    case ACTION_SEQ_DIRECTION:
-      sequencerDirection = wrapIndex(sequencerDirection + delta, SEQUENCER_DIRECTION_COUNT);
-      sequencerPingPongForward = true;
-      resetSequencerClock();
-      break;
-
-    case ACTION_SEQ_GATE:
-      sequencerGate += delta * 5;
-      sequencerGate = clampInt(sequencerGate, 5, 100);
-      break;
-
-    case ACTION_SEQ_TRANSPOSE:
-      sequencerTranspose += delta;
-      sequencerTranspose = clampInt(sequencerTranspose, SEQUENCER_MIN_TRANSPOSE, SEQUENCER_MAX_TRANSPOSE);
-      break;
-
     case ACTION_SEQ_STEP_ENABLE:
       if (delta != 0) {
         int voice = getActiveSequencerVoice();
         sequencerStepEnabled[voice][sequencerSelectedStep] = !sequencerStepEnabled[voice][sequencerSelectedStep];
-      }
-      break;
-
-    case ACTION_SEQ_RANDOMIZE:
-      if (delta != 0) {
-        randomizeSequencerPattern();
-      }
-      break;
-
-    case ACTION_SEQ_CLEAR:
-      if (delta != 0) {
-        clearSequencerPattern();
-      }
-      break;
-
-    case ACTION_SEQ_ROTATE:
-      if (delta != 0) {
-        rotateSequencerPattern(delta > 0 ? 1 : -1);
       }
       break;
 

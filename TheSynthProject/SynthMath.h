@@ -4,6 +4,23 @@
 #include <math.h>
 
 const float TWO_PI_F = 6.2831853f;
+const int SYNTH_SINE_TABLE_SIZE = 256;
+
+// A small interpolated table removes the most expensive operation from the
+// sample loop. It is initialized once before the realtime task starts.
+static int16_t synthSineTable[SYNTH_SINE_TABLE_SIZE + 1];
+static bool synthSineTableReady = false;
+
+inline void initializeSynthMath() {
+  if (synthSineTableReady) return;
+
+  for (int i = 0; i <= SYNTH_SINE_TABLE_SIZE; i++) {
+    float phase = (float)i / (float)SYNTH_SINE_TABLE_SIZE;
+    synthSineTable[i] = (int16_t)(sinf(phase * TWO_PI_F) * 32767.0f);
+  }
+
+  synthSineTableReady = true;
+}
 
 // Clamp per float usato da audio, envelope e visualizzazioni.
 inline float clampFloat(float value, float minValue, float maxValue) {
@@ -32,9 +49,26 @@ inline float smoothAngleDegrees(float current, float target, float amount) {
 }
 
 inline float normalizePhase(float phase) {
-  phase -= floorf(phase);
+  // Audio phases stay close to zero, so truncation is cheaper than floorf and
+  // still handles the negative offsets used by phase modulation.
+  phase -= (int32_t)phase;
   if (phase < 0.0f) phase += 1.0f;
   return phase;
+}
+
+inline float getFastSineSample(float phase) {
+  phase = normalizePhase(phase);
+
+  if (!synthSineTableReady) {
+    return sinf(phase * TWO_PI_F);
+  }
+
+  float position = phase * (float)SYNTH_SINE_TABLE_SIZE;
+  int index = (int)position;
+  float fraction = position - (float)index;
+  float first = (float)synthSineTable[index];
+  float second = (float)synthSineTable[index + 1];
+  return (first + (second - first) * fraction) / 32767.0f;
 }
 
 inline float applyWaveFoldAmount(float sample, float foldAmount) {
@@ -67,11 +101,10 @@ inline float getNoiseSampleForPhase(float phase) {
 inline float getOscillatorSampleForParams(float phase, int shape, float foldAmount, float phaseDegrees) {
   phase = normalizePhase(phase + (phaseDegrees / 360.0f));
   float sample = 0.0f;
-  float angle = phase * TWO_PI_F;
 
   switch (shape) {
     case 0:
-      sample = sinf(angle);
+      sample = getFastSineSample(phase);
       break;
 
     case 1:
@@ -95,19 +128,19 @@ inline float getOscillatorSampleForParams(float phase, int shape, float foldAmou
       break;
 
     case 6:
-      sample = sinf(angle) * 0.65f + sinf(angle * 0.5f) * 0.35f;
+      sample = getFastSineSample(phase) * 0.65f + getFastSineSample(phase * 0.5f) * 0.35f;
       break;
 
     case 7:
-      sample = sinf(angle) * 0.58f + sinf(angle * 2.0f) * 0.28f + sinf(angle * 3.0f) * 0.14f;
+      sample = getFastSineSample(phase) * 0.58f + getFastSineSample(phase * 2.0f) * 0.28f + getFastSineSample(phase * 3.0f) * 0.14f;
       break;
 
     case 8:
-      sample = sinf(angle) * 0.55f + sinf(angle * 2.0f) * 0.45f;
+      sample = getFastSineSample(phase) * 0.55f + getFastSineSample(phase * 2.0f) * 0.45f;
       break;
 
     case 9:
-      sample = sinf(angle) * 0.72f + sinf(angle * 3.0f) * 0.20f + sinf(angle * 5.0f) * 0.08f;
+      sample = getFastSineSample(phase) * 0.72f + getFastSineSample(phase * 3.0f) * 0.20f + getFastSineSample(phase * 5.0f) * 0.08f;
       break;
 
     case 10:
@@ -127,7 +160,7 @@ inline float getOscillatorSampleForParams(float phase, int shape, float foldAmou
     }
 
     case 13:
-      sample = clampFloat(sinf(angle) * 1.8f, -0.8f, 0.8f) / 0.8f;
+      sample = clampFloat(getFastSineSample(phase) * 1.8f, -0.8f, 0.8f) / 0.8f;
       break;
 
     case 14:
@@ -135,11 +168,11 @@ inline float getOscillatorSampleForParams(float phase, int shape, float foldAmou
       break;
 
     case 15:
-      sample = sinf(angle) * 0.52f + sinf(angle * 3.0f) * 0.30f + sinf(angle * 7.0f) * 0.18f;
+      sample = getFastSineSample(phase) * 0.52f + getFastSineSample(phase * 3.0f) * 0.30f + getFastSineSample(phase * 7.0f) * 0.18f;
       break;
 
     default:
-      sample = sinf(angle);
+      sample = getFastSineSample(phase);
       break;
   }
 

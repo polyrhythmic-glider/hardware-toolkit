@@ -25,7 +25,7 @@ const char* pageName(uint8_t page) {
 const char* parameterLabel(uint8_t page, uint8_t encoderIndex) {
   encoderIndex %= 3;
 
-  static const char* VOICE_LABELS[] = { "WAVE", "FOLD", "PHASE" };
+  static const char* VOICE_LABELS[] = { "WAVE", "FOLD", "DETUNE" };
   static const char* TUNING_LABELS[] = { "PITCH", "V1 TUNE", "V2 TUNE" };
   static const char* ENVELOPE_LABELS[] = { "ATTACK", "DECAY", "SUSTAIN" };
   static const char* ENVELOPE_CLOCK_LABELS[] = { "RELEASE", "BPM", "LENGTH" };
@@ -34,7 +34,7 @@ const char* parameterLabel(uint8_t page, uint8_t encoderIndex) {
   static const char* DELAY_REVERB_LABELS[] = { "DELAY", "FEEDBACK", "REVERB" };
   static const char* KICK_LABELS[] = { "LEVEL", "PITCH", "DECAY" };
   static const char* KICK_SHAPE_LABELS[] = { "SWEEP", "CLICK", "DRIVE" };
-  static const char* SEQUENCER_LABELS[] = { "VOICE", "STEP", "NOTE" };
+  static const char* SEQUENCER_LABELS[] = { "TRACK", "STEP", "NOTE" };
   static const char* TRANSPORT_LABELS[] = { "LENGTH", "BPM", "STEP" };
 
   switch (page % PAGE_COUNT) {
@@ -77,7 +77,7 @@ void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size
     switch (encoderIndex) {
       case 0: snprintf(output, outputSize, "%s", waveformNames[waveVoiceShape[voice]]); return;
       case 1: snprintf(output, outputSize, "%d%%", waveVoiceFold[voice]); return;
-      default: snprintf(output, outputSize, "%d deg", waveVoicePhase[voice]); return;
+      default: snprintf(output, outputSize, "%+d ct", waveVoiceDetune[voice]); return;
     }
   }
 
@@ -148,11 +148,16 @@ void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size
   }
 
   if (page == PAGE_SEQUENCER) {
-    int voice = getActiveSequencerVoice();
     switch (encoderIndex) {
-      case 0: snprintf(output, outputSize, "V%d", voice + 1); return;
+      case 0: snprintf(output, outputSize, "%s", getSequencerTrackLabel(getActiveSequencerTrack())); return;
       case 1: snprintf(output, outputSize, "%d/%d", sequencerSelectedStep + 1, getSequencerLength()); return;
-      default: snprintf(output, outputSize, "%+d st", getSelectedSequencerStepNote()); return;
+      default:
+        if (isActiveSequencerTrackKick()) {
+          snprintf(output, outputSize, "%s", isSelectedSequencerStepEnabled() ? "HIT" : "REST");
+        } else {
+          snprintf(output, outputSize, "%+d st", getSelectedSequencerStepNote());
+        }
+        return;
     }
   }
 
@@ -179,7 +184,7 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
         waveVoiceFold[voice] = clampInt(waveVoiceFold[voice] + delta * 2, 0, 100);
         break;
       default:
-        waveVoicePhase[voice] = wrapIndex(waveVoicePhase[voice] + delta * 5, 360);
+        waveVoiceDetune[voice] = clampInt(waveVoiceDetune[voice] + delta, -50, 50);
         break;
     }
   } else if (page == PAGE_TUNING) {
@@ -201,7 +206,7 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
       default:
         sequencerLength = clampInt(sequencerLength + delta, 1, SEQUENCER_STEP_COUNT);
         clampSequencerIndexes();
-        resetSequencerClock();
+        if (!transportRunning) resetSequencerClock();
         break;
     }
   } else if (page == PAGE_MIXER) {
@@ -240,26 +245,35 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
   } else if (page == PAGE_SEQUENCER) {
     switch (encoderIndex) {
       case 0:
-        activeSequencerVoice = wrapIndex(activeSequencerVoice + delta, WAVE_VOICE_COUNT);
+        activeSequencerTrack = wrapIndex(activeSequencerTrack + delta, SEQUENCER_TRACK_COUNT);
+        if (activeSequencerTrack < WAVE_VOICE_COUNT) {
+          activeSequencerVoice = activeSequencerTrack;
+        }
         synthRetriggerRequested = true;
         break;
       case 1:
         sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
-        if (!sequencerEnabled && !isMixerLayerEnabled()) {
+        if (!transportRunning) {
           sequencerCurrentStep = sequencerSelectedStep;
           resetSequencerClock();
         }
         break;
       default:
       {
-        int voice = getActiveSequencerVoice();
-        sequencerStepNotes[voice][sequencerSelectedStep] = clampInt(
-          sequencerStepNotes[voice][sequencerSelectedStep] + delta,
-          SEQUENCER_MIN_NOTE,
-          SEQUENCER_MAX_NOTE
-        );
-        sequencerStepEnabled[voice][sequencerSelectedStep] = true;
-        synthRetriggerRequested = true;
+        if (isActiveSequencerTrackKick()) {
+          kickStepEnabled[sequencerSelectedStep] = delta > 0;
+          if (kickLevel == 0 && kickStepEnabled[sequencerSelectedStep]) kickLevel = 80;
+          if (kickStepEnabled[sequencerSelectedStep]) triggerKickVoice();
+        } else {
+          int voice = getActiveSequencerTrackVoice();
+          sequencerStepNotes[voice][sequencerSelectedStep] = clampInt(
+            sequencerStepNotes[voice][sequencerSelectedStep] + delta,
+            SEQUENCER_MIN_NOTE,
+            SEQUENCER_MAX_NOTE
+          );
+          sequencerStepEnabled[voice][sequencerSelectedStep] = true;
+          synthRetriggerRequested = true;
+        }
         break;
       }
     }
@@ -268,14 +282,14 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
       case 0:
         sequencerLength = clampInt(sequencerLength + delta, 1, SEQUENCER_STEP_COUNT);
         clampSequencerIndexes();
-        resetSequencerClock();
+        if (!transportRunning) resetSequencerClock();
         break;
       case 1:
         sequencerBpm = clampInt(sequencerBpm + delta * 2, 40, 240);
         break;
       default:
         sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
-        if (!sequencerEnabled && !isMixerLayerEnabled()) {
+        if (!transportRunning) {
           sequencerCurrentStep = sequencerSelectedStep;
           resetSequencerClock();
         }
@@ -297,8 +311,14 @@ void activatePageAction(uint8_t page) {
   } else if (page == PAGE_KICK || page == PAGE_KICK_SHAPE) {
     triggerKickVoice();
   } else if (page == PAGE_SEQUENCER) {
-    int voice = getActiveSequencerVoice();
-    sequencerStepEnabled[voice][sequencerSelectedStep] = !sequencerStepEnabled[voice][sequencerSelectedStep];
+    if (isActiveSequencerTrackKick()) {
+      kickStepEnabled[sequencerSelectedStep] = !kickStepEnabled[sequencerSelectedStep];
+      if (kickLevel == 0 && kickStepEnabled[sequencerSelectedStep]) kickLevel = 80;
+      if (kickStepEnabled[sequencerSelectedStep]) triggerKickVoice();
+    } else {
+      int voice = getActiveSequencerTrackVoice();
+      sequencerStepEnabled[voice][sequencerSelectedStep] = !sequencerStepEnabled[voice][sequencerSelectedStep];
+    }
   } else if (page == PAGE_TRANSPORT) {
     if (transportRunning) stopTransport(); else startTransport();
   } else {
@@ -309,36 +329,29 @@ void activatePageAction(uint8_t page) {
   fullRedraw = false;
 }
 
-const char* pageActionLabel(uint8_t page) {
-  switch (page % PAGE_COUNT) {
-    case PAGE_MIXER: return "E3: KICK";
-    case PAGE_FILTER_FX: return filterEnabled ? "E3: FILTER OFF" : "E3: FILTER ON";
-    case PAGE_KICK:
-    case PAGE_KICK_SHAPE: return "E3: TRIGGER KICK";
-    case PAGE_SEQUENCER: return isSelectedSequencerStepEnabled() ? "E3: STEP OFF" : "E3: STEP ON";
-    case PAGE_TRANSPORT: return transportRunning ? "E3: STOP" : "E3: START";
-    default: return "E3: RETRIGGER";
-  }
-}
-
 uint32_t stateHash() {
   uint32_t hash = 2166136261u;
 
   const int values[] = {
     waveVoiceShape[0], waveVoiceShape[1], waveVoiceTune[0], waveVoiceTune[1],
-    waveVoiceFold[0], waveVoiceFold[1], waveVoicePhase[0], waveVoicePhase[1],
+    waveVoiceFold[0], waveVoiceFold[1], waveVoiceDetune[0], waveVoiceDetune[1],
     waveVoiceLevels[0], waveVoiceLevels[1], frequency,
     attack, decay, sustain, releaseMs, volume, kickLevel,
     kickPitch, kickDecay, kickSweep, kickClick, kickDrive,
     filterCutoff, filterType, filterEnabled ? 1 : 0,
     delayMix, delayFeedback, reverbMix,
-    sequencerBpm, activeSequencerVoice, sequencerSelectedStep, sequencerLength,
+    sequencerBpm, activeSequencerTrack, activeSequencerVoice, sequencerSelectedStep, sequencerLength,
     getSelectedSequencerStepNote(), isSelectedSequencerStepEnabled() ? 1 : 0,
     transportRunning ? 1 : 0
   };
 
   for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
     hash ^= (uint32_t)values[i];
+    hash *= 16777619u;
+  }
+
+  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+    hash ^= kickStepEnabled[step] ? 0x9E3779B9u + (uint32_t)step : (uint32_t)step;
     hash *= 16777619u;
   }
 

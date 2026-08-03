@@ -30,7 +30,7 @@ dell'encoder sottostante.
 
 - Pressione E1: pagina precedente.
 - Pressione E2: pagina successiva.
-- Pressione E3: azione contestuale mostrata sul terzo OLED.
+- Pressione E3: azione contestuale; vedi `CONTROL_SURFACE_ACTIONS.md`.
 - Pressione E4: menu principale della control surface.
 - E1+E4 tenuti per un secondo: debug seriale control surface.
 

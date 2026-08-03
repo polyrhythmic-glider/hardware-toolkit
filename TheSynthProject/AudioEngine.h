@@ -30,6 +30,8 @@ static bool audioReverbRequested = false;
 static bool audioDelayPathActive = false;
 static bool audioReverbPathActive = false;
 
+bool isVoicePreviewActive();
+
 void clearSynthFilterState() {
   filterLowState = 0.0f;
   filterBandState = 0.0f;
@@ -74,7 +76,7 @@ float getCrossfadedVoiceSample(int voiceIndex, float phase, int targetShape) {
     phase,
     synthRenderedVoiceShape[voiceIndex],
     audioWaveVoiceFold[voiceIndex],
-    audioWaveVoicePhase[voiceIndex]
+    0.0f
   );
 
   int remaining = synthVoiceShapeCrossfadeRemaining[voiceIndex];
@@ -84,7 +86,7 @@ float getCrossfadedVoiceSample(int voiceIndex, float phase, int targetShape) {
     phase,
     synthPreviousVoiceShape[voiceIndex],
     audioWaveVoiceFold[voiceIndex],
-    audioWaveVoicePhase[voiceIndex]
+    0.0f
   );
   float mix = 1.0f - ((float)remaining / (float)SYNTH_SHAPE_CROSSFADE_SAMPLES);
   synthVoiceShapeCrossfadeRemaining[voiceIndex] = remaining - 1;
@@ -96,7 +98,7 @@ void updateAudioVoicePhaseSteps() {
   int step = clampInt(sequencerCurrentStep, 0, SEQUENCER_STEP_COUNT - 1);
 
   for (int i = 0; i < WAVE_VOICE_COUNT; i++) {
-    float semitoneOffset = audioWaveVoiceTune[i];
+    float semitoneOffset = audioWaveVoiceTune[i] + audioWaveVoiceDetune[i] / 100.0f;
     if (sequencerEnabled) semitoneOffset += getSequencerStepNote(i, step);
 
     float tuneRatio = powf(2.0f, semitoneOffset / 12.0f);
@@ -132,7 +134,7 @@ void updateAudioParametersForBlock() {
     audioWaveVoiceShape[i] = clampInt(waveVoiceShape[i], 0, WAVE_SHAPE_COUNT - 1);
     audioWaveVoiceTune[i] = smoothToward(audioWaveVoiceTune[i], (float)clampInt(waveVoiceTune[i], -24, 24), amount);
     audioWaveVoiceFold[i] = smoothToward(audioWaveVoiceFold[i], (float)clampInt(waveVoiceFold[i], 0, 100), amount);
-    audioWaveVoicePhase[i] = smoothAngleDegrees(audioWaveVoicePhase[i], (float)wrapIndex(waveVoicePhase[i], 360), amount);
+    audioWaveVoiceDetune[i] = smoothToward(audioWaveVoiceDetune[i], (float)clampInt(waveVoiceDetune[i], -50, 50), amount);
   }
 
   float cutoffRadians = TWO_PI_F * audioFilterCutoff / (float)SYNTH_AUDIO_SAMPLE_RATE;
@@ -167,8 +169,11 @@ float getAudioWaveMixSample() {
   float mixed = 0.0f;
   float totalGain = 0.0f;
   int step = clampInt(sequencerCurrentStep, 0, SEQUENCER_STEP_COUNT - 1);
+  int previewVoice = isVoicePreviewActive() ? getCurrentWaveVoiceIndex() : -1;
 
   for (int i = 0; i < WAVE_VOICE_COUNT; i++) {
+    if (!sequencerEnabled && previewVoice >= 0 && i != previewVoice) continue;
+
     float gain = audioWaveVoiceLevels[i] / 100.0f;
     if (gain <= 0.001f) continue;
 
@@ -336,6 +341,17 @@ bool isAudioTestActive() {
   return uiMode == MODE_EDIT && getSelectedAction() == ACTION_AUDIO_TEST;
 }
 
+bool isVoicePreviewActive() {
+  if (uiMode != MODE_EDIT) return false;
+
+  MenuAction action = getSelectedAction();
+  return action == ACTION_VOICE_WAVE ||
+         action == ACTION_VOICE_TUNE ||
+         action == ACTION_VOICE_FOLD ||
+         action == ACTION_VOICE_DETUNE ||
+         action == ACTION_VOICE_SCOPE;
+}
+
 void triggerKickVoice() {
   kickPhase = 0.0f;
   kickSampleAge = 0;
@@ -370,7 +386,7 @@ int getWaveVoiceParamChecksum() {
     checksum = checksum * 31 + waveVoiceShape[i];
     checksum = checksum * 31 + waveVoiceTune[i];
     checksum = checksum * 31 + waveVoiceFold[i];
-    checksum = checksum * 31 + waveVoicePhase[i];
+    checksum = checksum * 31 + waveVoiceDetune[i];
   }
 
   return checksum;
@@ -404,7 +420,7 @@ void tickSequencerClock() {
     sequencerCurrentStep = (sequencerCurrentStep + 1) % length;
     updateAudioVoicePhaseSteps();
 
-    if (kickLevel > 0 && (sequencerCurrentStep == 0 || (getSequencerLength() > 4 && sequencerCurrentStep == 4))) {
+    if (kickLevel > 0 && isKickStepEnabled(sequencerCurrentStep)) {
       triggerKickVoice();
     }
 
@@ -413,7 +429,7 @@ void tickSequencerClock() {
 }
 
 float getSequencerGateLevel() {
-  if (!sequencerEnabled) return isAudioTestActive() ? 1.0f : 0.0f;
+  if (!sequencerEnabled) return (isAudioTestActive() || isVoicePreviewActive()) ? 1.0f : 0.0f;
 
   int step = sequencerCurrentStep;
   if (step < 0 || step >= SEQUENCER_STEP_COUNT) return 0.0f;
@@ -484,6 +500,10 @@ bool isSynthAudioActive() {
   }
 
   if (isAudioTestActive()) {
+    return true;
+  }
+
+  if (isVoicePreviewActive()) {
     return true;
   }
 
@@ -563,7 +583,7 @@ void synthAudioTask(void* parameter) {
         sequencerSampleCounter = 0;
       }
 
-      if (!synthWasActive && kickLevel > 0) {
+      if (!synthWasActive && kickLevel > 0 && isKickStepEnabled(sequencerCurrentStep)) {
         triggerKickVoice();
       }
 

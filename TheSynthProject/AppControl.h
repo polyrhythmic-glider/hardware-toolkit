@@ -1,5 +1,8 @@
 #pragma once
 
+extern uint16_t neokeyLastRawKeys;
+extern uint16_t neokeyLastPrintedRawKeys;
+
 // =======================
 // UTILITY
 // =======================
@@ -265,16 +268,16 @@ int getBluetoothSignalBars() {
 }
 
 bool isWaveVoicePage(MenuPage page) {
-  return page == MENU_PAGE_WAVE_SINE ||
-         page == MENU_PAGE_WAVE_SQUARE;
+  return page == MENU_PAGE_VOICE_1 ||
+         page == MENU_PAGE_VOICE_2;
 }
 
 int getWaveVoiceIndexForPage(MenuPage page) {
   switch (page) {
-    case MENU_PAGE_WAVE_SINE:
+    case MENU_PAGE_VOICE_1:
       return 0;
 
-    case MENU_PAGE_WAVE_SQUARE:
+    case MENU_PAGE_VOICE_2:
       return 1;
 
     default:
@@ -292,10 +295,9 @@ int getCurrentWaveVoiceIndex() {
 }
 
 bool isMenuSubmenuAction(MenuAction action) {
-  return action == ACTION_WAVE_SINE_MENU ||
-         action == ACTION_WAVE_SQUARE_MENU ||
+  return action == ACTION_VOICE_1_MENU ||
+         action == ACTION_VOICE_2_MENU ||
          action == ACTION_FILTER_MENU ||
-         action == ACTION_KICK_MENU ||
          action == ACTION_TRANSPORT_MENU;
 }
 
@@ -321,7 +323,7 @@ void startTransport() {
   Serial.print("/");
   Serial.println(sequencerCurrentStep + 1);
 
-  if (kickLevel > 0) {
+  if (kickLevel > 0 && isKickStepEnabled(sequencerCurrentStep)) {
     triggerKickVoice();
   }
 }
@@ -337,7 +339,7 @@ void stopTransport() {
 
 void executeImmediateMenuAction(MenuAction action) {
   if (action == ACTION_SEQ_START) {
-    startTransport();
+    if (!transportRunning) startTransport();
   } else if (action == ACTION_SEQ_STOP) {
     stopTransport();
   } else if (action == ACTION_PRESET_LOAD) {
@@ -358,17 +360,14 @@ void executeImmediateMenuAction(MenuAction action) {
 
 MenuPage getSubmenuPageForAction(MenuAction action) {
   switch (action) {
-    case ACTION_WAVE_SINE_MENU:
-      return MENU_PAGE_WAVE_SINE;
+    case ACTION_VOICE_1_MENU:
+      return MENU_PAGE_VOICE_1;
 
-    case ACTION_WAVE_SQUARE_MENU:
-      return MENU_PAGE_WAVE_SQUARE;
+    case ACTION_VOICE_2_MENU:
+      return MENU_PAGE_VOICE_2;
 
     case ACTION_FILTER_MENU:
       return MENU_PAGE_FILTER;
-
-    case ACTION_KICK_MENU:
-      return MENU_PAGE_KICK;
 
     case ACTION_TRANSPORT_MENU:
       return MENU_PAGE_TRANSPORT;
@@ -417,11 +416,6 @@ const uint8_t* getCurrentMenuItems(int* count) {
     return MENU_FILTER_ITEMS;
   }
 
-  if (currentMenuPage == MENU_PAGE_KICK) {
-    *count = sizeof(MENU_KICK_ITEMS) / sizeof(MENU_KICK_ITEMS[0]);
-    return MENU_KICK_ITEMS;
-  }
-
   if (currentMenuPage == MENU_PAGE_TRANSPORT) {
     *count = sizeof(MENU_TRANSPORT_ITEMS) / sizeof(MENU_TRANSPORT_ITEMS[0]);
     return MENU_TRANSPORT_ITEMS;
@@ -447,9 +441,6 @@ const char* getCurrentMenuTitle() {
 
   if (currentMenuPage == MENU_PAGE_FILTER) {
     source = "FILTER";
-  }
-  else if (currentMenuPage == MENU_PAGE_KICK) {
-    source = "KICK DESIGN";
   }
   else if (currentMenuPage == MENU_PAGE_TRANSPORT) {
     source = "TRANSPORT";
@@ -487,15 +478,14 @@ MenuAction getSelectedAction() {
 }
 
 bool isSynthAction(MenuAction action) {
-  return action == ACTION_WAVE_SINE_MENU ||
-         action == ACTION_WAVE_SQUARE_MENU ||
+  return action == ACTION_VOICE_1_MENU ||
+         action == ACTION_VOICE_2_MENU ||
          action == ACTION_FILTER_MENU ||
-         action == ACTION_KICK_MENU ||
          action == ACTION_TRANSPORT_MENU ||
          action == ACTION_VOICE_WAVE ||
          action == ACTION_VOICE_TUNE ||
          action == ACTION_VOICE_FOLD ||
-         action == ACTION_VOICE_PHASE ||
+         action == ACTION_VOICE_DETUNE ||
          action == ACTION_VOICE_SCOPE ||
          action == ACTION_PITCH ||
          action == ACTION_LEVEL ||
@@ -518,8 +508,8 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_SEQ_NOTE ||
          action == ACTION_SEQ_LENGTH ||
          action == ACTION_SEQ_STEP_ENABLE ||
-         action == ACTION_MIX_SINE ||
-         action == ACTION_MIX_SQUARE ||
+         action == ACTION_MIX_VOICE_1 ||
+         action == ACTION_MIX_VOICE_2 ||
          action == ACTION_MIX_KICK ||
          action == ACTION_KICK_PITCH ||
          action == ACTION_KICK_DECAY ||
@@ -621,6 +611,31 @@ int getActiveSequencerVoice() {
   return activeSequencerVoice;
 }
 
+int getActiveSequencerTrack() {
+  activeSequencerTrack = clampInt(activeSequencerTrack, 0, SEQUENCER_TRACK_COUNT - 1);
+  if (activeSequencerTrack < WAVE_VOICE_COUNT) {
+    activeSequencerVoice = activeSequencerTrack;
+  }
+  return activeSequencerTrack;
+}
+
+bool isActiveSequencerTrackKick() {
+  return getActiveSequencerTrack() == SEQUENCER_TRACK_KICK;
+}
+
+int getActiveSequencerTrackVoice() {
+  int track = getActiveSequencerTrack();
+  return track < WAVE_VOICE_COUNT ? track : 0;
+}
+
+const char* getSequencerTrackLabel(int track) {
+  switch (clampInt(track, 0, SEQUENCER_TRACK_COUNT - 1)) {
+    case SEQUENCER_TRACK_VOICE_1: return "V1";
+    case SEQUENCER_TRACK_VOICE_2: return "V2";
+    default: return "KICK";
+  }
+}
+
 int getSequencerStepNote(int voiceIndex, int stepIndex) {
   voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
   stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
@@ -636,7 +651,8 @@ bool isSequencerStepEnabled(int voiceIndex, int stepIndex) {
 bool isActiveSequencerStepEnabledAtStep(int stepIndex) {
   if (stepIndex < 0 || stepIndex >= SEQUENCER_STEP_COUNT) return false;
 
-  return sequencerStepEnabled[getActiveSequencerVoice()][stepIndex];
+  if (isActiveSequencerTrackKick()) return kickStepEnabled[stepIndex];
+  return sequencerStepEnabled[getActiveSequencerTrackVoice()][stepIndex];
 }
 
 bool isAnySequencerVoiceEnabledAtStep(int stepIndex) {
@@ -667,11 +683,17 @@ void setSequencerStepEnabled(int voiceIndex, int stepIndex, bool enabled) {
 }
 
 int getSelectedSequencerStepNote() {
-  return getSequencerStepNote(getActiveSequencerVoice(), sequencerSelectedStep);
+  return getSequencerStepNote(getActiveSequencerTrackVoice(), sequencerSelectedStep);
 }
 
 bool isSelectedSequencerStepEnabled() {
-  return isSequencerStepEnabled(getActiveSequencerVoice(), sequencerSelectedStep);
+  if (isActiveSequencerTrackKick()) return kickStepEnabled[clampInt(sequencerSelectedStep, 0, SEQUENCER_STEP_COUNT - 1)];
+  return isSequencerStepEnabled(getActiveSequencerTrackVoice(), sequencerSelectedStep);
+}
+
+bool isKickStepEnabled(int stepIndex) {
+  if (stepIndex < 0 || stepIndex >= SEQUENCER_STEP_COUNT) return false;
+  return kickStepEnabled[stepIndex];
 }
 
 const char* getValueText(int itemIndex) {
@@ -679,10 +701,9 @@ const char* getValueText(int itemIndex) {
   MenuAction action = menuItems[itemIndex].action;
 
   switch (action) {
-    case ACTION_WAVE_SINE_MENU:
-    case ACTION_WAVE_SQUARE_MENU:
+    case ACTION_VOICE_1_MENU:
+    case ACTION_VOICE_2_MENU:
     case ACTION_FILTER_MENU:
-    case ACTION_KICK_MENU:
     case ACTION_TRANSPORT_MENU:
       snprintf(buffer, sizeof(buffer), "OPEN");
       break;
@@ -699,8 +720,8 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%d%%", waveVoiceFold[getCurrentWaveVoiceIndex()]);
       break;
 
-    case ACTION_VOICE_PHASE:
-      snprintf(buffer, sizeof(buffer), "%ddeg", waveVoicePhase[getCurrentWaveVoiceIndex()]);
+    case ACTION_VOICE_DETUNE:
+      snprintf(buffer, sizeof(buffer), "%+dct", waveVoiceDetune[getCurrentWaveVoiceIndex()]);
       break;
 
     case ACTION_VOICE_SCOPE:
@@ -796,7 +817,7 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_SEQ_VOICE:
-      snprintf(buffer, sizeof(buffer), "V%d", getActiveSequencerVoice() + 1);
+      snprintf(buffer, sizeof(buffer), "%s", getSequencerTrackLabel(getActiveSequencerTrack()));
       break;
 
     case ACTION_SEQ_STEP:
@@ -804,7 +825,11 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_SEQ_NOTE:
-      snprintf(buffer, sizeof(buffer), "%+dst", getSelectedSequencerStepNote());
+      if (isActiveSequencerTrackKick()) {
+        snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "HIT" : "REST");
+      } else {
+        snprintf(buffer, sizeof(buffer), "%+dst", getSelectedSequencerStepNote());
+      }
       break;
 
     case ACTION_SEQ_LENGTH:
@@ -815,8 +840,8 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "ON" : "REST");
       break;
 
-    case ACTION_MIX_SINE:
-    case ACTION_MIX_SQUARE:
+    case ACTION_MIX_VOICE_1:
+    case ACTION_MIX_VOICE_2:
     {
       int waveIndex = getMixerWaveIndex(action);
       snprintf(buffer, sizeof(buffer), "%d%%", waveIndex >= 0 ? waveVoiceLevels[waveIndex] : 0);
@@ -900,6 +925,10 @@ const char* getValueText(int itemIndex) {
                ControlSurface::getMcpRawPorts());
       break;
 
+    case ACTION_NEOKEY_DEBUG:
+      snprintf(buffer, sizeof(buffer), "RAW %04X", neokeyLastRawKeys);
+      break;
+
     case ACTION_ABOUT:
       snprintf(buffer, sizeof(buffer), "ABOUT");
       break;
@@ -918,7 +947,11 @@ int getSequencerLength() {
 
 void clampSequencerIndexes() {
   int length = getSequencerLength();
+  activeSequencerTrack = clampInt(activeSequencerTrack, 0, SEQUENCER_TRACK_COUNT - 1);
   activeSequencerVoice = clampInt(activeSequencerVoice, 0, WAVE_VOICE_COUNT - 1);
+  if (activeSequencerTrack < WAVE_VOICE_COUNT) {
+    activeSequencerVoice = activeSequencerTrack;
+  }
 
   if (sequencerSelectedStep >= length) {
     sequencerSelectedStep = length - 1;
@@ -961,11 +994,11 @@ void changeCurrentValue(int delta) {
       break;
     }
 
-    case ACTION_VOICE_PHASE:
+    case ACTION_VOICE_DETUNE:
     {
       int voice = getCurrentWaveVoiceIndex();
-      waveVoicePhase[voice] += delta * 5;
-      waveVoicePhase[voice] = wrapIndex(waveVoicePhase[voice], 360);
+      waveVoiceDetune[voice] += delta;
+      waveVoiceDetune[voice] = clampInt(waveVoiceDetune[voice], -50, 50);
       break;
     }
 
@@ -1036,7 +1069,7 @@ void changeCurrentValue(int delta) {
       return;
 
     case ACTION_SEQ_START:
-      if (delta != 0) {
+      if (delta != 0 && !transportRunning) {
         startTransport();
       }
       break;
@@ -1049,9 +1082,12 @@ void changeCurrentValue(int delta) {
 
     case ACTION_SEQ_POWER:
       if (delta != 0) {
-        sequencerEnabled = !sequencerEnabled;
-        transportRunning = sequencerEnabled;
-        resetSequencerClock();
+        sequencerEnabled = true;
+        if (!transportRunning) {
+          transportRunning = true;
+          resetSequencerClock();
+        }
+        synthRetriggerRequested = true;
       }
       break;
 
@@ -1064,14 +1100,17 @@ void changeCurrentValue(int delta) {
       break;
 
     case ACTION_SEQ_VOICE:
-      activeSequencerVoice = wrapIndex(activeSequencerVoice + delta, WAVE_VOICE_COUNT);
-      resetSequencerClock();
+      activeSequencerTrack = wrapIndex(activeSequencerTrack + delta, SEQUENCER_TRACK_COUNT);
+      if (activeSequencerTrack < WAVE_VOICE_COUNT) {
+        activeSequencerVoice = activeSequencerTrack;
+      }
+      if (!transportRunning) resetSequencerClock();
       synthRetriggerRequested = true;
       break;
 
     case ACTION_SEQ_STEP:
       sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
-      if (!sequencerEnabled && !isMixerLayerEnabled()) {
+      if (!transportRunning) {
         sequencerCurrentStep = sequencerSelectedStep;
         resetSequencerClock();
       }
@@ -1079,11 +1118,17 @@ void changeCurrentValue(int delta) {
 
     case ACTION_SEQ_NOTE:
     {
-      int voice = getActiveSequencerVoice();
-      sequencerStepNotes[voice][sequencerSelectedStep] += delta;
-      sequencerStepNotes[voice][sequencerSelectedStep] = clampInt(sequencerStepNotes[voice][sequencerSelectedStep], SEQUENCER_MIN_NOTE, SEQUENCER_MAX_NOTE);
-      sequencerStepEnabled[voice][sequencerSelectedStep] = true;
-      synthRetriggerRequested = true;
+      if (isActiveSequencerTrackKick()) {
+        kickStepEnabled[sequencerSelectedStep] = delta > 0;
+        if (kickLevel == 0 && kickStepEnabled[sequencerSelectedStep]) kickLevel = 80;
+        if (kickStepEnabled[sequencerSelectedStep]) triggerKickVoice();
+      } else {
+        int voice = getActiveSequencerTrackVoice();
+        sequencerStepNotes[voice][sequencerSelectedStep] += delta;
+        sequencerStepNotes[voice][sequencerSelectedStep] = clampInt(sequencerStepNotes[voice][sequencerSelectedStep], SEQUENCER_MIN_NOTE, SEQUENCER_MAX_NOTE);
+        sequencerStepEnabled[voice][sequencerSelectedStep] = true;
+        synthRetriggerRequested = true;
+      }
       break;
     }
 
@@ -1091,18 +1136,24 @@ void changeCurrentValue(int delta) {
       sequencerLength += delta;
       sequencerLength = clampInt(sequencerLength, 1, SEQUENCER_STEP_COUNT);
       clampSequencerIndexes();
-      resetSequencerClock();
+      if (!transportRunning) resetSequencerClock();
       break;
 
     case ACTION_SEQ_STEP_ENABLE:
       if (delta != 0) {
-        int voice = getActiveSequencerVoice();
-        sequencerStepEnabled[voice][sequencerSelectedStep] = !sequencerStepEnabled[voice][sequencerSelectedStep];
+        if (isActiveSequencerTrackKick()) {
+          kickStepEnabled[sequencerSelectedStep] = !kickStepEnabled[sequencerSelectedStep];
+          if (kickLevel == 0 && kickStepEnabled[sequencerSelectedStep]) kickLevel = 80;
+          if (kickStepEnabled[sequencerSelectedStep]) triggerKickVoice();
+        } else {
+          int voice = getActiveSequencerTrackVoice();
+          sequencerStepEnabled[voice][sequencerSelectedStep] = !sequencerStepEnabled[voice][sequencerSelectedStep];
+        }
       }
       break;
 
-    case ACTION_MIX_SINE:
-    case ACTION_MIX_SQUARE:
+    case ACTION_MIX_VOICE_1:
+    case ACTION_MIX_VOICE_2:
     {
       int waveIndex = getMixerWaveIndex(action);
       if (waveIndex < 0) break;
@@ -1184,6 +1235,10 @@ void changeCurrentValue(int delta) {
       ControlSurface::runMcpDiagnostics();
       break;
 
+    case ACTION_NEOKEY_DEBUG:
+      neokeyLastPrintedRawKeys = 0xFFFF;
+      break;
+
     default:
       break;
   }
@@ -1259,6 +1314,10 @@ void updateUiLogic() {
   }
 
   if (pushEvent) {
+    if (digitalRead(ENC_SW) == LOW && millis() - pushEventMs < 220) {
+      return;
+    }
+
     pushEvent = false;
 
     if (uiMode == MODE_PREMENU) {

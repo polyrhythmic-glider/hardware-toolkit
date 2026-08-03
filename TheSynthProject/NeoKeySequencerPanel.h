@@ -16,6 +16,7 @@ const uint8_t NEOKEY_BOARD_ADDRESSES[NEOKEY_BOARD_COUNT] = { 0x30, 0x31, 0x32, 0
 const uint8_t NEOKEY_LOCAL_KEY_MAP[NEOKEY_KEYS_PER_BOARD] = { 0, 1, 2, 3 };
 const uint32_t NEOKEY_KEY_POLL_MS = 10;
 const uint32_t NEOKEY_KEY_DEBOUNCE_MS = 20;
+const uint32_t NEOKEY_CHORD_WINDOW_MS = 70;
 const uint32_t NEOKEY_REFRESH_MS = 25;
 const uint32_t NEOKEY_RECONNECT_MS = 1800;
 const uint8_t NEOKEY_BOOT_RETRY_COUNT = 4;
@@ -33,17 +34,22 @@ bool neokeyBoardReady[NEOKEY_BOARD_COUNT] = { false };
 bool neokeyAnyReady = false;
 uint16_t neokeyLastRawKeys = 0;
 uint16_t neokeyStableKeys = 0;
+uint16_t neokeyPendingPressMask = 0;
+uint32_t neokeyPendingPressUntilMs = 0;
 uint32_t neokeyLastPollMs = 0;
 uint32_t neokeyLastRefreshMs = 0;
 uint32_t neokeyLastReconnectMs = 0;
+uint16_t neokeyLastPrintedRawKeys = 0xFFFF;
+uint8_t neokeyLastBoardRawKeys[NEOKEY_BOARD_COUNT] = { 0, 0, 0, 0 };
 uint8_t neokeyBoardFailureCount[NEOKEY_BOARD_COUNT] = { 0 };
 bool neokeyButtonLastRaw[NEOKEY_TOTAL_KEYS] = { false };
 bool neokeyButtonStable[NEOKEY_TOTAL_KEYS] = { false };
 uint32_t neokeyButtonChangedAtMs[NEOKEY_TOTAL_KEYS] = { 0 };
 int neokeyLastVoice = -1;
+int neokeyLastTrack = -1;
 int neokeyLastStep = -1;
 int neokeyLastPlayStep = -1;
-int neokeyLastLedMask = -1;
+uint64_t neokeyLastPatternSignature = 0xFFFFFFFFFFFFFFFFULL;
 bool neokeyLastSequencerRunning = false;
 uint32_t neokeyLastStepColors[NEOKEY_TOTAL_KEYS] = { 0 };
 bool neokeyStepColorCacheValid = false;
@@ -98,6 +104,7 @@ void neokeyRecomputeReadyState() {
 }
 
 bool neokeySequencerControlActive() {
+  if (uiMode == MODE_EDIT && getSelectedAction() == ACTION_NEOKEY_DEBUG) return false;
   return uiMode != MODE_BOOT && uiMode != MODE_PREMENU && uiMode != MODE_ABOUT;
 }
 
@@ -109,14 +116,16 @@ uint32_t neokeyColor(uint8_t r, uint8_t g, uint8_t b) {
   return seesaw_NeoPixel::Color(r, g, b);
 }
 
-uint32_t neokeyStepColor(int stepIndex, bool selected, bool activePattern, bool playhead) {
+uint32_t neokeyStepColor(int stepIndex, bool voice1Active, bool voice2Active, bool kickActive, bool playhead) {
   (void)stepIndex;
 
-  (void)selected;
+  uint8_t r = voice1Active ? 190 : 0;
+  uint8_t g = kickActive ? 150 : 0;
+  uint8_t b = voice2Active ? 180 : 0;
+  if (r != 0 || g != 0 || b != 0) return neokeyColor(r, g, b);
 
-  if (playhead) return neokeyColor(255, 255, 255);
-  if (activePattern) return neokeyColor(180, 0, 0);
-  return 0;
+  if (playhead) return neokeyColor(28, 28, 28);
+  return neokeyColor(r, g, b);
 }
 
 void neokeySetStepPixel(int stepIndex, uint32_t color) {
@@ -168,7 +177,7 @@ void neokeySelectStep(int stepIndex) {
 
   sequencerSelectedStep = stepIndex;
 
-  if (!sequencerEnabled && !isMixerLayerEnabled()) {
+  if (!transportRunning) {
     sequencerCurrentStep = sequencerSelectedStep;
     resetSequencerClock();
   }
@@ -176,23 +185,39 @@ void neokeySelectStep(int stepIndex) {
 
 void neokeyTogglePressedSteps(uint16_t pressed) {
   if (pressed == 0) return;
-  int voice = getActiveSequencerVoice();
+  int track = getActiveSequencerTrack();
+  bool kickTrack = track == SEQUENCER_TRACK_KICK;
+  int voice = getActiveSequencerTrackVoice();
   int selectedStep = -1;
+
+  if (!kickTrack) {
+    activeSequencerVoice = voice;
+  }
 
   for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
     if ((pressed & ((uint16_t)1U << step)) == 0) continue;
-    sequencerStepEnabled[voice][step] = !sequencerStepEnabled[voice][step];
+    if (kickTrack) {
+      kickStepEnabled[step] = !kickStepEnabled[step];
+      if (kickLevel == 0 && kickStepEnabled[step]) {
+        kickLevel = 80;
+      }
+      if (kickStepEnabled[step]) {
+        triggerKickVoice();
+      }
+    } else {
+      sequencerStepEnabled[voice][step] = !sequencerStepEnabled[voice][step];
+    }
     selectedStep = step;
   }
 
   if (selectedStep < 0) return;
   sequencerSelectedStep = selectedStep;
-  if (!sequencerEnabled && !isMixerLayerEnabled()) {
+  if (!transportRunning) {
     sequencerCurrentStep = selectedStep;
     resetSequencerClock();
   }
 
-  neokeyMarkSequencerDirty(true);
+  neokeyMarkSequencerDirty(!kickTrack);
 }
 
 uint16_t neokeyReadButtonsRaw() {
@@ -214,11 +239,34 @@ uint16_t neokeyReadButtonsRaw() {
       }
     }
 
+    neokeyLastBoardRawKeys[board] = mappedKeys;
     rawKeys |= (uint16_t)mappedKeys << (board * NEOKEY_KEYS_PER_BOARD);
   }
 
   neokeyRestoreDisplayBusClock();
   return rawKeys;
+}
+
+void neokeyPrintRawChange(uint16_t rawKeys) {
+  if (!(uiMode == MODE_EDIT && getSelectedAction() == ACTION_NEOKEY_DEBUG)) return;
+  if (rawKeys == neokeyLastPrintedRawKeys) return;
+  neokeyLastPrintedRawKeys = rawKeys;
+  valueDirty = true;
+  fullRedraw = false;
+
+  Serial.print("[NEOKEY][RAW] 0x");
+  if (rawKeys < 0x1000) Serial.print('0');
+  if (rawKeys < 0x0100) Serial.print('0');
+  if (rawKeys < 0x0010) Serial.print('0');
+  Serial.print(rawKeys, HEX);
+  Serial.print("  b0=");
+  Serial.print(neokeyLastBoardRawKeys[0], HEX);
+  Serial.print(" b1=");
+  Serial.print(neokeyLastBoardRawKeys[1], HEX);
+  Serial.print(" b2=");
+  Serial.print(neokeyLastBoardRawKeys[2], HEX);
+  Serial.print(" b3=");
+  Serial.println(neokeyLastBoardRawKeys[3], HEX);
 }
 
 void neokeySyncButtonDebounce(uint16_t rawKeys, uint32_t now);
@@ -260,7 +308,7 @@ void neokeyMaintainConnections(uint32_t now) {
     neokeyLastVoice = -1;
     neokeyLastStep = -1;
     neokeyLastPlayStep = -1;
-    neokeyLastLedMask = -1;
+    neokeyLastPatternSignature = 0xFFFFFFFFFFFFFFFFULL;
     neokeyStepColorCacheValid = false;
     neokeySyncButtonDebounce(neokeyAnyReady ? neokeyReadButtonsRaw() : 0, now);
   }
@@ -269,6 +317,8 @@ void neokeyMaintainConnections(uint32_t now) {
 void neokeySyncButtonDebounce(uint16_t rawKeys, uint32_t now) {
   neokeyLastRawKeys = rawKeys;
   neokeyStableKeys = rawKeys;
+  neokeyPendingPressMask = 0;
+  neokeyPendingPressUntilMs = 0;
 
   for (int i = 0; i < NEOKEY_TOTAL_KEYS; i++) {
     bool raw = (rawKeys & ((uint16_t)1U << i)) != 0;
@@ -288,6 +338,14 @@ void pollNeoKeySequencerKeys() {
 
   uint16_t rawKeys = neokeyReadButtonsRaw();
   neokeyLastRawKeys = rawKeys;
+  neokeyPrintRawChange(rawKeys);
+
+  if (rawKeys != 0 && digitalRead(ENC_SW) == LOW) {
+    pushEvent = false;
+  }
+  if (rawKeys != 0 && digitalRead(BTN_K0) == LOW) {
+    k0Event = false;
+  }
 
   if (!neokeySequencerControlActive()) {
     neokeySyncButtonDebounce(rawKeys, now);
@@ -310,7 +368,8 @@ void pollNeoKeySequencerKeys() {
       neokeyButtonStable[i] = raw;
 
       if (raw) {
-        pressed |= (uint16_t)1U << i;
+        neokeyPendingPressMask |= (uint16_t)1U << i;
+        neokeyPendingPressUntilMs = now + NEOKEY_CHORD_WINDOW_MS;
       }
     }
 
@@ -321,42 +380,46 @@ void pollNeoKeySequencerKeys() {
 
   neokeyStableKeys = stableMask;
 
+  if (neokeyPendingPressMask != 0 && now >= neokeyPendingPressUntilMs) {
+    pressed = neokeyPendingPressMask;
+    neokeyPendingPressMask = 0;
+    neokeyPendingPressUntilMs = 0;
+  }
+
   neokeyTogglePressedSteps(pressed);
 }
 
-uint16_t neokeyBuildStepLedMask() {
-  if (neokeySequencerRunning()) {
-    int step = clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1);
-    return (uint16_t)1U << step;
-  }
-
-  int voice = getActiveSequencerVoice();
-  uint16_t mask = 0;
+uint64_t neokeyBuildPatternSignature() {
+  uint16_t voice1Mask = 0;
+  uint16_t voice2Mask = 0;
+  uint16_t kickMask = 0;
 
   for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    if (sequencerStepEnabled[voice][i]) {
-      mask |= (uint16_t)1U << i;
-    }
+    if (sequencerStepEnabled[0][i]) voice1Mask |= (uint16_t)1U << i;
+    if (sequencerStepEnabled[1][i]) voice2Mask |= (uint16_t)1U << i;
+    if (kickStepEnabled[i]) kickMask |= (uint16_t)1U << i;
   }
 
-  return mask;
+  return ((uint64_t)kickMask << 32) | ((uint64_t)voice2Mask << 16) | voice1Mask;
 }
 
 void refreshNeoKeySequencerPanel() {
   if (!neokeyAnyReady) return;
 
   uint32_t now = millis();
+  int track = getActiveSequencerTrack();
   int voice = getActiveSequencerVoice();
   int step = clampInt(sequencerSelectedStep, 0, SEQUENCER_STEP_COUNT - 1);
   int playStep = clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1);
   bool running = neokeySequencerRunning();
-  uint16_t ledMask = neokeyBuildStepLedMask();
+  uint64_t patternSignature = neokeyBuildPatternSignature();
   bool stateChanged =
     voice != neokeyLastVoice ||
+    track != neokeyLastTrack ||
     step != neokeyLastStep ||
     playStep != neokeyLastPlayStep ||
     running != neokeyLastSequencerRunning ||
-    ledMask != neokeyLastLedMask;
+    patternSignature != neokeyLastPatternSignature;
 
   if (!stateChanged) return;
   if (now - neokeyLastRefreshMs < NEOKEY_REFRESH_MS) return;
@@ -369,10 +432,11 @@ void refreshNeoKeySequencerPanel() {
   uint8_t changedBoards = 0;
 
   for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    bool activePattern = isSequencerStepEnabled(voice, i);
-    bool selected = neokeySequencerControlActive() && i == step;
-    bool playhead = running && (ledMask & ((uint16_t)1U << i));
-    uint32_t color = neokeyStepColor(i, selected, activePattern, playhead);
+    bool voice1Active = track == SEQUENCER_TRACK_VOICE_1 && isSequencerStepEnabled(0, i);
+    bool voice2Active = track == SEQUENCER_TRACK_VOICE_2 && isSequencerStepEnabled(1, i);
+    bool kickActive = track == SEQUENCER_TRACK_KICK && isKickStepEnabled(i);
+    bool playhead = running && i == playStep;
+    uint32_t color = neokeyStepColor(i, voice1Active, voice2Active, kickActive, playhead);
 
     if (!neokeyStepColorCacheValid || color != neokeyLastStepColors[i]) {
       neokeySetStepPixel(i, color);
@@ -392,10 +456,11 @@ void refreshNeoKeySequencerPanel() {
 
   neokeyLastRefreshMs = now;
   neokeyLastVoice = voice;
+  neokeyLastTrack = track;
   neokeyLastStep = step;
   neokeyLastPlayStep = playStep;
   neokeyLastSequencerRunning = running;
-  neokeyLastLedMask = ledMask;
+  neokeyLastPatternSignature = patternSignature;
   neokeyStepColorCacheValid = true;
 }
 

@@ -25,7 +25,6 @@ const char* parameterLabel(uint8_t page, uint8_t encoderIndex);
 void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size_t outputSize);
 void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta);
 void activatePageAction(uint8_t page);
-const char* pageActionLabel(uint8_t page);
 uint32_t stateHash();
 bool isTransportRunning();
 

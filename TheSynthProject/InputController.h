@@ -61,6 +61,8 @@ uint32_t lastK0DebounceMs = 0;
 
 bool pushEvent = false;
 bool k0Event = false;
+uint32_t pushEventMs = 0;
+uint32_t k0EventMs = 0;
 
 int32_t encoderUiStepsTotal = 0;
 uint32_t pushPressCount = 0;
@@ -102,6 +104,7 @@ void updateButtons() {
 
     if (pushNow == LOW) {
       pushEvent = true;
+      pushEventMs = now;
       pushPressCount++;
     }
   }
@@ -112,6 +115,7 @@ void updateButtons() {
 
     if (k0Now == LOW) {
       k0Event = true;
+      k0EventMs = now;
       k0PressCount++;
     }
   }

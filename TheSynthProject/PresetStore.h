@@ -3,9 +3,10 @@
 #include <Preferences.h>
 
 const uint32_t PRESET_MAGIC = 0x50474C44;
-// Versione 4: il pattern del sequencer passa da 8 a 16 step.
+// Versione 4: pattern a 16 step; il pattern kick usa campi riservati v4.
 const uint16_t PRESET_VERSION = 4;
 const uint16_t LEGACY_PRESET_VERSION = 3;
+const int PRESET_KICK_PATTERN_MAGIC = 0x4B49434B;
 const int LEGACY_SEQUENCER_STEP_COUNT = 8;
 const int PRESET_SLOT_COUNT = 8;
 
@@ -25,7 +26,7 @@ struct SynthPreset {
   int waveVoiceShape[WAVE_VOICE_COUNT];
   int waveVoiceTune[WAVE_VOICE_COUNT];
   int waveVoiceFold[WAVE_VOICE_COUNT];
-  int waveVoicePhase[WAVE_VOICE_COUNT];
+  int waveVoiceDetune[WAVE_VOICE_COUNT];
   int kickLevel;
   int kickPitch;
   int kickDecay;
@@ -64,7 +65,7 @@ struct LegacySynthPresetV3 {
   int waveVoiceShape[WAVE_VOICE_COUNT];
   int waveVoiceTune[WAVE_VOICE_COUNT];
   int waveVoiceFold[WAVE_VOICE_COUNT];
-  int waveVoicePhase[WAVE_VOICE_COUNT];
+  int waveVoiceDetune[WAVE_VOICE_COUNT];
   int kickLevel;
   int kickPitch;
   int kickDecay;
@@ -90,6 +91,18 @@ void getPresetKey(char* key, size_t size) {
   snprintf(key, size, "slot%d", presetSlot);
 }
 
+int clampPresetInt(int value, int minValue, int maxValue) {
+  if (value < minValue) return minValue;
+  if (value > maxValue) return maxValue;
+  return value;
+}
+
+void resetDefaultKickPattern() {
+  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+    kickStepEnabled[step] = false;
+  }
+}
+
 void capturePreset(SynthPreset& preset) {
   preset.magic = PRESET_MAGIC;
   preset.version = PRESET_VERSION;
@@ -106,7 +119,7 @@ void capturePreset(SynthPreset& preset) {
   memcpy(preset.waveVoiceShape, waveVoiceShape, sizeof(waveVoiceShape));
   memcpy(preset.waveVoiceTune, waveVoiceTune, sizeof(waveVoiceTune));
   memcpy(preset.waveVoiceFold, waveVoiceFold, sizeof(waveVoiceFold));
-  memcpy(preset.waveVoicePhase, waveVoicePhase, sizeof(waveVoicePhase));
+  memcpy(preset.waveVoiceDetune, waveVoiceDetune, sizeof(waveVoiceDetune));
   preset.kickLevel = kickLevel;
   preset.kickPitch = kickPitch;
   preset.kickDecay = kickDecay;
@@ -119,12 +132,12 @@ void capturePreset(SynthPreset& preset) {
   // forward sequencer now exposed by the firmware.
   preset.reservedSequencerA = 0;
   preset.reservedSequencerB = 70;
-  preset.reservedSequencerC = 0;
+  preset.reservedSequencerC = PRESET_KICK_PATTERN_MAGIC;
   memcpy(preset.sequencerStepNotes, sequencerStepNotes, sizeof(sequencerStepNotes));
   memcpy(preset.sequencerStepEnabled, sequencerStepEnabled, sizeof(sequencerStepEnabled));
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
     for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
-      preset.reservedStepData[voice][step] = waveVoiceShape[voice];
+      preset.reservedStepData[voice][step] = voice == 0 ? (kickStepEnabled[step] ? 1 : 0) : waveVoiceShape[voice];
     }
   }
   preset.delayMix = delayMix;
@@ -148,7 +161,10 @@ void applyPreset(const SynthPreset& preset) {
   memcpy(waveVoiceShape, preset.waveVoiceShape, sizeof(waveVoiceShape));
   memcpy(waveVoiceTune, preset.waveVoiceTune, sizeof(waveVoiceTune));
   memcpy(waveVoiceFold, preset.waveVoiceFold, sizeof(waveVoiceFold));
-  memcpy(waveVoicePhase, preset.waveVoicePhase, sizeof(waveVoicePhase));
+  memcpy(waveVoiceDetune, preset.waveVoiceDetune, sizeof(waveVoiceDetune));
+  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    waveVoiceDetune[voice] = clampPresetInt(waveVoiceDetune[voice], -50, 50);
+  }
   kickLevel = preset.kickLevel;
   kickPitch = preset.kickPitch;
   kickDecay = preset.kickDecay;
@@ -159,6 +175,13 @@ void applyPreset(const SynthPreset& preset) {
   sequencerLength = preset.sequencerLength;
   memcpy(sequencerStepNotes, preset.sequencerStepNotes, sizeof(sequencerStepNotes));
   memcpy(sequencerStepEnabled, preset.sequencerStepEnabled, sizeof(sequencerStepEnabled));
+  if (preset.reservedSequencerC == PRESET_KICK_PATTERN_MAGIC) {
+    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+      kickStepEnabled[step] = preset.reservedStepData[0][step] != 0;
+    }
+  } else {
+    resetDefaultKickPattern();
+  }
   delayMix = preset.delayMix;
   delayTimeMs = preset.delayTimeMs;
   delayFeedback = preset.delayFeedback;
@@ -183,7 +206,10 @@ void applyLegacyPreset(const LegacySynthPresetV3& preset) {
   memcpy(waveVoiceShape, preset.waveVoiceShape, sizeof(waveVoiceShape));
   memcpy(waveVoiceTune, preset.waveVoiceTune, sizeof(waveVoiceTune));
   memcpy(waveVoiceFold, preset.waveVoiceFold, sizeof(waveVoiceFold));
-  memcpy(waveVoicePhase, preset.waveVoicePhase, sizeof(waveVoicePhase));
+  memcpy(waveVoiceDetune, preset.waveVoiceDetune, sizeof(waveVoiceDetune));
+  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    waveVoiceDetune[voice] = clampPresetInt(waveVoiceDetune[voice], -50, 50);
+  }
   kickLevel = preset.kickLevel;
   kickPitch = preset.kickPitch;
   kickDecay = preset.kickDecay;
@@ -206,6 +232,7 @@ void applyLegacyPreset(const LegacySynthPresetV3& preset) {
     }
   }
 
+  resetDefaultKickPattern();
   delayMix = preset.delayMix;
   delayTimeMs = preset.delayTimeMs;
   delayFeedback = preset.delayFeedback;

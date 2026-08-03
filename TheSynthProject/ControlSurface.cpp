@@ -30,6 +30,8 @@ constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
 constexpr uint32_t DEBUG_TOGGLE_HOLD_MS = 1000;
 // Resta visibile durante il boot del TFT, ma usa solo una checklist testuale.
 constexpr uint32_t STARTUP_SPLASH_MS = 3600;
+constexpr uint32_t BOOT_CHECK_INITIAL_DELAY_MS = 220;
+constexpr uint32_t BOOT_CHECK_STEP_MS = 155;
 constexpr uint32_t DRAW_INTERVAL_MS = 55;
 constexpr uint32_t PONG_STEP_MS = 20;
 constexpr int UI_HEADER_HEIGHT = 16;
@@ -248,6 +250,7 @@ bool redrawRequested = true;
 bool debugEnabled = false;
 uint32_t lastDrawAt = 0;
 uint32_t startupUntil = 0;
+uint32_t startupStartedAt = 0;
 uint32_t debugHoldStartedAt = 0;
 bool debugToggleConsumed = false;
 uint32_t lastMainStateHash = 0;
@@ -735,6 +738,19 @@ void centerText(const char* text, int y, uint8_t size) {
   oled.print(text);
 }
 
+void drawCenteredText(const char* text, int y, uint8_t size, uint16_t color) {
+  int16_t x1;
+  int16_t y1;
+  uint16_t width;
+  uint16_t height;
+  oled.setTextSize(size);
+  oled.getTextBounds(text, 0, y, &x1, &y1, &width, &height);
+  int x = max(0, (SCREEN_WIDTH - (int)width) / 2);
+  oled.setTextColor(color);
+  oled.setCursor(x, y);
+  oled.print(text);
+}
+
 void drawTitleBar(const char* title) {
   oled.fillRect(0, 0, SCREEN_WIDTH, UI_HEADER_HEIGHT, SSD1306_WHITE);
   oled.setTextSize(1);
@@ -754,15 +770,57 @@ void drawStatusFrame(const char* title) {
   oled.setTextColor(SSD1306_WHITE);
 }
 
-void drawBootCheck(const char* label, uint8_t row, bool passed) {
-  constexpr int statusX = 116;
+void drawSynthParameterCard(const char* page, const char* label, const char* value, uint8_t slot) {
+  drawStatusFrame(page);
+
+  oled.drawRoundRect(3, 19, 122, 42, 4, SSD1306_WHITE);
+  oled.drawPixel(6, 22, SSD1306_WHITE);
+  oled.drawPixel(121, 22, SSD1306_WHITE);
+  oled.drawPixel(6, 57, SSD1306_WHITE);
+  oled.drawPixel(121, 57, SSD1306_WHITE);
+
+  int16_t x1;
+  int16_t y1;
+  uint16_t labelWidth;
+  uint16_t labelHeight;
+  oled.setTextSize(1);
+  oled.getTextBounds(label, 0, 0, &x1, &y1, &labelWidth, &labelHeight);
+  int pillW = constrain((int)labelWidth + 14, 34, 112);
+  int pillX = (SCREEN_WIDTH - pillW) / 2;
+  oled.fillRoundRect(pillX, 23, pillW, 12, 3, SSD1306_WHITE);
+  oled.setTextColor(SSD1306_BLACK);
+  oled.setCursor(pillX + (pillW - (int)labelWidth) / 2, 26);
+  oled.print(label);
+
+  uint8_t valueSize = strlen(value) <= 8 ? 2 : 1;
+  int valueY = valueSize == 2 ? 41 : 44;
+  drawCenteredText(value, valueY, valueSize, SSD1306_WHITE);
+}
+
+bool isBootCheckVisible(uint8_t row) {
+  if (startupStartedAt == 0) return false;
+
+  uint32_t elapsed = millis() - startupStartedAt;
+  uint8_t checkIndex = activeDisplay * 4 + row;
+  uint32_t checkAt = BOOT_CHECK_INITIAL_DELAY_MS + (uint32_t)checkIndex * BOOT_CHECK_STEP_MS;
+  return elapsed >= checkAt;
+}
+
+void drawBootCheck(const char* label, uint8_t row, bool checked) {
+  constexpr int statusX = 115;
   int y = 15 + row * 12;
 
   oled.setCursor(0, y);
   oled.print("- ");
   oled.print(label);
-  oled.setCursor(statusX, y);
-  oled.print(passed ? "V" : "!");
+  oled.drawRoundRect(statusX, y - 1, 11, 9, 2, SSD1306_WHITE);
+
+  if (checked) {
+    oled.drawLine(statusX + 2, y + 3, statusX + 4, y + 5, SSD1306_WHITE);
+    oled.drawLine(statusX + 4, y + 5, statusX + 8, y + 1, SSD1306_WHITE);
+    oled.drawLine(statusX + 2, y + 4, statusX + 4, y + 6, SSD1306_WHITE);
+    oled.drawLine(statusX + 4, y + 6, statusX + 8, y + 2, SSD1306_WHITE);
+  }
 }
 
 void drawSplashPanel() {
@@ -773,28 +831,28 @@ void drawSplashPanel() {
 
   if (activeDisplay == 0) {
     oled.println("> BOOT / CORE");
-    drawBootCheck("CPU ONLINE", 0, true);
-    drawBootCheck("RTOS ACTIVE", 1, true);
-    drawBootCheck("MEMORY READY", 2, true);
-    drawBootCheck("FW LOADED", 3, true);
+    drawBootCheck("CPU ONLINE", 0, isBootCheckVisible(0));
+    drawBootCheck("RTOS ACTIVE", 1, isBootCheckVisible(1));
+    drawBootCheck("MEMORY READY", 2, isBootCheckVisible(2));
+    drawBootCheck("FW LOADED", 3, isBootCheckVisible(3));
   } else if (activeDisplay == 1) {
     oled.println("> BOOT / DISPLAYS");
-    drawBootCheck("TFT ONLINE", 0, true);
-    drawBootCheck("I2C LINES", 1, mainSdaHigh && mainSclHigh);
-    drawBootCheck("PCA MUX", 2, pcaReady);
-    drawBootCheck("OLED BANK", 3, oledReadyMask == 0x0F);
+    drawBootCheck("TFT ONLINE", 0, isBootCheckVisible(0));
+    drawBootCheck("I2C LINES", 1, isBootCheckVisible(1));
+    drawBootCheck("PCA MUX", 2, isBootCheckVisible(2));
+    drawBootCheck("OLED BANK", 3, isBootCheckVisible(3));
   } else if (activeDisplay == 2) {
     oled.println("> BOOT / CONTROLS");
-    drawBootCheck("INPUT BUS", 0, encoderSdaHigh && encoderSclHigh);
-    drawBootCheck("MCP23017", 1, encoderExpanderReady);
-    drawBootCheck("ENCODER TASK", 2, encoderExpanderReady && encoderTaskHandle != nullptr);
-    drawBootCheck("GPIO MAP", 3, true);
+    drawBootCheck("INPUT BUS", 0, isBootCheckVisible(0));
+    drawBootCheck("MCP23017", 1, isBootCheckVisible(1));
+    drawBootCheck("ENCODER TASK", 2, isBootCheckVisible(2));
+    drawBootCheck("GPIO MAP", 3, isBootCheckVisible(3));
   } else {
     oled.println("> PRELAUNCH");
-    drawBootCheck("UI MODEL", 0, true);
-    drawBootCheck("PARAM MAP", 1, true);
-    drawBootCheck("OLED SURFACE", 2, oledReadyMask == 0x0F);
-    drawBootCheck("SURFACE READY", 3, oledBusReady && encoderExpanderReady);
+    drawBootCheck("UI MODEL", 0, isBootCheckVisible(0));
+    drawBootCheck("PARAM MAP", 1, isBootCheckVisible(1));
+    drawBootCheck("OLED SURFACE", 2, isBootCheckVisible(2));
+    drawBootCheck("SURFACE READY", 3, isBootCheckVisible(3));
   }
 }
 
@@ -1201,18 +1259,14 @@ void drawSynthControlPanel() {
     return;
   }
 
-  drawStatusFrame(ControlSurfaceBridge::pageName(synthPage));
-  oled.setCursor(3, 20);
-  oled.print(ControlSurfaceBridge::parameterLabel(synthPage, activeDisplay));
-
   char value[24];
   ControlSurfaceBridge::formatParameterValue(synthPage, activeDisplay, value, sizeof(value));
-  centerText(value, 32, strlen(value) <= 8 ? 2 : 1);
-
-  oled.drawFastHLine(0, 51, 128, SSD1306_WHITE);
-  oled.setTextSize(1);
-  oled.setCursor(2, 55);
-  if (activeDisplay == 2) oled.print(ControlSurfaceBridge::pageActionLabel(synthPage));
+  drawSynthParameterCard(
+    ControlSurfaceBridge::pageName(synthPage),
+    ControlSurfaceBridge::parameterLabel(synthPage, activeDisplay),
+    value,
+    activeDisplay
+  );
 }
 
 void drawDiagnosticsPanel() {
@@ -1256,7 +1310,8 @@ void drawDiagnosticsPanel() {
 }
 
 void drawCurrentPanel() {
-  if (menuOpen) drawMenuPanel();
+  if (startupUntil != 0) drawSplashPanel();
+  else if (menuOpen) drawMenuPanel();
   else if (currentMode == SYNTH_CONTROL) drawSynthControlPanel();
   else if (currentMode == ENCODER_VIEW) drawEncoderPanel();
   else if (currentMode == WAVEFORM) drawWaveformPanel();
@@ -1421,6 +1476,7 @@ void begin() {
   menuSelection = SYNTH_CONTROL;
   menuOpen = false;
   startupUntil = millis() + STARTUP_SPLASH_MS;
+  startupStartedAt = millis();
   redrawRequested = true;
 
   if (oledBusReady) {
@@ -1455,7 +1511,11 @@ void tick() {
     redrawRequested = true;
   }
 
-  if (startupUntil != 0) return;
+  if (startupUntil != 0) {
+    if (now - lastDrawAt >= BOOT_CHECK_STEP_MS) redrawRequested = true;
+    if (redrawRequested && now - lastDrawAt >= DRAW_INTERVAL_MS) drawAllDisplays();
+    return;
+  }
 
   bool debugComboHeld = handleDebugCombo(input);
   if (!debugComboHeld) {

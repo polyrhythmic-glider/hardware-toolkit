@@ -1,5 +1,9 @@
 #pragma once
 
+extern uint16_t neokeyLastRawKeys;
+extern uint16_t neokeyStableKeys;
+extern uint8_t neokeyLastBoardRawKeys[];
+
 void drawBluetoothHeaderField(bool force) {
   uint32_t now = millis();
 
@@ -79,13 +83,13 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
   MenuAction action = menuItems[itemIndex].action;
 
   switch (action) {
-    case ACTION_WAVE_SINE_MENU:
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[0], (float)waveVoiceFold[0], (float)waveVoicePhase[0], color);
+    case ACTION_VOICE_1_MENU:
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[0], (float)waveVoiceFold[0], 0.0f, color);
       tft.drawPixel(cx + 9, cy, COL_GOLD);
       break;
 
-    case ACTION_WAVE_SQUARE_MENU:
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[1], (float)waveVoiceFold[1], (float)waveVoicePhase[1], color);
+    case ACTION_VOICE_2_MENU:
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[1], (float)waveVoiceFold[1], 0.0f, color);
       tft.drawPixel(cx + 9, cy, COL_GOLD);
       break;
 
@@ -96,16 +100,10 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.drawPixel(cx + 10, cy, COL_GOLD);
       break;
 
-    case ACTION_KICK_MENU:
-      tft.drawCircle(cx, cy, 8, color);
-      tft.fillCircle(cx - 3, cy + 2, 4, COL_GOLD);
-      tft.drawLine(cx - 9, cy + 8, cx + 9, cy + 8, color);
-      break;
-
     case ACTION_VOICE_WAVE:
     {
       int voice = getCurrentWaveVoiceIndex();
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[voice], (float)waveVoiceFold[voice], (float)waveVoicePhase[voice], color);
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[voice], (float)waveVoiceFold[voice], 0.0f, color);
       tft.drawPixel(cx + 9, cy, COL_GOLD);
       break;
     }
@@ -124,7 +122,7 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.fillCircle(cx + 8, cy - 4, 1, COL_GOLD);
       break;
 
-    case ACTION_VOICE_PHASE:
+    case ACTION_VOICE_DETUNE:
       tft.drawCircle(cx, cy, 6, color);
       tft.drawLine(cx, cy, cx + 6, cy - 1, color);
       tft.fillCircle(cx + 6, cy - 1, 2, COL_GOLD);
@@ -133,7 +131,7 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
     case ACTION_VOICE_SCOPE:
     {
       int voice = getCurrentWaveVoiceIndex();
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[voice], (float)waveVoiceFold[voice], (float)waveVoicePhase[voice], color);
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[voice], (float)waveVoiceFold[voice], 0.0f, color);
       tft.drawFastHLine(cx - 8, cy + 7, 16, COL_GOLD);
       break;
     }
@@ -325,13 +323,13 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       }
       break;
 
-    case ACTION_MIX_SINE:
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[0], (float)waveVoiceFold[0], (float)waveVoicePhase[0], color);
+    case ACTION_MIX_VOICE_1:
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[0], (float)waveVoiceFold[0], 0.0f, color);
       tft.drawFastHLine(cx - 8, cy + 7, map(waveVoiceLevels[0], 0, 100, 0, 16), COL_GOLD);
       break;
 
-    case ACTION_MIX_SQUARE:
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[1], (float)waveVoiceFold[1], (float)waveVoicePhase[1], color);
+    case ACTION_MIX_VOICE_2:
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[1], (float)waveVoiceFold[1], 0.0f, color);
       tft.drawFastHLine(cx - 8, cy + 7, map(waveVoiceLevels[1], 0, 100, 0, 16), COL_GOLD);
       break;
 
@@ -723,7 +721,7 @@ void drawVoiceOscilloscopeTrace(int x, int y, int width, int height, int voice, 
 
   for (int i = 0; i < width; i++) {
     float phase = (float)i / (float)(width - 1) * 2.0f;
-    float sample = getOscillatorSampleForParams(phase, waveVoiceShape[voice], (float)waveVoiceFold[voice], (float)waveVoicePhase[voice]);
+    float sample = getOscillatorSampleForParams(phase, waveVoiceShape[voice], (float)waveVoiceFold[voice], 0.0f);
     int nextY = centerY - (int)(sample * (height / 2 - 3));
 
     if (i > 0) {
@@ -789,28 +787,23 @@ void drawVoiceFoldEdit(uint16_t accent) {
   drawGrooveBar(50, 115, 60, 8, map(waveVoiceFold[voice], 0, 100, 0, 58), accent);
 }
 
-void drawVoicePhaseEdit(uint16_t accent) {
+void drawVoiceDetuneEdit(uint16_t accent) {
   int voice = getCurrentWaveVoiceIndex();
   char value[12];
-  snprintf(value, sizeof(value), "%ddeg", waveVoicePhase[voice]);
+  snprintf(value, sizeof(value), "%+dct", waveVoiceDetune[voice]);
 
-  drawValueReadout(value, "PHASE", accent);
+  drawValueReadout(value, "DETUNE", accent);
 
-  drawPanelFrame(10, 74, 56, 48, accent);
-  int cx = 38;
-  int cy = 98;
-  float angle = (waveVoicePhase[voice] - 90) * TWO_PI_F / 360.0f;
-  int mx = cx + (int)(cosf(angle) * 17.0f);
-  int my = cy + (int)(sinf(angle) * 17.0f);
+  printRight(waveVoiceDetune[voice] == 0 ? "CENTER" : waveVoiceDetune[voice] > 0 ? "SHARP" : "FLAT",
+             150, 67, 1, COL_INK);
+  drawVoiceScopePanel(voice, accent);
 
-  tft.drawCircle(cx, cy, 18, COL_LINE);
-  tft.drawCircle(cx, cy, 12, rgb565(34, 40, 53));
-  tft.drawLine(cx, cy, mx, my, accent);
-  tft.fillCircle(mx, my, 2, COL_GOLD);
-
-  drawPanelFrame(74, 74, 76, 48, accent);
-  drawScopeGrid(74, 74, 76, 48);
-  drawVoiceOscilloscopeTrace(78, 80, 68, 35, voice, accent);
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(10, 112);
+  tft.print("FLAT");
+  printRight("SHARP", 150, 112, 1, COL_MUTED);
+  drawGrooveBar(50, 115, 60, 8, map(waveVoiceDetune[voice], -50, 50, 0, 58), accent);
 }
 
 void drawVoiceScopeEdit(uint16_t accent) {
@@ -973,15 +966,30 @@ void drawAudioTestEdit(uint16_t accent) {
   printRight(isSynthAudioActive() ? "I2S ON" : "I2S OFF", 149, 120, 1, isSynthAudioActive() ? COL_GOLD : COL_MUTED);
 }
 
+uint16_t getSequencerTrackColor(int track) {
+  switch (clampInt(track, 0, SEQUENCER_TRACK_COUNT - 1)) {
+    case SEQUENCER_TRACK_VOICE_1: return ITEM_COLORS[0];
+    case SEQUENCER_TRACK_VOICE_2: return ITEM_COLORS[1];
+    default: return COL_NOTE;
+  }
+}
+
+bool isSequencerTrackStepEnabled(int track, int step) {
+  if (step < 0 || step >= SEQUENCER_STEP_COUNT) return false;
+  track = clampInt(track, 0, SEQUENCER_TRACK_COUNT - 1);
+  if (track == SEQUENCER_TRACK_KICK) return kickStepEnabled[step];
+  return sequencerStepEnabled[track][step];
+}
+
 void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
   if (width <= 0 || height < 16) return;
 
   const int columns = 8;
   const int rows = 2;
-  int voice = getActiveSequencerVoice();
+  int track = getActiveSequencerTrack();
   int length = getSequencerLength();
   int rowHeight = height / rows;
-  uint16_t voiceColor = ITEM_COLORS[voice % ITEM_COLOR_COUNT];
+  uint16_t trackColor = getSequencerTrackColor(track);
   uint16_t disabledColor = rgb565(38, 43, 56);
 
   tft.fillRect(x, y, width, height, COL_BG);
@@ -995,31 +1003,78 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
     int cellWidth = right - left;
     int drawX = x + left;
     int drawY = y + row * rowHeight;
-    bool selected = step == sequencerSelectedStep;
     bool playing = transportRunning && sequencerEnabled && step == sequencerCurrentStep;
     bool inLength = step < length;
-    bool enabled = isSequencerStepEnabled(voice, step);
-
-    if (selected) {
-      tft.fillRect(drawX + 1, drawY + 1, max(1, cellWidth - 2), max(1, rowHeight - 2), COL_PANEL);
-      tft.drawRect(drawX + 1, drawY + 1, max(1, cellWidth - 2), max(1, rowHeight - 2), accent);
-    }
+    bool enabled = isSequencerTrackStepEnabled(track, step);
 
     if (playing) {
       tft.fillRect(drawX + 2, drawY + 1, max(1, cellWidth - 4), 2, COL_GOLD);
     }
 
     if (enabled && inLength) {
-      tft.fillRect(drawX + 3, drawY + rowHeight - 3, max(1, cellWidth - 6), 2, playing ? COL_GOLD : voiceColor);
+      tft.fillRect(drawX + 3, drawY + rowHeight - 3, max(1, cellWidth - 6), 2, trackColor);
     }
 
     char stepLabel[4];
     snprintf(stepLabel, sizeof(stepLabel), "%d", step + 1);
     int textWidth = strlen(stepLabel) * 6;
     uint16_t numberColor = !inLength ? disabledColor
-                         : playing ? COL_GOLD
-                         : selected ? accent
                          : enabled ? COL_INK
+                         : COL_MUTED;
+    tft.setTextSize(1);
+    tft.setTextColor(numberColor);
+    tft.setCursor(drawX + max(1, (cellWidth - textWidth) / 2), drawY + max(1, (rowHeight - 8) / 2));
+    tft.print(stepLabel);
+
+    if (column == 3) {
+      tft.drawFastVLine(drawX + cellWidth - 1, drawY + 2, max(1, rowHeight - 4), COL_LINE);
+    }
+  }
+}
+
+void drawSequencerOverviewGrid(int x, int y, int width, int height, uint16_t accent) {
+  if (width <= 0 || height < 16) return;
+
+  const int columns = 8;
+  const int rows = 2;
+  int length = getSequencerLength();
+  int rowHeight = height / rows;
+  uint16_t disabledColor = rgb565(38, 43, 56);
+
+  tft.fillRect(x, y, width, height, COL_BG);
+  tft.drawFastHLine(x, y + rowHeight, width, COL_LINE);
+
+  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+    int row = step / columns;
+    int column = step % columns;
+    int left = (column * width) / columns;
+    int right = ((column + 1) * width) / columns;
+    int cellWidth = right - left;
+    int drawX = x + left;
+    int drawY = y + row * rowHeight;
+    bool playing = transportRunning && sequencerEnabled && step == sequencerCurrentStep;
+    bool inLength = step < length;
+    bool v1 = sequencerStepEnabled[0][step];
+    bool v2 = sequencerStepEnabled[1][step];
+    bool kick = kickStepEnabled[step];
+
+    if (playing) {
+      tft.fillRect(drawX + 2, drawY + 1, max(1, cellWidth - 4), 2, COL_GOLD);
+    }
+
+    if (inLength) {
+      int laneY = drawY + rowHeight - 5;
+      if (v1) tft.fillRect(drawX + 3, laneY, max(1, cellWidth - 6), 1, ITEM_COLORS[0]);
+      if (v2) tft.fillRect(drawX + 3, laneY + 2, max(1, cellWidth - 6), 1, ITEM_COLORS[1]);
+      if (kick) tft.fillRect(drawX + 3, laneY + 4, max(1, cellWidth - 6), 1, COL_NOTE);
+    }
+
+    char stepLabel[4];
+    snprintf(stepLabel, sizeof(stepLabel), "%d", step + 1);
+    int textWidth = strlen(stepLabel) * 6;
+    bool any = v1 || v2 || kick;
+    uint16_t numberColor = !inLength ? disabledColor
+                         : any ? COL_INK
                          : COL_MUTED;
     tft.setTextSize(1);
     tft.setTextColor(numberColor);
@@ -1085,7 +1140,7 @@ void drawSynthView(uint16_t accent, bool fullClear) {
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(5, 22);
-  tft.print(running ? "PLAYHEAD" : "SELECTED");
+  tft.print(running ? "PLAYHEAD" : "STEP");
   tft.setCursor(91, 22);
   tft.print("VOICE");
 
@@ -1118,7 +1173,7 @@ void drawSynthView(uint16_t accent, bool fullClear) {
   tft.print(frequency);
   tft.print("Hz");
 
-  drawSequencerGrid(4, 62, 152, 36, accent);
+  drawSequencerOverviewGrid(4, 62, 152, 36, accent);
 
   tft.fillRect(0, 101, SCREEN_W, 27, COL_BG);
   tft.drawFastHLine(4, 101, 152, COL_LINE);
@@ -1206,36 +1261,77 @@ void drawSequencerBpmEdit(uint16_t accent) {
 
 void drawSequencerVoiceEdit(uint16_t accent) {
   char value[8];
-  int voice = getActiveSequencerVoice();
-  snprintf(value, sizeof(value), "V%d", voice + 1);
+  int track = getActiveSequencerTrack();
+  snprintf(value, sizeof(value), "%s", getSequencerTrackLabel(track));
 
-  drawSequencerEditBody(value, "TRACK", accent);
-  drawSequencerEditFooter(getWaveformShortName(waveVoiceShape[voice]), "16 KEYS",
-                          ITEM_COLORS[voice % ITEM_COLOR_COUNT], COL_MUTED);
+  tft.fillRect(0, 53, SCREEN_W, 62, COL_BG);
+  tft.setTextSize(2);
+  tft.setTextColor(getSequencerTrackColor(track));
+  tft.setCursor(8, 56);
+  tft.print(value);
+  printRight("TRACK", 152, 61, 1, COL_MUTED);
+  tft.drawFastHLine(8, 75, 144, COL_LINE);
+
+  for (int row = 0; row < SEQUENCER_TRACK_COUNT; row++) {
+    int y = 80 + row * 11;
+    bool active = row == track;
+    uint16_t color = getSequencerTrackColor(row);
+    int count = 0;
+    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+      if (isSequencerTrackStepEnabled(row, step)) count++;
+    }
+
+    if (active) {
+      tft.fillRect(8, y - 1, 144, 10, COL_PANEL);
+      tft.drawRect(8, y - 1, 144, 10, color);
+    }
+
+    tft.fillRect(12, y + 2, 18, 3, color);
+    tft.setTextSize(1);
+    tft.setTextColor(active ? COL_INK : COL_MUTED);
+    tft.setCursor(36, y);
+    tft.print(getSequencerTrackLabel(row));
+
+    char countText[8];
+    snprintf(countText, sizeof(countText), "%02d", count);
+    printRight(countText, 146, y, 1, active ? color : COL_MUTED);
+  }
+
+  tft.setTextSize(1);
+  const char* left = track == SEQUENCER_TRACK_KICK ? "KICK PATTERN" : getWaveformShortName(waveVoiceShape[track]);
+  drawSequencerEditFooter(left, "16 KEYS", getSequencerTrackColor(track), COL_MUTED);
 }
 
 void drawSequencerStepEdit(uint16_t accent) {
   char value[8];
   snprintf(value, sizeof(value), "S%d", sequencerSelectedStep + 1);
 
-  drawSequencerEditBody(value, "SELECT", accent);
+  drawSequencerEditBody(value, "STEP", accent);
 
   char noteText[10];
   formatSequencerNote(noteText, sizeof(noteText), getSelectedSequencerStepNote());
 
   char leftText[18];
-  snprintf(leftText, sizeof(leftText), "V%d  %s", getActiveSequencerVoice() + 1, noteText);
+  if (isActiveSequencerTrackKick()) {
+    snprintf(leftText, sizeof(leftText), "KICK  S%02d", sequencerSelectedStep + 1);
+  } else {
+    snprintf(leftText, sizeof(leftText), "%s  %s", getSequencerTrackLabel(getActiveSequencerTrack()), noteText);
+  }
   drawSequencerEditFooter(leftText, isSelectedSequencerStepEnabled() ? "ON" : "REST",
                           COL_MUTED, isSelectedSequencerStepEnabled() ? COL_GOLD : COL_CORAL);
 }
 
 void drawSequencerNoteEdit(uint16_t accent) {
   char value[10];
-  formatSequencerNote(value, sizeof(value), getSelectedSequencerStepNote());
+  if (isActiveSequencerTrackKick()) {
+    snprintf(value, sizeof(value), "%s", isSelectedSequencerStepEnabled() ? "HIT" : "REST");
+  } else {
+    formatSequencerNote(value, sizeof(value), getSelectedSequencerStepNote());
+  }
 
-  drawSequencerEditBody(value, "SEMITONE", accent);
-  char stepText[12];
-  snprintf(stepText, sizeof(stepText), "V%d  S%02d", getActiveSequencerVoice() + 1, sequencerSelectedStep + 1);
+  drawSequencerEditBody(value, isActiveSequencerTrackKick() ? "KICK" : "SEMITONE", accent);
+  char stepText[14];
+  snprintf(stepText, sizeof(stepText), "%s  S%02d", getSequencerTrackLabel(getActiveSequencerTrack()), sequencerSelectedStep + 1);
   drawSequencerEditFooter(stepText, sequencerEnabled ? "LIVE" : "EDIT",
                           COL_MUTED, sequencerEnabled ? COL_GOLD : COL_MUTED);
 }
@@ -1257,8 +1353,8 @@ void drawSequencerLengthEdit(uint16_t accent) {
 void drawSequencerStepEnableEdit(uint16_t accent) {
   bool enabled = isSelectedSequencerStepEnabled();
   drawSequencerUtilityFrame(accent, enabled ? "ON" : "REST", "STEP", "MUTE");
-  char stepText[12];
-  snprintf(stepText, sizeof(stepText), "V%d  S%02d", getActiveSequencerVoice() + 1, sequencerSelectedStep + 1);
+  char stepText[14];
+  snprintf(stepText, sizeof(stepText), "%s  S%02d", getSequencerTrackLabel(getActiveSequencerTrack()), sequencerSelectedStep + 1);
   drawSequencerEditFooter(stepText, enabled ? "ACTIVE" : "MUTED",
                           COL_MUTED, enabled ? COL_GOLD : COL_CORAL);
 }
@@ -1318,7 +1414,7 @@ void drawMixerWaveEdit(int voice, uint16_t accent) {
   printRight(waveformNames[waveVoiceShape[voice]], 150, 67, 1, getMixerVoiceColor(voice, accent));
 
   drawPanelFrame(10, 74, 140, 20, accent);
-  drawWaveShapePreviewForParams(14, 78, 132, 12, waveVoiceShape[voice], (float)waveVoiceFold[voice], (float)waveVoicePhase[voice], getMixerVoiceColor(voice, accent));
+  drawWaveShapePreviewForParams(14, 78, 132, 12, waveVoiceShape[voice], (float)waveVoiceFold[voice], 0.0f, getMixerVoiceColor(voice, accent));
 
   drawMixerLevelBars(accent, voice);
 }
@@ -1362,7 +1458,7 @@ void drawKickDesignerPanel(uint16_t accent) {
 
 void drawKickDesignerEdit(const char* tag, int value, int minValue, int maxValue, const char* leftLabel, const char* rightLabel, uint16_t accent) {
   drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), tag, accent);
-  printRight(kickLevel > 0 ? "armed" : "muted", 150, 67, 1, kickLevel > 0 ? COL_GOLD : COL_MUTED);
+  printRight(kickLevel > 0 ? "KICK VOICE" : "muted", 150, 67, 1, kickLevel > 0 ? COL_GOLD : COL_MUTED);
   drawKickDesignerPanel(accent);
 
   tft.setTextSize(1);
@@ -1398,7 +1494,7 @@ void drawMixerKickEdit(uint16_t accent) {
   snprintf(value, sizeof(value), "%d%%", kickLevel);
 
   drawValueReadout(value, "KICK", accent);
-  printRight(kickLevel > 0 ? "step kick" : "muted", 150, 67, 1, kickLevel > 0 ? COL_GOLD : COL_INK);
+  printRight(kickLevel > 0 ? "pattern voice" : "muted", 150, 67, 1, kickLevel > 0 ? COL_GOLD : COL_INK);
 
   drawPanelFrame(10, 74, 140, 20, accent);
   drawKickDesignerTrace(14, 78, 132, 12, accent);
@@ -1730,6 +1826,44 @@ void printMcpEncoderTriplet(uint8_t encoderIndex) {
   for (uint8_t signal = 0; signal < 3; signal++) {
     tft.print(ControlSurface::getEncoderPinHigh(encoderIndex, signal) ? 'H' : 'L');
   }
+}
+
+void drawNeoKeyDebugEdit(uint16_t accent) {
+  char rawText[16];
+  snprintf(rawText, sizeof(rawText), "RAW %04X", neokeyLastRawKeys);
+  drawHardwareTestReadout(rawText, "CH4", accent);
+  drawPanelFrame(10, 74, 140, 51, accent);
+
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(14, 80);
+  tft.print("STABLE:");
+  if (neokeyStableKeys < 0x1000) tft.print('0');
+  if (neokeyStableKeys < 0x0100) tft.print('0');
+  if (neokeyStableKeys < 0x0010) tft.print('0');
+  tft.print(neokeyStableKeys, HEX);
+  printRight("SERIAL RAW", 146, 80, 1, COL_GOLD);
+
+  for (uint8_t board = 0; board < 4; board++) {
+    int x = 14 + board * 33;
+    uint8_t raw = neokeyLastBoardRawKeys[board] & 0x0F;
+    bool active = raw != 0;
+
+    tft.fillRect(x, 94, 29, 24, COL_BG);
+    tft.drawRect(x, 94, 29, 24, active ? COL_NOTE : COL_LINE);
+    tft.setTextColor(active ? COL_NOTE : COL_MUTED);
+    tft.setCursor(x + 3, 98);
+    tft.print("b");
+    tft.print(board);
+    tft.setTextSize(2);
+    tft.setCursor(x + 8, 106);
+    tft.print(raw, HEX);
+    tft.setTextSize(1);
+  }
+
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(14, 120);
+  tft.print("Press NeoKeys to inspect bits");
 }
 
 void drawMcpDebugEdit(uint16_t accent) {

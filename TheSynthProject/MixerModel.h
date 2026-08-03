@@ -2,13 +2,13 @@
 
 #include "MenuModel.h"
 
-// Converte un'azione mixer wave nell'indice della voce corrispondente.
+// Converte un'azione mixer nell'indice della voce corrispondente.
 inline int getMixerWaveIndex(int action) {
   switch (action) {
-    case ACTION_MIX_SINE:
+    case ACTION_MIX_VOICE_1:
       return 0;
 
-    case ACTION_MIX_SQUARE:
+    case ACTION_MIX_VOICE_2:
       return 1;
 
     default:

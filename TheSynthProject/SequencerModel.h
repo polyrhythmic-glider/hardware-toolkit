@@ -3,3 +3,7 @@
 const int SEQUENCER_STEP_COUNT = 16;
 const int SEQUENCER_MIN_NOTE = -24;
 const int SEQUENCER_MAX_NOTE = 24;
+const int SEQUENCER_TRACK_VOICE_1 = 0;
+const int SEQUENCER_TRACK_VOICE_2 = 1;
+const int SEQUENCER_TRACK_KICK = 2;
+const int SEQUENCER_TRACK_COUNT = 3;

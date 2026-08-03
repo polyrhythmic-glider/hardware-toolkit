@@ -5,14 +5,13 @@
 // Azioni disponibili nel menu. Tenerle in un header evita che il preprocessore
 // Arduino generi prototipi prima di conoscere il tipo MenuAction.
 enum MenuAction {
-  ACTION_WAVE_SINE_MENU,
-  ACTION_WAVE_SQUARE_MENU,
+  ACTION_VOICE_1_MENU,
+  ACTION_VOICE_2_MENU,
   ACTION_FILTER_MENU,
-  ACTION_KICK_MENU,
   ACTION_VOICE_WAVE,
   ACTION_VOICE_TUNE,
   ACTION_VOICE_FOLD,
-  ACTION_VOICE_PHASE,
+  ACTION_VOICE_DETUNE,
   ACTION_VOICE_SCOPE,
   ACTION_PITCH,
   ACTION_LEVEL,
@@ -40,8 +39,8 @@ enum MenuAction {
   ACTION_SEQ_NOTE,
   ACTION_SEQ_LENGTH,
   ACTION_SEQ_STEP_ENABLE,
-  ACTION_MIX_SINE,
-  ACTION_MIX_SQUARE,
+  ACTION_MIX_VOICE_1,
+  ACTION_MIX_VOICE_2,
   ACTION_MIX_KICK,
   ACTION_KICK_PITCH,
   ACTION_KICK_DECAY,
@@ -53,6 +52,7 @@ enum MenuAction {
   ACTION_SURFACE_MODE,
   ACTION_OLED_DEBUG,
   ACTION_MCP_DEBUG,
+  ACTION_NEOKEY_DEBUG,
   ACTION_ABOUT,
   ACTION_DELAY_MIX,
   ACTION_DELAY_TIME,
@@ -80,14 +80,13 @@ struct AreaChoice {
 };
 
 enum MenuItemIndex {
-  ITEM_WAVE_SINE_MENU,
-  ITEM_WAVE_SQUARE_MENU,
+  ITEM_VOICE_1_MENU,
+  ITEM_VOICE_2_MENU,
   ITEM_FILTER_MENU,
-  ITEM_KICK_MENU,
   ITEM_VOICE_WAVE,
   ITEM_VOICE_TUNE,
   ITEM_VOICE_FOLD,
-  ITEM_VOICE_PHASE,
+  ITEM_VOICE_DETUNE,
   ITEM_VOICE_SCOPE,
   ITEM_PITCH,
   ITEM_LEVEL,
@@ -100,6 +99,7 @@ enum MenuItemIndex {
   ITEM_SURFACE_MODE,
   ITEM_OLED_DEBUG,
   ITEM_MCP_DEBUG,
+  ITEM_NEOKEY_DEBUG,
   ITEM_ABOUT,
   ITEM_BT_RECEIVER,
   ITEM_BT_DEVICE,
@@ -116,8 +116,8 @@ enum MenuItemIndex {
   ITEM_SEQ_NOTE,
   ITEM_SEQ_LENGTH,
   ITEM_SEQ_STEP_ENABLE,
-  ITEM_MIX_SINE,
-  ITEM_MIX_SQUARE,
+  ITEM_MIX_VOICE_1,
+  ITEM_MIX_VOICE_2,
   ITEM_MIX_KICK,
   ITEM_KICK_PITCH,
   ITEM_KICK_DECAY,
@@ -143,22 +143,20 @@ enum MenuItemIndex {
 
 enum MenuPage {
   MENU_PAGE_ROOT,
-  MENU_PAGE_WAVE_SINE,
-  MENU_PAGE_WAVE_SQUARE,
+  MENU_PAGE_VOICE_1,
+  MENU_PAGE_VOICE_2,
   MENU_PAGE_FILTER,
-  MENU_PAGE_KICK,
   MENU_PAGE_TRANSPORT
 };
 
 const MenuItem menuItems[] = {
-  { "V1", "Voice 1", ACTION_WAVE_SINE_MENU },
-  { "V2", "Voice 2", ACTION_WAVE_SQUARE_MENU },
+  { "V1", "Voice 1", ACTION_VOICE_1_MENU },
+  { "V2", "Voice 2", ACTION_VOICE_2_MENU },
   { "FLT", "Filter", ACTION_FILTER_MENU },
-  { "KDSN", "Kick Designer", ACTION_KICK_MENU },
   { "WAVE", "Wave Type", ACTION_VOICE_WAVE },
   { "TUNE", "Voice Tune", ACTION_VOICE_TUNE },
   { "FOLD", "Voice Fold", ACTION_VOICE_FOLD },
-  { "PHAS", "Voice Phase", ACTION_VOICE_PHASE },
+  { "DET", "Voice Detune", ACTION_VOICE_DETUNE },
   { "SCP", "Voice Scope", ACTION_VOICE_SCOPE },
   { "TUNE", "Pitch", ACTION_PITCH },
   { "GAIN", "Master Level", ACTION_LEVEL },
@@ -171,6 +169,7 @@ const MenuItem menuItems[] = {
   { "CTRL", "Control Surface", ACTION_SURFACE_MODE },
   { "OLED", "OLED Debug", ACTION_OLED_DEBUG },
   { "MCP", "MCP Debug", ACTION_MCP_DEBUG },
+  { "KEY", "NeoKey Debug", ACTION_NEOKEY_DEBUG },
   { "INFO", "About", ACTION_ABOUT },
   { "BT", "Connection", ACTION_BT_RECEIVER },
   { "DEV", "Device Name", ACTION_BT_DEVICE },
@@ -182,14 +181,14 @@ const MenuItem menuItems[] = {
   { "STOP", "Stop", ACTION_SEQ_STOP },
   { "PWR", "Sequencer Power", ACTION_SEQ_POWER },
   { "BPM", "Seq BPM", ACTION_SEQ_BPM },
-  { "TRK", "Seq Voice", ACTION_SEQ_VOICE },
+  { "TRK", "Seq Track", ACTION_SEQ_VOICE },
   { "STEP", "Seq Step", ACTION_SEQ_STEP },
   { "NOTE", "Seq Note", ACTION_SEQ_NOTE },
   { "LEN", "Seq Length", ACTION_SEQ_LENGTH },
   { "ON", "Step On", ACTION_SEQ_STEP_ENABLE },
-  { "V1", "Voice 1 Volume", ACTION_MIX_SINE },
-  { "V2", "Voice 2 Volume", ACTION_MIX_SQUARE },
-  { "KICK", "Kick Volume", ACTION_MIX_KICK },
+  { "V1", "Voice 1 Volume", ACTION_MIX_VOICE_1 },
+  { "V2", "Voice 2 Volume", ACTION_MIX_VOICE_2 },
+  { "KICK", "Kick Level", ACTION_MIX_KICK },
   { "KPIT", "Kick Pitch", ACTION_KICK_PITCH },
   { "KDEC", "Kick Decay", ACTION_KICK_DECAY },
   { "KSWP", "Kick Sweep", ACTION_KICK_SWEEP },
@@ -217,8 +216,8 @@ static_assert(MENU_ITEM_COUNT == ITEM_TRANSPORT_MENU + 1, "Menu item index misma
 
 // Indici dentro menuItems, separati per area o sottomenu.
 const uint8_t MENU_WAVE_ITEMS[] = {
-  ITEM_WAVE_SINE_MENU,
-  ITEM_WAVE_SQUARE_MENU,
+  ITEM_VOICE_1_MENU,
+  ITEM_VOICE_2_MENU,
   ITEM_PITCH,
   ITEM_FILTER_MENU,
   ITEM_AUDIO_TEST
@@ -227,7 +226,7 @@ const uint8_t MENU_WAVE_VOICE_ITEMS[] = {
   ITEM_VOICE_WAVE,
   ITEM_VOICE_TUNE,
   ITEM_VOICE_FOLD,
-  ITEM_VOICE_PHASE,
+  ITEM_VOICE_DETUNE,
   ITEM_VOICE_SCOPE
 };
 const uint8_t MENU_FILTER_ITEMS[] = {
@@ -237,10 +236,8 @@ const uint8_t MENU_FILTER_ITEMS[] = {
 };
 const uint8_t MENU_MIXER_ITEMS[] = {
   ITEM_LEVEL,
-  ITEM_MIX_SINE,
-  ITEM_MIX_SQUARE,
-  ITEM_MIX_KICK,
-  ITEM_KICK_MENU,
+  ITEM_MIX_VOICE_1,
+  ITEM_MIX_VOICE_2,
   ITEM_DELAY_MIX,
   ITEM_DELAY_TIME,
   ITEM_DELAY_FEEDBACK,
@@ -248,6 +245,7 @@ const uint8_t MENU_MIXER_ITEMS[] = {
   ITEM_REVERB_ROOM
 };
 const uint8_t MENU_KICK_ITEMS[] = {
+  ITEM_MIX_KICK,
   ITEM_KICK_PITCH,
   ITEM_KICK_DECAY,
   ITEM_KICK_SWEEP,
@@ -290,6 +288,7 @@ const uint8_t MENU_TEST_ITEMS[] = {
   ITEM_INPUTS,
   ITEM_OLED_DEBUG,
   ITEM_MCP_DEBUG,
+  ITEM_NEOKEY_DEBUG,
   ITEM_AUDIO_TEST,
   ITEM_SCOPE,
   ITEM_ABOUT
@@ -303,6 +302,7 @@ const uint8_t MENU_BT_ITEMS[] = {
 const AreaChoice areaChoices[] = {
   { "WAVE", "Wave Engine", MENU_WAVE_ITEMS, sizeof(MENU_WAVE_ITEMS) / sizeof(MENU_WAVE_ITEMS[0]) },
   { "MIX", "Mixer", MENU_MIXER_ITEMS, sizeof(MENU_MIXER_ITEMS) / sizeof(MENU_MIXER_ITEMS[0]) },
+  { "KICK", "Kick Voice", MENU_KICK_ITEMS, sizeof(MENU_KICK_ITEMS) / sizeof(MENU_KICK_ITEMS[0]) },
   { "ENV", "Envelope", MENU_ENVELOPE_ITEMS, sizeof(MENU_ENVELOPE_ITEMS) / sizeof(MENU_ENVELOPE_ITEMS[0]) },
   { "SEQ", "Sequencer", MENU_SEQUENCER_ITEMS, sizeof(MENU_SEQUENCER_ITEMS) / sizeof(MENU_SEQUENCER_ITEMS[0]) },
   { "BT", "Bluetooth RX", MENU_BT_ITEMS, sizeof(MENU_BT_ITEMS) / sizeof(MENU_BT_ITEMS[0]) },

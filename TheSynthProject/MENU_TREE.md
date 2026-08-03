@@ -3,8 +3,9 @@
 ## Structure Rules
 
 - `Wave Engine` owns the two synth voices, global pitch, filter access, and audio test.
-- Each voice opens a submenu where the base wave can be selected and then shaped with tune, fold, phase, and scope.
-- `Mixer` owns master level, per-voice volume, kick volume, and the kick designer submenu.
+- Each voice opens a submenu where the base wave can be selected and then shaped with tune, fold, detune, and scope.
+- `Mixer` owns master level, per-voice volume, delay, and reverb.
+- `Kick Voice` owns kick level, kick tone design, and the dedicated kick pattern lane.
 - `Sequencer` owns one active voice sequencer at a time and its basic transport controls.
 - `Envelope`, `Bluetooth RX`, `Utility`, and `Hardware Test` stay separated by task.
 
@@ -34,13 +35,13 @@
     - Wave Type
     - Voice Tune
     - Voice Fold
-    - Voice Phase
+    - Voice Detune
     - Voice Scope
   - Voice 2
     - Wave Type
     - Voice Tune
     - Voice Fold
-    - Voice Phase
+    - Voice Detune
     - Voice Scope
   - Pitch
   - Filter
@@ -53,18 +54,19 @@
   - Master Level
   - Voice 1 Volume
   - Voice 2 Volume
-  - Kick Volume
-  - Kick Designer
-    - Kick Pitch
-    - Kick Decay
-    - Kick Sweep
-    - Kick Click
-    - Kick Drive
   - Delay Mix
   - Delay Time
   - Delay Feedback
   - Reverb Mix
   - Reverb Room
+
+- Kick Voice
+  - Kick Level
+  - Kick Pitch
+  - Kick Decay
+  - Kick Sweep
+  - Kick Click
+  - Kick Drive
 
 - Envelope
   - ADSR View
@@ -80,9 +82,9 @@
     - Stop
   - Sequencer Power
   - Seq BPM
-  - Seq Voice / Active Sequencer
+  - Seq Track / V1, V2, Kick
   - Seq Step
-  - Seq Note
+  - Seq Note / Kick Hit
   - Seq Length
   - Step On
 

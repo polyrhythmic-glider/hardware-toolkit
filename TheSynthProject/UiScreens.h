@@ -259,6 +259,7 @@ void drawEditBase() {
   lastSequencerBpm = -1;
   lastSequencerLength = -1;
   lastSequencerVoice = -1;
+  lastSequencerTrack = -1;
   lastSequencerSelectedStep = -1;
   lastSequencerCurrentStep = -1;
   lastSequencerNoteChecksum = -1;
@@ -302,6 +303,7 @@ bool editValueChanged() {
   if (sequencerBpm != lastSequencerBpm) return true;
   if (sequencerLength != lastSequencerLength) return true;
   if (activeSequencerVoice != lastSequencerVoice) return true;
+  if (activeSequencerTrack != lastSequencerTrack) return true;
   if (sequencerSelectedStep != lastSequencerSelectedStep) return true;
   if (sequencerCurrentStep != lastSequencerCurrentStep) return true;
   if (getSequencerNoteChecksum() != lastSequencerNoteChecksum) return true;
@@ -343,6 +345,7 @@ void saveLastValues() {
   lastSequencerBpm = sequencerBpm;
   lastSequencerLength = sequencerLength;
   lastSequencerVoice = activeSequencerVoice;
+  lastSequencerTrack = activeSequencerTrack;
   lastSequencerSelectedStep = sequencerSelectedStep;
   lastSequencerCurrentStep = sequencerCurrentStep;
   lastSequencerNoteChecksum = getSequencerNoteChecksum();
@@ -418,8 +421,8 @@ void drawEditValue() {
       drawVoiceFoldEdit(accent);
       break;
 
-    case ACTION_VOICE_PHASE:
-      drawVoicePhaseEdit(accent);
+    case ACTION_VOICE_DETUNE:
+      drawVoiceDetuneEdit(accent);
       break;
 
     case ACTION_VOICE_SCOPE:
@@ -514,8 +517,8 @@ void drawEditValue() {
       drawSequencerStepEnableEdit(accent);
       break;
 
-    case ACTION_MIX_SINE:
-    case ACTION_MIX_SQUARE:
+    case ACTION_MIX_VOICE_1:
+    case ACTION_MIX_VOICE_2:
       drawMixerWaveEdit(getMixerWaveIndex(action), accent);
       break;
 
@@ -595,6 +598,10 @@ void drawEditValue() {
 
     case ACTION_MCP_DEBUG:
       drawMcpDebugEdit(accent);
+      break;
+
+    case ACTION_NEOKEY_DEBUG:
+      drawNeoKeyDebugEdit(accent);
       break;
 
     default:

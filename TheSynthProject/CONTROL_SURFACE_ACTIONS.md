@@ -30,8 +30,8 @@ Note sequencer:
 - Track `V1`: i NeoKey scrivono solo la sequenza V1.
 - Track `V2`: i NeoKey scrivono solo la sequenza V2.
 - Track `KICK`: i NeoKey scrivono solo la sequenza kick.
-- I LED mostrano sempre tutte e tre le corsie insieme: V1 rosso, V2 blu e
-  kick verde. La selezione della track cambia l'editing, non nasconde le altre.
+- I LED mostrano soltanto la corsia e la pagina da 16 step selezionate: V1
+  rosso, V2 blu e kick verde. I colori delle corsie non vengono mai sommati.
 - Per V1 e V2 il `PAGE MENU` contiene `OSCILLATOR 1` o `OSCILLATOR 2`. La
   pagina riepiloga Wave, Pitch, Tune, Fine, Result e Frequency.
 - I NeoKey selezionano e attivano lo step nella pagina `Oscillator`. E1 assegna
@@ -40,4 +40,4 @@ Note sequencer:
 - Nella pagina OLED `Sequencer`, E1 seleziona lo step, E2 assegna anch'esso la
   nota assoluta e E3 imposta lo stato on/rest.
 - In `Synth View`, la rotazione del master cambia traccia e il click commuta
-  direttamente play/stop; il tasto back resta dedicato alla navigazione.
+  direttamente play/stop; il tasto back apre il menu raggruppato del sequencer.

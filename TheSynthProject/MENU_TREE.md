@@ -8,7 +8,7 @@
 - `Kick Voice` owns kick level, kick tone design, and the dedicated kick pattern lane.
 - `Envelope` contiene due ADSR indipendenti; ogni sorgente può pilotare più destinazioni.
 - Il routing usa una tabella sorgente/destinazione condivisa con il DSP, predisposta per nuove sorgenti.
-- `Sequencer` owns one active voice sequencer at a time and its basic transport controls.
+- `Sequencer` apre direttamente la Synth View e raggruppa transport, pattern e impostazioni.
 - `Utility` includes global output volume, diagnostics, and hardware tests,
   including the only `Test Audio` entry.
 
@@ -108,17 +108,20 @@ Aprendo una destinazione sono disponibili `Enabled` (`On/Off`) e `Amount`
 conservare il comportamento del synth precedente; ENV2 parte senza route.
 
 - Sequencer
-  - Synth View
+  - Synth View (visuale principale)
   - Transport
     - Start
     - Stop
-  - Sequencer Power
-  - Seq BPM
-  - Seq Track / V1, V2, Kick
-  - Seq Step
-  - Seq Note / Kick Hit
-  - Seq Length
-  - Step On
+    - Seq BPM
+  - Pattern
+    - Seq Track / V1, V2, Kick
+    - Seq Step
+    - Seq Note / Kick Hit
+    - Step On
+  - Settings
+    - Seq Length / 16, 32, 48, 64
+    - Seq Page
+    - Page Auto Scroll
 
 - Utility
   - Inputs

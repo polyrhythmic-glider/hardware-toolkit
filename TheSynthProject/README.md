@@ -13,7 +13,7 @@ Firmware principale per una ESP32 DevKit V1 / ESP32-WROOM-32. Riunisce:
 - TFT ST7735 160x128, encoder master e tasto back;
 - 4 OLED SSD1306 128x64 su PCA9548A;
 - 4 encoder su MCP23017, sul bus I2C indipendente D19/D15;
-- 4 NeoKey 1x4 agli indirizzi `0x30`-`0x33`, per un sequencer a 16 step;
+- 4 NeoKey 1x4 agli indirizzi `0x30`-`0x33`, per una pagina fisica da 16 step;
 - Daisy Seed via UART come unico backend audio;
 - synth a due voci, kick, due ADSR indipendenti, filtro, delay, riverbero, preset e sequencer;
 - schermate hardware e tono audio diretto a 440 Hz;
@@ -39,13 +39,20 @@ assoluta dello step selezionato, E2 Tune ed E3 Fine; Wave, nota risultante e
 frequenza sono mostrate nello stesso riepilogo. Ogni step di V1 e V2 conserva
 la propria nota indipendente e può essere selezionato direttamente dai NeoKey.
 
-Il sequencer espone solo le funzioni essenziali: play/stop, attivazione, BPM,
-voce, step, nota, lunghezza e step on/rest. La riproduzione procede sempre in
-avanti e il clock continua anche con volume a zero. I NeoKey aggiornano subito
-ogni pressione stabile e aggiornano solo i LED realmente cambiati. La vista LED
-è combinata: V1 è rossa, V2 blu e il kick verde; i colori si sommano quando più
-corsie usano lo stesso step, mentre la traccia selezionata decide solo cosa si
-modifica.
+Entrando in `Sequencer` si apre direttamente la Synth View; il tasto back mostra
+il menu raggruppato in `Transport`, `Pattern` e `Settings`. Start/Stop sono
+l'unico controllo di accensione del sequencer: il precedente `Sequencer Power`,
+ridondante, è stato rimosso. La lunghezza si sceglie tra 16, 32, 48 e 64 step,
+organizzati in quattro pagine fisiche da 16. Quattro indicatori a pallino sono
+visibili nella Synth View e in tutte le schermate del sequencer. `Page Auto
+Scroll` decide se la pagina segue il playhead o resta bloccata su quella scelta
+manualmente.
+
+La riproduzione procede sempre in avanti e il clock continua anche con volume a
+zero. I NeoKey aggiornano subito ogni pressione stabile e soltanto i LED
+realmente cambiati. Mostrano esclusivamente la pagina e la traccia selezionate:
+V1 è rossa, V2 blu e il kick verde, senza sovrapposizione o somma dei colori. La
+schermata `Seq Track` mantiene le tre lane separate.
 
 La traccia kick pilota il modello `SyntheticBassDrum` di DaisySP, scelto per il
 carattere 909. Sui mini OLED la pagina `909 MAIN` assegna E1-E3 a Level, Tune e
@@ -93,9 +100,9 @@ ENV2 parte libero.
 La configurazione è memorizzata come tabella generica `source x destination`,
 separata sia dai menu sia dai processor DSP. Per aggiungere in futuro LFO,
 Velocity, Mod Wheel o Aftertouch non occorre cambiare le route esistenti: va
-aggiunto soltanto il producer della nuova sorgente. I preset v6 salvano note
-assolute, entrambi gli ADSR e tutte le route; i preset v3/v4/v5 vengono migrati
-mantenendo il risultato sonoro precedente e ENV1 sul livello amp.
+aggiunto soltanto il producer della nuova sorgente. I preset v7 salvano 64 note,
+pagina, auto-scroll, entrambi gli ADSR e tutte le route; i preset v3/v4/v5/v6
+vengono migrati mantenendo il risultato sonoro precedente e ENV1 sul livello amp.
 
 `Utility > Serial Diagnostics` e' disattivato per default. All'avvio il Monitor
 Seriale stampa una sola mappa ASCII con TFT, OLED, NeoKey, MCP23017 e le due
@@ -138,8 +145,8 @@ Verificato con:
 - Adafruit SSD1306 `2.5.17`;
 - Adafruit seesaw `1.7.9`.
 
-La build Daisy-only usa 416.272 byte su 1.310.720 (31%) e 26.292 byte di RAM
-globale su 327.680 (8%).
+La build ESP32 usa 419.344 byte su 1.310.720 (31%) e 26.836 byte di RAM globale
+su 327.680 (8%).
 
 Cablaggio e collaudo: [`WIRING_INTEGRATED.md`](WIRING_INTEGRATED.md).
 

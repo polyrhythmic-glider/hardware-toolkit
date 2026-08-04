@@ -5,7 +5,7 @@
 // 1: ESP32 gestisce UI/controlli e invia lo stato alla Daisy via UART.
 // 0: fallback al motore audio ESP32 + PCM5102 già esistente.
 #ifndef SYNTH_AUDIO_BACKEND_DAISY
-#define SYNTH_AUDIO_BACKEND_DAISY 0
+#define SYNTH_AUDIO_BACKEND_DAISY 1
 #endif
 
 const int SYNTH_AUDIO_SAMPLE_RATE = 44100;

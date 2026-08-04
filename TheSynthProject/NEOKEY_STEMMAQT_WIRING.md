@@ -27,7 +27,7 @@ L'ordine logico segue il montaggio fisico da sinistra verso destra: `0x30`
 controlla gli step 1-4, `0x31` gli step 5-8, `0x32` gli step 9-12 e `0x33`
 gli step 13-16. Anche i quattro tasti di ogni modulo avanzano da sinistra verso
 destra. I tasti
-controllano i sedici step del sequencer; la
+controllano i sedici step della pagina corrente del sequencer; la
 selezione voce, le note e gli altri parametri restano disponibili sul TFT e
 sulla control surface 4 OLED.
 

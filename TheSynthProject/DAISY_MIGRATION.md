@@ -122,7 +122,7 @@ baudrate/firmware non corrispondenti.
 - level, tune, fine tune e wavefold per voce;
 - ENV1 come inviluppo di ampiezza;
 - filtro LP/HP/BP;
-- sequencer 16 step e kick;
+- sequencer fino a 64 step, in quattro pagine da 16, e kick;
 - delay, riverbero e test diretto a 440 Hz;
 - watchdog: la Daisy sfuma a silenzio se non riceve più l'ESP32;
 - trigger kick one-shot inviati dall'interfaccia e recupero automatico UART.

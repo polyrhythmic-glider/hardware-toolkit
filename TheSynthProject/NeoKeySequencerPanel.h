@@ -167,13 +167,9 @@ void neokeyClearAll() {
   neokeyStepColorCacheValid = false;
 }
 
-void neokeyMarkSequencerDirty(bool retriggerAudio) {
+void neokeyMarkSequencerDirty() {
   valueDirty = true;
   fullRedraw = false;
-
-  if (retriggerAudio) {
-    synthRetriggerRequested = true;
-  }
 }
 
 void neokeySelectStep(int stepIndex) {
@@ -228,7 +224,7 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
     resetSequencerClock();
   }
 
-  neokeyMarkSequencerDirty(!kickTrack);
+  neokeyMarkSequencerDirty();
 }
 
 uint16_t neokeyReadButtonsRaw() {

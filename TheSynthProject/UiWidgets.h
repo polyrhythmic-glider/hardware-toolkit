@@ -941,11 +941,7 @@ void drawScopeEdit(uint16_t accent) {
 
 void drawAudioTestEdit(uint16_t accent) {
   drawValueReadout("SINE", "TEST", accent);
-#if SYNTH_AUDIO_BACKEND_DAISY
   printRight("DAISY OUT", 150, 67, 1, COL_INK);
-#else
-  printRight("PCM I2S", 150, 67, 1, COL_INK);
-#endif
 
   drawPanelFrame(10, 74, 140, 42, accent);
   drawScopeGrid(10, 74, 140, 42);
@@ -956,13 +952,9 @@ void drawAudioTestEdit(uint16_t accent) {
   tft.setCursor(11, 120);
   tft.print(AUDIO_TEST_FREQUENCY_HZ);
   tft.print("Hz fixed");
-#if SYNTH_AUDIO_BACKEND_DAISY
   bool audioReady = DaisyBridge::isConnected();
   printRight(audioReady ? "LINK ON" : "LINK WAIT", 149, 120, 1,
              audioReady ? COL_GOLD : COL_MUTED);
-#else
-  printRight(isSynthAudioActive() ? "I2S ON" : "I2S OFF", 149, 120, 1, isSynthAudioActive() ? COL_GOLD : COL_MUTED);
-#endif
 }
 
 uint16_t getSequencerTrackColor(int track) {
@@ -1835,7 +1827,6 @@ void drawConnectionStatusScreen(bool startupView, int progress) {
   drawConnectionSummaryRow(64, "MCP + ENCODER", value,
                            mcpReady ? COL_NOTE : COL_CORAL, true);
 
-#if SYNTH_AUDIO_BACKEND_DAISY
   bool forwardReady = isDaisyForwardLinkReady();
   snprintf(value, sizeof(value), forwardReady ? "ACK %lu" : "WAIT ACK",
            (unsigned long)DaisyBridge::getAcceptedPacketCount());
@@ -1847,11 +1838,6 @@ void drawConnectionStatusScreen(bool startupView, int progress) {
            (unsigned long)DaisyBridge::getReceivedStatusPacketCount());
   drawConnectionSummaryRow(92, "DAISY > ESP", value,
                            returnReady ? COL_NOTE : COL_GOLD, true);
-#else
-  drawConnectionSummaryRow(78, "PCM5102 I2S", dacI2sStarted ? "READY" : "WAIT",
-                           dacI2sStarted ? COL_NOTE : COL_GOLD, false);
-  drawConnectionSummaryRow(92, "DAISY UART", "DISABLED", COL_MUTED, true);
-#endif
 
   tft.drawFastHLine(4, 107, 152, COL_LINE);
   if (startupView) {

@@ -287,7 +287,6 @@ void applyPreset(const SynthPreset& preset) {
   }
   clampSequencerIndexes();
   resetSequencerClock();
-  synthRetriggerRequested = true;
 }
 
 void applyLegacyPresetV4(const LegacySynthPresetV4& preset) {
@@ -358,7 +357,6 @@ void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
   initializeDefaultModulationRouting();
   clampSequencerIndexes();
   resetSequencerClock();
-  synthRetriggerRequested = true;
 }
 
 bool saveCurrentPreset() {

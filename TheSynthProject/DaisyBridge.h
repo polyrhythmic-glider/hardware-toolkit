@@ -76,7 +76,7 @@ uint16_t makeKickMask() {
 bool shouldEnableDaisyOutput() {
   if (uiMode == MODE_BOOT || uiMode == MODE_ABOUT) return false;
   if (isAudioTestActive() || isVoicePreviewActive()) return true;
-  return transportRunning && (sequencerEnabled || isMixerLayerAudible());
+  return transportRunning && (sequencerEnabled || isKickTrackAudible());
 }
 
 void fillControlPayload(ControlPayload& payload) {

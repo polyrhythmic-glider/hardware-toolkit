@@ -2,14 +2,11 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
-#include <ESP_I2S.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <math.h>
 #include <string.h>
-#include "AudioConfig.h"
+#include "SynthConfig.h"
 #include "HardwarePins.h"
 #include "ModulationModel.h"
 #include "MenuModel.h"
@@ -24,7 +21,6 @@
 // =======================
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-I2SClass audioI2s;
 volatile bool serialDiagnosticsEnabled = true;
 
 const int SCREEN_W = 160;
@@ -124,27 +120,6 @@ int reverbRoom = 65;
 int presetSlot = 1;
 bool presetOperationOk = true;
 const char* presetOperationText = "SELECT";
-volatile bool dacI2sStarted = false;
-TaskHandle_t synthAudioTaskHandle = nullptr;
-int16_t synthAudioBuffer[SYNTH_AUDIO_BUFFER_FRAMES * 2];
-volatile uint32_t synthAudioRenderedBuffers = 0;
-volatile uint32_t synthAudioMaxRenderUs = 0;
-volatile uint32_t synthAudioMaxI2sUs = 0;
-volatile uint32_t synthAudioDspRecoveries = 0;
-volatile uint32_t synthAudioShortWrites = 0;
-volatile int synthAudioLastWriteError = 0;
-volatile int synthAudioCore = -1;
-uint32_t synthAudioLastI2sErrorMs = 0;
-float directAudioTestPhase = 0.0f;
-bool directAudioTestWasActive = false;
-volatile bool synthRetriggerRequested = true;
-float synthVoicePhases[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
-int synthRenderedVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
-int synthPreviousVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
-int synthVoiceShapeCrossfadeRemaining[WAVE_VOICE_COUNT] = { 0, 0 };
-uint32_t synthEnvelopeSample = 0;
-float synthEnvelopeSmoothed = 0.0f;
-bool synthWasActive = false;
 bool transportRunning = false;
 bool sequencerEnabled = false;
 int sequencerBpm = 120;
@@ -153,7 +128,6 @@ int activeSequencerVoice = 0;
 int activeSequencerTrack = SEQUENCER_TRACK_VOICE_1;
 int sequencerSelectedStep = 0;
 volatile int sequencerCurrentStep = 0;
-uint32_t sequencerSampleCounter = 0;
 int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool kickStepEnabled[SEQUENCER_STEP_COUNT] = {
@@ -174,54 +148,17 @@ int kickDecay = 420;
 int kickSweep = 120;
 int kickClick = 20;
 int kickDrive = 20;
-float kickPhase = 0.0f;
-uint32_t kickSampleAge = 0;
-bool kickVoiceActive = false;
-float audioFrequency = 220.0f;
-float audioVolume = 80.0f;
-float audioWaveFold = 0.0f;
-float audioWavePhase = 0.0f;
-float audioWaveVoiceLevels[WAVE_VOICE_COUNT] = { 100.0f, 100.0f };
-int audioWaveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
-float audioWaveVoiceTune[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
-float audioWaveVoiceFold[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
-float audioWaveVoiceDetune[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
-float audioKickLevel = 0.0f;
-float audioKickPitch = 48.0f;
-float audioKickDecay = 420.0f;
-float audioKickSweep = 120.0f;
-float audioKickClick = 20.0f;
-float audioKickDrive = 20.0f;
-float audioFilterAmount = 0.0f;
-float audioFilterCutoff = 2400.0f;
-int audioFilterType = 0;
-float filterLowState = 0.0f;
-float filterBandState = 0.0f;
-int16_t delayBuffer[DELAY_BUFFER_SAMPLES] = { 0 };
-uint32_t delayWriteIndex = 0;
-int16_t reverbBufferA[REVERB_BUFFER_A_SAMPLES] = { 0 };
-int16_t reverbBufferB[REVERB_BUFFER_B_SAMPLES] = { 0 };
-int16_t reverbBufferC[REVERB_BUFFER_C_SAMPLES] = { 0 };
-uint16_t reverbIndexA = 0;
-uint16_t reverbIndexB = 0;
-uint16_t reverbIndexC = 0;
 
 MenuAction getSelectedAction();
 bool isSynthAction(MenuAction action);
-void startDacI2s();
-void startSynthAudio();
-bool isSynthAudioActive();
 void resetSequencerClock();
 void triggerKickVoice();
 int getSequencerLength();
 int getActiveSequencerTrack();
 const char* getSequencerTrackLabel(int track);
 void clampSequencerIndexes();
-bool isMixerLayerEnabled();
-bool isMixerLayerAudible();
+bool isKickTrackAudible();
 bool isKickStepEnabled(int stepIndex);
-int getSequencerStepSamples();
-int getSequencerGateSamples();
 void printSerialDiagnosticsSnapshot();
 void printConnectionDiagnosticsSnapshot();
 uint8_t getConnectionProblemCount();
@@ -298,15 +235,13 @@ int lastBootProgress = -1;
 
 #include "AppControl.h"
 
+#include "SynthRuntime.h"
+
 #include "ControlSurfaceBridgeImpl.h"
 
 #include "DisplayCore.h"
 
-#include "AudioEngine.h"
-
-#if SYNTH_AUDIO_BACKEND_DAISY
 #include "DaisyBridge.h"
-#endif
 
 #include "ConnectionDiagnostics.h"
 

@@ -24,19 +24,11 @@ uint8_t getReadyNeoKeyCount() {
 }
 
 bool isDaisyForwardLinkReady() {
-#if SYNTH_AUDIO_BACKEND_DAISY
   return DaisyBridge::isConnected();
-#else
-  return true;
-#endif
 }
 
 bool isDaisyReturnLinkReady() {
-#if SYNTH_AUDIO_BACKEND_DAISY
   return DaisyBridge::isReturnLinkActive();
-#else
-  return true;
-#endif
 }
 
 uint32_t getConnectionStatusHash() {
@@ -58,12 +50,8 @@ uint8_t getConnectionProblemCount() {
   problems += 4 - countReadyBits(ControlSurface::getOledReadyMask());
   problems += CONNECTION_NEOKEY_BOARD_COUNT - getReadyNeoKeyCount();
   if (!ControlSurface::isEncoderExpanderReady()) problems++;
-#if SYNTH_AUDIO_BACKEND_DAISY
   if (!isDaisyForwardLinkReady()) problems++;
   if (!isDaisyReturnLinkReady()) problems++;
-#else
-  if (!dacI2sStarted) problems++;
-#endif
   return problems;
 }
 
@@ -95,7 +83,6 @@ void printConnectionDiagnosticsSnapshot() {
   Serial.print("MCP23017 0x20 / encoders: ");
   Serial.println(ControlSurface::isEncoderExpanderReady() ? "CONNECTED" : "MISSING");
 
-#if SYNTH_AUDIO_BACKEND_DAISY
   Serial.print("ESP32 TX2 -> Daisy D14/RX: ");
   Serial.println(isDaisyForwardLinkReady() ? "CONNECTED" : "WAITING FOR ACK");
   Serial.print("Daisy D13/TX -> ESP32 RX2: ");
@@ -124,11 +111,6 @@ void printConnectionDiagnosticsSnapshot() {
     }
   }
   Serial.println("Audio backend: DAISY SEED");
-#else
-  Serial.print("PCM5102 I2S: ");
-  Serial.println(dacI2sStarted ? "READY" : "NOT READY");
-  Serial.println("Daisy UART: DISABLED BY AUDIO BACKEND");
-#endif
 
   uint8_t problems = getConnectionProblemCount();
   Serial.print("Overall: ");

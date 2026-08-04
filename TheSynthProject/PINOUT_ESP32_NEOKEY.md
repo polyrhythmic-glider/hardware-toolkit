@@ -15,8 +15,8 @@ Gli step avanzano da sinistra verso destra, sia tra i quattro moduli sia tra i
 quattro tasti di ogni NeoKey.
 
 I quattro NeoKey sono concatenati tra loro e condividono il canale 4 del PCA9548A; i
-quattro OLED usano i canali 0-3. Il canale 5 resta libero. Con il backend Daisy
-il PCM5102 non è collegato; D13, D14 e D27 restano liberi.
+quattro OLED usano i canali 0-3. Il canale 5 resta libero. D13, D14 e D27
+restano liberi.
 
 Per i pin ESP32 usare esclusivamente i nomi della serigrafia elencati in
 [`ESP32_PIN_NAMES.md`](ESP32_PIN_NAMES.md).

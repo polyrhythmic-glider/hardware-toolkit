@@ -9,8 +9,7 @@ Il repository ora ha un solo firmware principale per ESP32:
 control surface originale con 4 encoder, 3 OLED SH1106, 1 OLED SSD1306,
 PCA9548A e Pong. La
 ESP32 gestisce interfaccia, preset e pattern; la Daisy Seed esegue il clock
-audio, il sequencer e il DSP. Il vecchio motore ESP32/PCM5102 rimane soltanto
-come fallback di emergenza e non fa parte del cablaggio consigliato.
+audio, il sequencer e il DSP. La Daisy è l'unico backend e l'unica uscita audio.
 
 La scheda 4 encoder/4 OLED già montata è la base consigliata: PCA, OLED e
 meccanica restano invariati. La tabella di migrazione indica quali fili encoder

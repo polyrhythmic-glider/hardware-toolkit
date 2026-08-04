@@ -280,7 +280,6 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
           sequencerStepPitches[voice][sequencerSelectedStep] + delta
         );
         sequencerStepEnabled[voice][sequencerSelectedStep] = true;
-        synthRetriggerRequested = true;
         break;
       case 1: waveVoiceTune[voice] = clampInt(waveVoiceTune[voice] + delta, -24, 24); break;
       default: waveVoiceDetune[voice] = clampInt(waveVoiceDetune[voice] + delta, -50, 50); break;
@@ -370,7 +369,6 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
             sequencerStepPitches[voice][sequencerSelectedStep] + delta
           );
           sequencerStepEnabled[voice][sequencerSelectedStep] = true;
-          synthRetriggerRequested = true;
         }
         break;
       }
@@ -382,7 +380,6 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
         } else {
           int voice = getActiveSequencerTrackVoice();
           sequencerStepEnabled[voice][sequencerSelectedStep] = delta > 0;
-          synthRetriggerRequested = true;
         }
         break;
     }
@@ -431,8 +428,6 @@ void activatePageAction(uint8_t page) {
     }
   } else if (page == PAGE_TRANSPORT) {
     if (transportRunning) stopTransport(); else startTransport();
-  } else {
-    synthRetriggerRequested = true;
   }
 
   valueDirty = true;

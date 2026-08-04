@@ -105,18 +105,6 @@ sinistra verso destra:
 
 Lo stesso ordine vale per tutti e quattro gli OLED mostrati.
 
-## PCM5102 — orientamento della foto (solo fallback opzionale)
-
-Tenere il modulo con la serigrafia leggibile come nella foto. Dall'alto verso
-il basso:
-
-1. `SCK`
-2. `BCK`
-3. `DIN`
-4. `LCK`
-5. `GND`
-6. `VIN`
-
 ## ESP32 — orientamento della foto 5
 
 Tenere USB in alto, antenna in basso e componenti rivolti verso chi guarda.

@@ -3,9 +3,8 @@
 Questa è la pinmap attiva di `TheSynthProject`. Sostituisce il vecchio pinout NeoKey e
 quello del `synthProject` autonomo.
 
-> **Backend audio attuale:** la Daisy è l'unica uscita audio consigliata. La
-> sezione PCM5102 documenta soltanto il fallback opzionale. Per il
-> collegamento ESP32-Daisy e per i pin audio 18/19/20 seguire
+> **Backend audio:** la Daisy è l'unica uscita audio. Per il collegamento
+> ESP32-Daisy e per i pin audio 18/19/20 seguire
 > [`DAISY_MIGRATION.md`](DAISY_MIGRATION.md).
 
 ## Regola obbligatoria per i nomi dei pin ESP32
@@ -33,8 +32,7 @@ lette usando quella legenda, senza dedurre collegamenti dai fili delle foto.
 - 4x encoder rotativi con pulsante;
 - 1x MCP23017 a 3,3 V, indirizzo `0x20`;
 - 4x Adafruit NeoKey 1x4 QT, indirizzi `0x30`-`0x33`;
-- 1x Daisy Seed per il backend audio predefinito;
-- 1x PCM5102/PCM5102A soltanto se si vuole conservare il fallback;
+- 1x Daisy Seed per audio, sequencer e DSP;
 - massa comune, cablaggi corti e rail 5 V / 3,3 V adeguati.
 
 Il MCP23017 è l'unico componente aggiunto rispetto ai due setup originali. È
@@ -98,22 +96,11 @@ Se la board è su millefori, basta dissaldare/tagliare le dodici piste sul lato
 ESP32 e aggiungere una piccola daughterboard MCP23017. Non modificare i fili GND
 degli encoder.
 
-### PCM5102: rimuovere oppure spostare solo per il fallback
-
-Con Daisy è consigliato rimuovere il PCM e lasciare liberi D27, D14 e D13. Se
-si vuole conservare il fallback, usare invece questa tabella:
-
-| Segnale PCM5102 | Vecchia serigrafia ESP32 | Nuova serigrafia ESP32 |
-| --- | --- | --- |
-| BCK | D5 | D27 |
-| LCK | D15 | D14 |
-| DIN | D4 | D13 |
-
 La pinmap risultante è:
 
 - TFT: D5, D4, D2, D18, D23;
 - encoder master/back: D32, D33, D25, D26;
-- D27, D14, D13 liberi con Daisy oppure riservati al PCM5102 opzionale;
+- D27, D14 e D13 liberi;
 - bus MCP23017 indipendente: D19 e D15.
 
 Infine aggiungere la catena dei quattro NeoKey al canale 4 del PCA9548A. In pratica
@@ -127,8 +114,8 @@ aggiunge TFT, encoder master, back e il software completo.
 | D2 | TFT RST | uscita |
 | D4 | TFT DC/A0 | uscita |
 | D5 | TFT CS | uscita |
-| D13 | libero; PCM5102 DIN opzionale | uscita I2S solo nel fallback |
-| D14 | libero; PCM5102 LCK opzionale | uscita I2S solo nel fallback |
+| D13 | libero | — |
+| D14 | libero | — |
 | D15 | MCP23017 SCL, bus I2C indipendente | uscita open-drain |
 | D18 | TFT SCK/CLK | uscita SPI |
 | D19 | MCP23017 SDA, bus I2C indipendente | bidirezionale |
@@ -137,15 +124,14 @@ aggiunge TFT, encoder master, back e il software completo.
 | D23 | TFT SDA/MOSI | uscita SPI |
 | D25 | pulsante encoder master | ingresso pull-up |
 | D26 | pulsante back K0 | ingresso pull-up |
-| D27 | libero; PCM5102 BCK opzionale | uscita I2S solo nel fallback |
+| D27 | libero | — |
 | D32 | encoder master A/CLK | ingresso pull-up |
 | D33 | encoder master B/DT | ingresso pull-up |
 | RX2 | Daisy D13 / pin fisico 14 | ingresso UART, backend Daisy |
 | TX2 | Daisy D14 / pin fisico 15 | uscita UART, backend Daisy |
 
-Con il fallback PCM5102, RX2 e TX2 tornano liberi. D34, D35, VP e VN restano
-liberi e sono solo input.
-TX0, RX0 e D12 non vengono usati. Il TFT conserva D2 e D5,
+D34, D35, VP e VN restano liberi e sono solo input. TX0, RX0 e D12 non vengono
+usati. Il TFT conserva D2 e D5,
 che sono pin di strap ma facevano già parte del cablaggio `TheSynthProject` funzionante:
 non aggiungere pull-up/pull-down esterni su questi segnali.
 
@@ -268,31 +254,10 @@ Mappa encoder:
 B4, B5, B6 e B7 restano liberi. Il firmware abilita i pull-up interni dell'espansore,
 quindi non servono resistenze aggiuntive sui singoli `CLK`, `DT` e `SW`.
 
-## 5. PCM5102 opzionale, dall'alto verso il basso come nella foto
-
-Nel sistema Daisy questa sezione si può saltare. Per rimuovere un modulo già
-montato, spegnere e scollegare USB, togliere prima `VIN`, poi i segnali I2S e
-`GND`, quindi scollegare completamente `L/R/GND` del PCM dal jack. Il jack deve
-restare collegato solo ai pin audio 18/19/20 della Daisy.
-
-| PCM5102 | ESP32 |
-| --- | --- |
-| SCK | GND |
-| BCK | D27 |
-| DIN | D13 |
-| LCK | D14 |
-| GND | GND comune |
-| VIN | 5V sul breakout a sei pin con regolatore integrato mostrato nel progetto |
-
-`DIN` è stato spostato da D22 a D13 per liberare D22 al bus I2C
-principale. Spegnere sempre prima di ricablare il DAC o collegare l'amplificatore.
-
 ## Alimentazione
 
 - Tutte le masse devono essere collegate.
 - I bus I2C e il MCP23017 devono avere pull-up a 3,3 V, mai a 5 V.
-- Prima di usare 5 V sul PCM5102 verificare che sia il breakout con regolatore;
-  il chip nudo PCM5102A non accetta 5 V direttamente.
 - Per il primo collaudo alimentare la ESP32 da USB e tenere basso il volume.
 - Se compaiono reset, OLED instabili o rumore, usare una 3,3 V regolata esterna
   adeguata per display/periferiche, con massa comune. Non unire alla cieca due

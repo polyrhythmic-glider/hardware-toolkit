@@ -80,9 +80,9 @@ const char* getResetReasonText(esp_reset_reason_t reason) {
   }
 }
 
-void logAudioMemory(const char* stage) {
+void logSystemMemory(const char* stage) {
   if (!isSerialDiagnosticsEnabled()) return;
-  Serial.print("[AUDIO][MEM] ");
+  Serial.print("[SYSTEM][MEM] ");
   Serial.print(stage);
   Serial.print(" free/min/largest=");
   Serial.print(heap_caps_get_free_size(MALLOC_CAP_8BIT));
@@ -149,30 +149,6 @@ int getEditDeltaForAction(MenuAction action, int delta) {
   return 0;
 }
 
-void startDacI2s() {
-  if (dacI2sStarted) return;
-
-  logAudioMemory("before I2S");
-  audioI2s.setPins(PCM5102_BCK, PCM5102_LCK, PCM5102_DIN);
-  dacI2sStarted = audioI2s.begin(
-    I2S_MODE_STD,
-    SYNTH_AUDIO_SAMPLE_RATE,
-    I2S_DATA_BIT_WIDTH_16BIT,
-    I2S_SLOT_MODE_STEREO,
-    I2S_STD_SLOT_BOTH
-  );
-
-  if (isSerialDiagnosticsEnabled()) {
-    Serial.print("[AUDIO][I2S] begin=");
-    Serial.print(dacI2sStarted ? "ok" : "failed");
-    Serial.print(" rate/ch/bits/core=");
-    Serial.print(SYNTH_AUDIO_SAMPLE_RATE);
-    Serial.print("/2/16/");
-    Serial.println(xPortGetCoreID());
-  }
-  logAudioMemory("after I2S");
-}
-
 bool isWaveVoicePage(MenuPage page) {
   return page == MENU_PAGE_VOICE_1 ||
          page == MENU_PAGE_VOICE_2;
@@ -225,7 +201,6 @@ void startTransport() {
   transportRunning = true;
   sequencerEnabled = true;
   resetSequencerClock();
-  synthRetriggerRequested = true;
 
   if (isSerialDiagnosticsEnabled()) {
     Serial.print("[SEQ][TRANSPORT] start bpm=");
@@ -246,10 +221,6 @@ void startTransport() {
 void stopTransport() {
   transportRunning = false;
   sequencerEnabled = false;
-  kickVoiceActive = false;
-  sequencerSampleCounter = 0;
-  synthEnvelopeSample = 0;
-  synthEnvelopeSmoothed = 0.0f;
 }
 
 void toggleSerialDiagnostics() {
@@ -736,27 +707,7 @@ void printSerialDiagnosticsSnapshot() {
   Serial.print("/");
   Serial.println(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 
-#if SYNTH_AUDIO_BACKEND_DAISY
   Serial.println("Audio backend: DAISY SEED (UART details follow in connection summary)");
-#else
-  Serial.print("Audio backend: ESP32 + PCM5102");
-  Serial.print("  I2S ready: ");
-  Serial.print(dacI2sStarted ? "YES" : "NO");
-  Serial.print("  rendered buffers: ");
-  Serial.print((uint32_t)synthAudioRenderedBuffers);
-  Serial.print("  short writes: ");
-  Serial.print((uint32_t)synthAudioShortWrites);
-  Serial.print("  DSP recoveries: ");
-  Serial.println((uint32_t)synthAudioDspRecoveries);
-  Serial.print("Audio core/last I2S error: ");
-  Serial.print((int)synthAudioCore);
-  Serial.print("/");
-  Serial.println((int)synthAudioLastWriteError);
-  Serial.print("Audio max render/I2S us: ");
-  Serial.print((uint32_t)synthAudioMaxRenderUs);
-  Serial.print("/");
-  Serial.println((uint32_t)synthAudioMaxI2sUs);
-#endif
 
   Serial.print("Transport: ");
   Serial.print(transportRunning ? "RUN" : "STOP");
@@ -772,16 +723,7 @@ void printSerialDiagnosticsSnapshot() {
   Serial.print((int)sequencerCurrentStep + 1);
   Serial.print("/");
   Serial.println(sequencerSelectedStep + 1);
-#if SYNTH_AUDIO_BACKEND_DAISY
   Serial.println("Clock owner: DAISY (playhead received over UART)");
-#else
-  Serial.print("Clock sample/step/gate: ");
-  Serial.print((uint32_t)sequencerSampleCounter);
-  Serial.print("/");
-  Serial.print(getSequencerStepSamples());
-  Serial.print("/");
-  Serial.println(getSequencerGateSamples());
-#endif
 
   Serial.print("Mixer master/V1/V2/kick: ");
   Serial.print(volume);
@@ -1308,7 +1250,6 @@ void changeCurrentValue(int delta) {
           transportRunning = true;
           resetSequencerClock();
         }
-        synthRetriggerRequested = true;
       }
       break;
 
@@ -1318,7 +1259,6 @@ void changeCurrentValue(int delta) {
         activeSequencerVoice = activeSequencerTrack;
         activeWaveVoiceIndex = activeSequencerTrack;
       }
-      synthRetriggerRequested = true;
       ControlSurface::markDirty();
       break;
 
@@ -1333,7 +1273,6 @@ void changeCurrentValue(int delta) {
         activeSequencerVoice = activeSequencerTrack;
       }
       if (!transportRunning) resetSequencerClock();
-      synthRetriggerRequested = true;
       break;
 
     case ACTION_SEQ_STEP:
@@ -1356,7 +1295,6 @@ void changeCurrentValue(int delta) {
           sequencerStepPitches[voice][sequencerSelectedStep] + delta
         );
         sequencerStepEnabled[voice][sequencerSelectedStep] = true;
-        synthRetriggerRequested = true;
       }
       break;
     }

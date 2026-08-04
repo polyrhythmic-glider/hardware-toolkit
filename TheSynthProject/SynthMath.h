@@ -4,23 +4,6 @@
 #include <math.h>
 
 const float TWO_PI_F = 6.2831853f;
-const int SYNTH_SINE_TABLE_SIZE = 256;
-
-// A small interpolated table removes the most expensive operation from the
-// sample loop. It is initialized once before the realtime task starts.
-static int16_t synthSineTable[SYNTH_SINE_TABLE_SIZE + 1];
-static bool synthSineTableReady = false;
-
-inline void initializeSynthMath() {
-  if (synthSineTableReady) return;
-
-  for (int i = 0; i <= SYNTH_SINE_TABLE_SIZE; i++) {
-    float phase = (float)i / (float)SYNTH_SINE_TABLE_SIZE;
-    synthSineTable[i] = (int16_t)(sinf(phase * TWO_PI_F) * 32767.0f);
-  }
-
-  synthSineTableReady = true;
-}
 
 // Clamp per float usato da audio, envelope e visualizzazioni.
 inline float clampFloat(float value, float minValue, float maxValue) {
@@ -29,46 +12,16 @@ inline float clampFloat(float value, float minValue, float maxValue) {
   return value;
 }
 
-// Smoothing one-pole leggero per evitare salti udibili nei parametri audio.
-inline float smoothToward(float current, float target, float amount) {
-  return current + (target - current) * amount;
-}
-
-inline float smoothAngleDegrees(float current, float target, float amount) {
-  float delta = target - current;
-
-  while (delta > 180.0f) delta -= 360.0f;
-  while (delta < -180.0f) delta += 360.0f;
-
-  current += delta * amount;
-
-  while (current >= 360.0f) current -= 360.0f;
-  while (current < 0.0f) current += 360.0f;
-
-  return current;
-}
-
 inline float normalizePhase(float phase) {
-  // Audio phases stay close to zero, so truncation is cheaper than floorf and
-  // still handles the negative offsets used by phase modulation.
   phase -= (int32_t)phase;
   if (phase < 0.0f) phase += 1.0f;
   return phase;
 }
 
 inline float getFastSineSample(float phase) {
-  phase = normalizePhase(phase);
-
-  if (!synthSineTableReady) {
-    return sinf(phase * TWO_PI_F);
-  }
-
-  float position = phase * (float)SYNTH_SINE_TABLE_SIZE;
-  int index = (int)position;
-  float fraction = position - (float)index;
-  float first = (float)synthSineTable[index];
-  float second = (float)synthSineTable[index + 1];
-  return (first + (second - first) * fraction) / 32767.0f;
+  // ESP32 uses this only for UI previews; realtime oscillator rendering lives
+  // on Daisy and therefore needs no lookup table or audio-specific state here.
+  return sinf(normalizePhase(phase) * TWO_PI_F);
 }
 
 inline float applyWaveFoldAmount(float sample, float foldAmount) {

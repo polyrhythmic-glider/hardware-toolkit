@@ -7,13 +7,8 @@ Il sistema separa nettamente i compiti:
 - **UART**: trasporta soltanto controlli digitali a 3,3 V;
 - **pin 18/19 della Daisy**: unica uscita audio stereo.
 
-Il PCM5102 non serve con il backend Daisy. Il vecchio motore ESP32 resta nel
-progetto come fallback selezionabile in `AudioConfig.h`, ma il modulo può essere
-rimosso fisicamente.
-
-Non unire mai in parallelo le uscite L/R del PCM5102 e quelle della Daisy. Il
-PCM può restare cablato ai pin I2S per il fallback, ma il jack/monitor deve
-ricevere audio da una sola sorgente alla volta.
+Il vecchio PCM5102 e il motore I2S ESP32 sono stati rimossi dal progetto. La
+Daisy è l'unica sorgente audio supportata.
 
 ## Rimuovere il vecchio PCM5102
 
@@ -26,9 +21,8 @@ PCM in sicurezza:
 4. Lasciare il jack collegato esclusivamente a Daisy pin 18, 19 e 20.
 5. Lasciare liberi `D27`, `D14` e `D13` sulla ESP32.
 
-Non lasciare le uscite audio PCM e Daisy in parallelo, neppure con il PCM non
-alimentato. Conservare il modulo separato permette comunque di ripristinare il
-fallback in futuro.
+Non lasciare le uscite audio PCM e Daisy in parallelo, neppure con il vecchio
+modulo non alimentato. Il firmware non contiene più un fallback PCM.
 
 ## Collegamenti minimi
 
@@ -92,15 +86,8 @@ Se le librerie si trovano altrove:
 make LIBDAISY_DIR=/percorso/libDaisy DAISYSP_DIR=/percorso/DaisySP
 ```
 
-Poi compilare e caricare `TheSynthProject.ino` sulla ESP32. Il backend Daisy è
-attivato da:
-
-```cpp
-#define SYNTH_AUDIO_BACKEND_DAISY 1
-```
-
-Rimettere il valore a `0` per tornare temporaneamente all'audio ESP32 +
-PCM5102 senza cancellare alcun codice.
+Poi compilare e caricare `TheSynthProject.ino` sulla ESP32. Non esiste più una
+selezione del backend: ESP32 e Daisy fanno sempre parte dello stesso sistema.
 
 Il protocollo UART è versionato: dopo modifiche a `DaisyLinkProtocol.h` bisogna
 caricare sia la ESP32 sia la Daisy. Versioni diverse vengono rifiutate e il

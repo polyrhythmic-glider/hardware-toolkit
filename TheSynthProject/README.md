@@ -14,7 +14,7 @@ Firmware principale per una ESP32 DevKit V1 / ESP32-WROOM-32. Riunisce:
 - 4 OLED SSD1306 128x64 su PCA9548A;
 - 4 encoder su MCP23017, sul bus I2C indipendente D19/D15;
 - 4 NeoKey 1x4 agli indirizzi `0x30`-`0x33`, per un sequencer a 16 step;
-- Daisy Seed via UART come backend audio; PCM5102/I2S conservato solo come fallback opzionale;
+- Daisy Seed via UART come unico backend audio;
 - synth a due voci, kick, due ADSR indipendenti, filtro, delay, riverbero, preset e sequencer;
 - schermate hardware e tono audio diretto a 440 Hz;
 - modalità storiche Encoder View, Waveform, Pong, Diagnostics e Splash.
@@ -95,11 +95,8 @@ Daisy riattiva automaticamente la ricezione UART senza richiedere un proprio
 power cycle. Dal menu la diagnostica seriale puo' essere disattivata durante
 l'uso normale.
 
-Con il backend predefinito la ESP32 invia i controlli via UART e la Daisy esegue
-audio, sequencer e DSP. Portando `SYNTH_AUDIO_BACKEND_DAISY` a `0`, il fallback
-usa direttamente `ESP_I2S`, incluso nel core Arduino ESP32: driver, interrupt e
-rendering sono inizializzati sul core 0, mentre TFT, OLED e controlli restano
-sul core 1. In entrambi i casi il test a 440 Hz bypassa sequencer e patch synth.
+La ESP32 invia i controlli via UART; audio, sequencer e DSP sono eseguiti
+esclusivamente dalla Daisy. Il test a 440 Hz bypassa sequencer e patch synth.
 
 Durante il boot i quattro framebuffer OLED vengono inviati una sola volta. In
 esecuzione il playhead non invalida le pagine che non lo mostrano; nella vista
@@ -127,10 +124,8 @@ Verificato con:
 - Adafruit SSD1306 `2.5.17`;
 - Adafruit seesaw `1.7.9`.
 
-Con la partizione standard e backend Daisy la build usa 422.300 byte su
-1.310.720 (32%) e 26.996 byte di RAM globale su 327.680 (8%). Il fallback
-ESP32 + PCM5102 resta compilabile per recupero, ma non richiede che il modulo
-rimanga montato nel sistema Daisy.
+La build Daisy-only usa 416.272 byte su 1.310.720 (31%) e 26.292 byte di RAM
+globale su 327.680 (8%).
 
 Cablaggio e collaudo: [`WIRING_INTEGRATED.md`](WIRING_INTEGRATED.md).
 

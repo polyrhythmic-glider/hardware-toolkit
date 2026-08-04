@@ -80,20 +80,6 @@ const char* getResetReasonText(esp_reset_reason_t reason) {
   }
 }
 
-void logSystemMemory(const char* stage) {
-  if (!isSerialDiagnosticsEnabled()) return;
-  Serial.print("[SYSTEM][MEM] ");
-  Serial.print(stage);
-  Serial.print(" free/min/largest=");
-  Serial.print(heap_caps_get_free_size(MALLOC_CAP_8BIT));
-  Serial.print("/");
-  Serial.print(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
-  Serial.print("/");
-  Serial.print(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-  Serial.print(" psram=");
-  Serial.println(ESP.getPsramSize());
-}
-
 bool isDiscreteEditAction(MenuAction action) {
   switch (action) {
     case ACTION_VOICE_WAVE:

@@ -84,16 +84,17 @@ aggiunto soltanto il producer della nuova sorgente. I preset v6 salvano note
 assolute, entrambi gli ADSR e tutte le route; i preset v3/v4/v5 vengono migrati
 mantenendo il risultato sonoro precedente e ENV1 sul livello amp.
 
-`Utility > Serial Diagnostics` e' attivato per default durante il collaudo.
-All'avvio stampa un report completo di sistema, OLED, NeoKey, MCP23017 e link
-Daisy; in seguito la telemetria del sequencer e' limitata a una riga ogni
-750 ms e quella audio/sistema/UART a una riga ogni 2 s. La riga
+`Utility > Serial Diagnostics` e' disattivato per default. All'avvio il Monitor
+Seriale stampa una sola mappa ASCII con TFT, OLED, NeoKey, MCP23017 e le due
+direzioni del link Daisy. Attivando la diagnostica dal menu, la telemetria del
+sequencer e' limitata a una riga ogni 750 ms e quella audio/sistema/UART a una
+riga ogni 2 s. La riga
 `[DAISY][LINK]` mostra separatamente `ESP->Daisy`, `Daisy->ESP`, pacchetti
 trasmessi/scartati, ricevuti/non validi, i contatori accettati/rifiutati dalla
 Daisy e i riavvii/errori del suo ricevitore. Se la ESP32 viene riavviata, la
 Daisy riattiva automaticamente la ricezione UART senza richiedere un proprio
-power cycle. Dal menu la diagnostica seriale puo' essere disattivata durante
-l'uso normale.
+power cycle. La diagnostica puo' essere nuovamente disattivata dallo stesso
+menu per tornare al funzionamento silenzioso.
 
 La ESP32 invia i controlli via UART; audio, sequencer e DSP sono eseguiti
 esclusivamente dalla Daisy. Il test a 440 Hz bypassa sequencer e patch synth.

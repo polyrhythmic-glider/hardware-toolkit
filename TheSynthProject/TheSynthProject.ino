@@ -21,7 +21,7 @@
 // =======================
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-volatile bool serialDiagnosticsEnabled = true;
+volatile bool serialDiagnosticsEnabled = false;
 
 const int SCREEN_W = 160;
 const int SCREEN_H = 128;

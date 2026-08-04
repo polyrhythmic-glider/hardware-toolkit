@@ -4,7 +4,7 @@
 
 void initApp() {
   Serial.begin(115200);
-  Serial.setDebugOutput(true);
+  Serial.setDebugOutput(false);
 
   initializeSequencerPitchDefaults();
   initializeDefaultModulationRouting();
@@ -17,21 +17,6 @@ void initApp() {
   // Lascia al bridge USB-seriale il tempo di riaprirsi dopo l'auto-reset del
   // Monitor Seriale, cosi il riepilogo non viene perso nei primissimi ms.
   delay(400);
-
-  if (isSerialDiagnosticsEnabled()) {
-    Serial.println();
-    Serial.println();
-    serialDebugBegin("ESP32 BOOT CONNECTION CHECK");
-    Serial.println("[BOOT][1/6] Serial monitor READY - 115200 baud");
-    esp_reset_reason_t resetReason = esp_reset_reason();
-    Serial.print("[BOOT] reset=");
-    Serial.print((int)resetReason);
-    Serial.print(" (");
-    Serial.print(getResetReasonText(resetReason));
-    Serial.println(")");
-    logSystemMemory("boot");
-    serialDebugEnd("ESP32 BOOT CONNECTION CHECK");
-  }
 
   encoderLastState = (digitalRead(ENC_A) << 1) | digitalRead(ENC_B);
 
@@ -48,24 +33,8 @@ void initApp() {
 
   tft.fillScreen(COL_BG);
 
-  if (isSerialDiagnosticsEnabled()) {
-    Serial.println("[BOOT][2/6] TFT ST7735 SPI READY");
-  }
-
   initNeoKeySequencerPanel();
-  if (isSerialDiagnosticsEnabled()) {
-    Serial.print("[BOOT][3/6] NeoKey READY ");
-    Serial.print(getReadyNeoKeyCount());
-    Serial.println("/4");
-  }
-
   ControlSurface::begin();
-  if (isSerialDiagnosticsEnabled()) {
-    Serial.print("[BOOT][4/6] PCA/OLED/MCP scan complete - OLED ");
-    Serial.print(countReadyBits(ControlSurface::getOledReadyMask()));
-    Serial.print("/4 MCP ");
-    Serial.println(ControlSurface::isEncoderExpanderReady() ? "READY" : "MISSING");
-  }
 
   bootStartMs = millis();
   bootCompletedAtMs = 0;
@@ -75,16 +44,6 @@ void initApp() {
 
   drawBootScreen();
   DaisyBridge::begin();
-  if (isSerialDiagnosticsEnabled()) {
-    Serial.println("[BOOT][5/6] Daisy UART started - waiting for bidirectional link");
-  }
-
-  if (isSerialDiagnosticsEnabled()) {
-    serialDebugBegin("APPLICATION START");
-    Serial.println("POLYGLIDER LCD JAM UI START");
-    Serial.println("Setup complete; entering realtime loop.");
-    serialDebugEnd("APPLICATION START");
-  }
 }
 
 void runAppFrame() {
@@ -102,11 +61,9 @@ void runAppFrame() {
   drawUi();
 
   uint32_t now = millis();
-  if (isSerialDiagnosticsEnabled() && !startupConnectionReportPrinted &&
-      now - bootStartMs >= 1000) {
+  if (!startupConnectionReportPrinted && now - bootStartMs >= 1500) {
     startupConnectionReportPrinted = true;
-    Serial.println("[BOOT][6/6] Final connection summary");
-    printConnectionDiagnosticsSnapshot();
+    printStartupConnectionMap();
   }
 
   int currentStep = sequencerCurrentStep;

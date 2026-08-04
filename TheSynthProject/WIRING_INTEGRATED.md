@@ -283,12 +283,13 @@ proprio regolatore senza conoscere i moduli specifici.
 
 Serial Monitor: `115200 baud`.
 
-La diagnostica seriale parte attiva e stampa la checklist delle connessioni
-durante il boot; sul TFT resta lo splash grafico originale. Il riepilogo puo'
-essere aperto anche con `Utility > Connection Status`; ruotare l'encoder master
-per ripetere le scansioni. `Utility > Serial Diagnostics` apre la pagina senza
-cambiare lo stato; ruotare o premere per attivare/disattivare i report seriali
-periodici, inclusa la telemetria bidirezionale ESP32-Daisy.
+La diagnostica seriale periodica parte disattivata. Durante il boot viene
+stampata una sola mappa ASCII delle connessioni; sul TFT resta lo splash grafico
+originale. Il riepilogo puo' essere aperto anche con
+`Utility > Connection Status`; ruotare l'encoder master per ripetere le
+scansioni. `Utility > Serial Diagnostics` apre la pagina senza cambiare lo
+stato; ruotare o premere per attivare/disattivare i report seriali periodici,
+inclusa la telemetria bidirezionale ESP32-Daisy.
 
 ## Debug OLED dal TFT principale
 

@@ -1,0 +1,14 @@
+{
+  "files.associations": {
+    "*.ino": "cpp"
+  },
+  "files.exclude": {
+    "**/.clangd-build": true
+  },
+  "clangd.arguments": [
+    "--background-index",
+    "--header-insertion=never",
+    "--query-driver=**/arm-none-eabi-*,**/xtensa-esp32-elf-*"
+  ],
+  "C_Cpp.intelliSenseEngine": "disabled"
+}

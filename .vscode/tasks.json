@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "clangd: rigenera database ESP32 + Daisy",
+      "type": "shell",
+      "command": "${workspaceFolder}/tools/generate_compile_commands.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Daisy: build",
+      "type": "shell",
+      "command": "make",
+      "args": ["-j2"],
+      "options": {
+        "cwd": "${workspaceFolder}/DaisySynth"
+      },
+      "problemMatcher": ["$gcc"]
+    }
+  ]
+}

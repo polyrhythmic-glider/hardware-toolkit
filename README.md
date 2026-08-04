@@ -29,3 +29,16 @@ Il firmware audio Daisy Seed è in
 [`DaisySynth/`](DaisySynth/). Cablaggio UART, uscita audio e collaudo sono
 descritti in
 [`TheSynthProject/DAISY_MIGRATION.md`](TheSynthProject/DAISY_MIGRATION.md).
+
+## VSCodium e clangd
+
+Per indicizzare correttamente sia le librerie Arduino/ESP32 sia
+libDaisy/DaisySP, generare il database unificato:
+
+```sh
+./tools/generate_compile_commands.sh
+```
+
+Configurazione editor, task VSCodium e risoluzione degli errori come
+`Unknown type name 'DaisySeed'` sono descritti in
+[`DEVELOPMENT.md`](DEVELOPMENT.md).

@@ -1,0 +1,11 @@
+CompileFlags:
+  CompilationDatabase: .
+  Remove:
+    - -fno-move-loop-invariants
+    - -finline-functions-called-once
+    - -mlongcalls
+    - -mdisable-hardware-atomics
+    - -mfix-esp32-psram-cache-issue
+    - -mfix-esp32-psram-cache-strategy=memw
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion

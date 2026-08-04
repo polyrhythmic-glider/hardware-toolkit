@@ -3,6 +3,11 @@
 Questa è la pinmap attiva di `TheSynthProject`. Sostituisce il vecchio pinout NeoKey e
 quello del `synthProject` autonomo.
 
+> **Backend audio attuale:** la Daisy è l'unica uscita audio consigliata. La
+> sezione PCM5102 documenta soltanto il fallback opzionale. Per il
+> collegamento ESP32-Daisy e per i pin audio 18/19/20 seguire
+> [`DAISY_MIGRATION.md`](DAISY_MIGRATION.md).
+
 ## Regola obbligatoria per i nomi dei pin ESP32
 
 In questo progetto i pin della ESP32 vengono indicati **solo con la serigrafia
@@ -28,8 +33,9 @@ lette usando quella legenda, senza dedurre collegamenti dai fili delle foto.
 - 4x encoder rotativi con pulsante;
 - 1x MCP23017 a 3,3 V, indirizzo `0x20`;
 - 4x Adafruit NeoKey 1x4 QT, indirizzi `0x30`-`0x33`;
-- 1x PCM5102/PCM5102A;
-- massa comune, cablaggi corti e alimentazione 3,3 V adeguata.
+- 1x Daisy Seed per il backend audio predefinito;
+- 1x PCM5102/PCM5102A soltanto se si vuole conservare il fallback;
+- massa comune, cablaggi corti e rail 5 V / 3,3 V adeguati.
 
 Il MCP23017 è l'unico componente aggiunto rispetto ai due setup originali. È
 necessario per mantenere davvero cinque encoder, il tasto back e tutte le altre
@@ -92,7 +98,10 @@ Se la board è su millefori, basta dissaldare/tagliare le dodici piste sul lato
 ESP32 e aggiungere una piccola daughterboard MCP23017. Non modificare i fili GND
 degli encoder.
 
-### PCM5102 da spostare
+### PCM5102: rimuovere oppure spostare solo per il fallback
+
+Con Daisy è consigliato rimuovere il PCM e lasciare liberi D27, D14 e D13. Se
+si vuole conservare il fallback, usare invece questa tabella:
 
 | Segnale PCM5102 | Vecchia serigrafia ESP32 | Nuova serigrafia ESP32 |
 | --- | --- | --- |
@@ -100,11 +109,11 @@ degli encoder.
 | LCK | D15 | D14 |
 | DIN | D4 | D13 |
 
-Questi spostamenti liberano esattamente i pin necessari:
+La pinmap risultante è:
 
 - TFT: D5, D4, D2, D18, D23;
 - encoder master/back: D32, D33, D25, D26;
-- PCM5102: D27, D14, D13;
+- D27, D14, D13 liberi con Daisy oppure riservati al PCM5102 opzionale;
 - bus MCP23017 indipendente: D19 e D15.
 
 Infine aggiungere la catena dei quattro NeoKey al canale 4 del PCA9548A. In pratica
@@ -118,8 +127,8 @@ aggiunge TFT, encoder master, back e il software completo.
 | D2 | TFT RST | uscita |
 | D4 | TFT DC/A0 | uscita |
 | D5 | TFT CS | uscita |
-| D13 | PCM5102 DIN | uscita I2S |
-| D14 | PCM5102 LCK | uscita I2S |
+| D13 | libero; PCM5102 DIN opzionale | uscita I2S solo nel fallback |
+| D14 | libero; PCM5102 LCK opzionale | uscita I2S solo nel fallback |
 | D15 | MCP23017 SCL, bus I2C indipendente | uscita open-drain |
 | D18 | TFT SCK/CLK | uscita SPI |
 | D19 | MCP23017 SDA, bus I2C indipendente | bidirezionale |
@@ -128,11 +137,14 @@ aggiunge TFT, encoder master, back e il software completo.
 | D23 | TFT SDA/MOSI | uscita SPI |
 | D25 | pulsante encoder master | ingresso pull-up |
 | D26 | pulsante back K0 | ingresso pull-up |
-| D27 | PCM5102 BCK | uscita I2S |
+| D27 | libero; PCM5102 BCK opzionale | uscita I2S solo nel fallback |
 | D32 | encoder master A/CLK | ingresso pull-up |
 | D33 | encoder master B/DT | ingresso pull-up |
+| RX2 | Daisy D13 / pin fisico 14 | ingresso UART, backend Daisy |
+| TX2 | Daisy D14 / pin fisico 15 | uscita UART, backend Daisy |
 
-RX2, TX2, D34, D35, VP e VN restano liberi. D34, D35, VP e VN sono solo input.
+Con il fallback PCM5102, RX2 e TX2 tornano liberi. D34, D35, VP e VN restano
+liberi e sono solo input.
 TX0, RX0 e D12 non vengono usati. Il TFT conserva D2 e D5,
 che sono pin di strap ma facevano già parte del cablaggio `TheSynthProject` funzionante:
 non aggiungere pull-up/pull-down esterni su questi segnali.
@@ -256,7 +268,12 @@ Mappa encoder:
 B4, B5, B6 e B7 restano liberi. Il firmware abilita i pull-up interni dell'espansore,
 quindi non servono resistenze aggiuntive sui singoli `CLK`, `DT` e `SW`.
 
-## 5. PCM5102, dall'alto verso il basso come nella foto
+## 5. PCM5102 opzionale, dall'alto verso il basso come nella foto
+
+Nel sistema Daisy questa sezione si può saltare. Per rimuovere un modulo già
+montato, spegnere e scollegare USB, togliere prima `VIN`, poi i segnali I2S e
+`GND`, quindi scollegare completamente `L/R/GND` del PCM dal jack. Il jack deve
+restare collegato solo ai pin audio 18/19/20 della Daisy.
 
 | PCM5102 | ESP32 |
 | --- | --- |
@@ -265,7 +282,7 @@ quindi non servono resistenze aggiuntive sui singoli `CLK`, `DT` e `SW`.
 | DIN | D13 |
 | LCK | D14 |
 | GND | GND comune |
-| VIN | 3V3, come nel setup `TheSynthProject` attuale |
+| VIN | 5V sul breakout a sei pin con regolatore integrato mostrato nel progetto |
 
 `DIN` è stato spostato da D22 a D13 per liberare D22 al bus I2C
 principale. Spegnere sempre prima di ricablare il DAC o collegare l'amplificatore.
@@ -274,6 +291,8 @@ principale. Spegnere sempre prima di ricablare il DAC o collegare l'amplificator
 
 - Tutte le masse devono essere collegate.
 - I bus I2C e il MCP23017 devono avere pull-up a 3,3 V, mai a 5 V.
+- Prima di usare 5 V sul PCM5102 verificare che sia il breakout con regolatore;
+  il chip nudo PCM5102A non accetta 5 V direttamente.
 - Per il primo collaudo alimentare la ESP32 da USB e tenere basso il volume.
 - Se compaiono reset, OLED instabili o rumore, usare una 3,3 V regolata esterna
   adeguata per display/periferiche, con massa comune. Non unire alla cieca due
@@ -286,22 +305,29 @@ proprio regolatore senza conoscere i moduli specifici.
 ## Sequenza di montaggio e collaudo
 
 1. Spegnere tutto e fare prima le linee GND e 3V3.
-2. In Arduino IDE scegliere `ESP32 Dev Module` e `Huge APP (3MB No OTA/1MB SPIFFS)`.
+2. In Arduino IDE scegliere `ESP32 Dev Module`; la partizione standard e' sufficiente.
 3. Collegare TFT, encoder master e back. Caricare `TheSynthProject.ino` e verificare il TFT.
 4. Collegare PCA9548A e un OLED per volta sui canali 0, 1, 2, 3.
-5. Collegare la catena NeoKey a SD4/SC4: sul Serial Monitor devono apparire
-   `NeoKey PCA channel 4 found` per `0x31`, `0x30`, `0x32` e `0x33`.
-6. Collegare MCP23017 senza encoder. Al boot deve apparire `MCP23017: OK`.
+5. Collegare la catena NeoKey a SD4/SC4 e verificarla in
+   `Utility > OLED Debug`: devono risultare presenti `0x30`-`0x33`.
+6. Collegare MCP23017 senza encoder e verificarlo in `Utility > MCP Debug`.
 7. Collegare E1, testarlo in `ENCODER VIEW`, poi ripetere E2, E3 ed E4.
-8. Collegare il PCM5102 per ultimo, con amplificatore/monitor a volume basso.
+8. Collegare UART e uscita audio Daisy come in `DAISY_MIGRATION.md`.
 9. Aprire `DIAGNOSTICS`: il mask OLED corretto è `0xF`, PCA e MCP devono essere `OK`.
-10. Provare `SYNTH CONTROL`, poi `WAVEFORM` e infine `PONG`.
+10. Provare `SYNTH CONTROL`, il kick e infine `PONG`; `WAVEFORM` è solo visuale.
 
 Serial Monitor: `115200 baud`.
 
+La diagnostica seriale parte attiva e stampa la checklist delle connessioni
+durante il boot; sul TFT resta lo splash grafico originale. Il riepilogo puo'
+essere aperto anche con `Utility > Connection Status`; ruotare l'encoder master
+per ripetere le scansioni. `Utility > Serial Diagnostics` apre la pagina senza
+cambiare lo stato; ruotare o premere per attivare/disattivare i report seriali
+periodici, inclusa la telemetria bidirezionale ESP32-Daisy.
+
 ## Debug OLED dal TFT principale
 
-Aprire `Hardware Test > OLED Debug`. La pagina funziona anche con tutti i
+Aprire `Utility > OLED Debug`. La pagina funziona anche con tutti i
 quattro OLED spenti. Entrando viene eseguita una scansione; ruotare l'encoder
 master per ripeterla dopo avere corretto un filo.
 
@@ -330,7 +356,7 @@ e una riga distinta per ciascun canale PCA.
 
 ## Debug MCP23017 dal TFT principale
 
-Aprire `Hardware Test > MCP Debug`. Entrando viene scansionato il bus indipendente
+Aprire `Utility > MCP Debug`. Entrando viene scansionato il bus indipendente
 degli encoder; ruotare l'encoder principale del TFT per ripetere il test dopo
 avere corretto un collegamento. Il test puo' inizializzare un MCP collegato dopo
 il boot senza riavviare la ESP32.
@@ -358,7 +384,8 @@ chip sia realmente marcato `MCP23017`, non `MCP23S17`.
 | Waveform | E1 parametro A/forma precedente, E2 parametro B/forma successiva, E4 menu |
 | Pong | gira E1 paddle sinistro, E4 paddle destro; a game over push E1/E4 reset |
 | Diagnostics | osserva bus/contatori; E4 menu |
-| Qualsiasi | tieni E1+E4 per 1 s per il debug control surface |
+| Diagnostica seriale | `Utility > Serial Diagnostics`; ruota o premi per attivare/disattivare |
+| Stato connessioni | `Utility > Connection Status`; ruota per ripetere le scansioni |
 
 ## Riferimenti hardware
 
@@ -368,10 +395,10 @@ chip sia realmente marcato `MCP23017`, non `MCP23S17`.
 - PCA9548A datasheet: <https://www.nxp.com/docs/en/data-sheet/PCA9548A.pdf>
 - NeoKey pinout e indirizzi: <https://learn.adafruit.com/neokey-1x4-qt-i2c/pinouts>
 
-## Aggiunta futura della Daisy
+## Debug Daisy
 
-La UI integrata passa attraverso `ControlSurfaceBridge`: in una seconda fase si
-può sostituire o affiancare il motore audio con una Daisy senza riscrivere menu,
-Pong o driver OLED. Il collegamento fisico/protocollo va deciso quando è noto il
-modello Daisy esatto; questa versione non assegna pin a una Daisy non ancora
-presente.
+Aprire `Utility > Connection Status` oppure il Monitor Seriale a 115200. Devono
+risultare `ESP > DAISY: ACK` e `DAISY > ESP: RX`. Dopo un riavvio della ESP32 la
+Daisy riattiva automaticamente il proprio ricevitore; se `WAIT ACK` persiste,
+controllare TX2 verso D14/pin 15, la massa digitale comune e che entrambi i
+firmware usino la stessa versione del protocollo.

@@ -105,7 +105,7 @@ sinistra verso destra:
 
 Lo stesso ordine vale per tutti e quattro gli OLED mostrati.
 
-## PCM5102 — orientamento della foto
+## PCM5102 — orientamento della foto (solo fallback opzionale)
 
 Tenere il modulo con la serigrafia leggibile come nella foto. Dall'alto verso
 il basso:

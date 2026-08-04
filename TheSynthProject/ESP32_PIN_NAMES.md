@@ -39,9 +39,11 @@ rivolti verso chi guarda.
 | Bus principale SCL | D22 |
 | Bus MCP23017 SDA | D19, bus indipendente |
 | Bus MCP23017 SCL | D15, bus indipendente |
-| PCM5102 BCK | D27 |
-| PCM5102 LCK | D14 |
-| PCM5102 DIN | D13 |
+| Libero con Daisy / PCM5102 BCK opzionale | D27 |
+| Libero con Daisy / PCM5102 LCK opzionale | D14 |
+| Libero con Daisy / PCM5102 DIN opzionale | D13 |
+| UART da Daisy | RX2 |
+| UART verso Daisy | TX2 |
 
 I nomi degli altri componenti e il loro ordine fisico sono definiti in
 [`COMPONENT_PIN_NAMES.md`](COMPONENT_PIN_NAMES.md).

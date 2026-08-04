@@ -6,8 +6,10 @@
 - Each voice opens a submenu where the base wave can be selected and then shaped with tune, fold, detune, and scope.
 - `Mixer` owns master level, per-voice volume, delay, and reverb.
 - `Kick Voice` owns kick level, kick tone design, and the dedicated kick pattern lane.
+- `Envelope` contiene due ADSR indipendenti; ogni sorgente può pilotare più destinazioni.
+- Il routing usa una tabella sorgente/destinazione condivisa con il DSP, predisposta per nuove sorgenti.
 - `Sequencer` owns one active voice sequencer at a time and its basic transport controls.
-- `Envelope`, `Bluetooth RX`, `Utility`, and `Hardware Test` stay separated by task.
+- `Utility` includes diagnostics and hardware tests without duplicating entries from the other areas.
 
 ## Wave Types
 
@@ -69,11 +71,43 @@
   - Kick Drive
 
 - Envelope
-  - ADSR View
-  - Attack
-  - Decay
-  - Sustain
-  - Release
+  - ENV1
+    - Attack
+    - Decay
+    - Sustain
+    - Release
+    - Destinations
+  - ENV2
+    - Attack
+    - Decay
+    - Sustain
+    - Release
+    - Destinations
+
+Ogni menu `Destinations` contiene le stesse route:
+
+- Amp Level
+- Filter Cutoff
+- Filter Resonance
+- Oscillator 1 Pitch
+- Oscillator 2 Pitch
+- Oscillator Mix
+- PWM
+- FM Amount
+- Wavefold Amount
+- Drive
+- Pan
+- LFO1 Rate
+- LFO1 Depth
+- LFO2 Rate
+- LFO2 Depth
+- FX Mix
+- Delay Feedback
+- Reverb Mix
+
+Aprendo una destinazione sono disponibili `Enabled` (`On/Off`) e `Amount`
+(`-100%..+100%`). ENV1 parte assegnato ad `Amp Level` al `+100%`, per
+conservare il comportamento del synth precedente; ENV2 parte senza route.
 
 - Sequencer
   - Synth View
@@ -88,43 +122,16 @@
   - Seq Length
   - Step On
 
-- Bluetooth RX
-  - Bluetooth
-  - Connection
-  - Device Name
-  - Audio Output
-
 - Utility
   - Inputs
   - Display
+  - Control Surface
+  - OLED Debug
+  - MCP Debug
+  - NeoKey Debug
+  - Serial Diagnostics
+  - Connection Status
   - About
   - Preset Slot
   - Load Preset
   - Save Preset
-
-- Hardware Test
-  - Control Surface
-    - Synth Control
-    - Encoder View
-    - Waveform
-    - Pong
-    - Diagnostics
-    - Splash
-  - Display
-  - Inputs
-  - OLED Debug
-    - D21/D22 idle level
-    - root bus device count
-    - PCA address
-    - OLED ACK and initialization masks
-    - channel 1-4 addresses
-    - NeoKey 0x30/0x31/0x32/0x33 presence
-  - MCP Debug
-    - D19/D15 idle level
-    - MCP23017 address 0x20
-    - raw port value
-    - live E1-E4 counters
-  - Test Audio
-    - fixed 440 Hz direct I2S sine
-  - Wave Scope
-  - About

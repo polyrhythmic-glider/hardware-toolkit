@@ -4,6 +4,8 @@ extern uint16_t neokeyLastRawKeys;
 extern uint16_t neokeyStableKeys;
 extern uint8_t neokeyLastBoardRawKeys[];
 
+uint16_t getSequencerTrackColor(int track);
+
 void drawHeader(const char* title) {
   tft.fillRect(0, 0, SCREEN_W, 20, COL_HEADER);
   tft.fillTriangle(0, 0, 18, 0, 0, 20, COL_VIOLET);
@@ -200,20 +202,28 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.drawCircle(cx, cy, 9, !transportRunning ? COL_GOLD : rgb565(62, 68, 82));
       break;
 
-    case ACTION_SEQ_POWER:
-      for (int i = 0; i < 4; i++) {
-        int bx = cx - 8 + i * 5;
-        int h = 4 + i * 2;
-        tft.fillRect(bx, cy + 6 - h, 3, h, color);
-      }
-      tft.drawFastHLine(cx - 8, cy + 7, 18, COL_GOLD);
-      break;
-
     case ACTION_SYNTH_VIEW:
       tft.drawRect(cx - 9, cy - 7, 18, 14, color);
       tft.drawFastHLine(cx - 7, cy + 3, 14, COL_GOLD);
       tft.fillCircle(cx - 4, cy - 1, 2, color);
       tft.fillCircle(cx + 4, cy - 1, 2, COL_SKY);
+      break;
+
+    case ACTION_SEQ_PATTERN_MENU:
+      for (int row = 0; row < 3; row++) {
+        uint16_t laneColor = getSequencerTrackColor(row);
+        tft.drawFastHLine(cx - 8, cy - 6 + row * 6, 17, laneColor);
+        tft.fillCircle(cx - 4 + row * 4, cy - 6 + row * 6, 2, laneColor);
+      }
+      break;
+
+    case ACTION_SEQ_SETTINGS_MENU:
+      tft.drawCircle(cx, cy, 7, color);
+      tft.fillCircle(cx, cy, 2, COL_GOLD);
+      tft.drawFastVLine(cx, cy - 10, 4, color);
+      tft.drawFastVLine(cx, cy + 7, 4, color);
+      tft.drawFastHLine(cx - 10, cy, 4, color);
+      tft.drawFastHLine(cx + 7, cy, 4, color);
       break;
 
     case ACTION_SEQ_BPM:
@@ -250,6 +260,20 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       }
       break;
     }
+
+    case ACTION_SEQ_PAGE:
+      for (int i = 0; i < SEQUENCER_PAGE_COUNT; i++) {
+        if (i == getSequencerPage()) tft.fillCircle(cx - 7 + i * 5, cy, 2, COL_GOLD);
+        else tft.drawCircle(cx - 7 + i * 5, cy, 2, color);
+      }
+      break;
+
+    case ACTION_SEQ_AUTO_SCROLL:
+      tft.drawLine(cx - 8, cy - 3, cx + 7, cy - 3, color);
+      tft.fillTriangle(cx + 7, cy - 3, cx + 3, cy - 6, cx + 3, cy, color);
+      tft.drawLine(cx + 8, cy + 4, cx - 7, cy + 4, COL_GOLD);
+      tft.fillTriangle(cx - 7, cy + 4, cx - 3, cy + 1, cx - 3, cy + 7, COL_GOLD);
+      break;
 
     case ACTION_SEQ_STEP_ENABLE:
       tft.drawCircle(cx, cy, 8, color);
@@ -959,8 +983,8 @@ void drawAudioTestEdit(uint16_t accent) {
 
 uint16_t getSequencerTrackColor(int track) {
   switch (clampInt(track, 0, SEQUENCER_TRACK_COUNT - 1)) {
-    case SEQUENCER_TRACK_VOICE_1: return ITEM_COLORS[0];
-    case SEQUENCER_TRACK_VOICE_2: return ITEM_COLORS[1];
+    case SEQUENCER_TRACK_VOICE_1: return COL_CORAL;
+    case SEQUENCER_TRACK_VOICE_2: return COL_SKY;
     default: return COL_NOTE;
   }
 }
@@ -973,19 +997,22 @@ bool isSequencerTrackStepEnabled(int track, int step) {
 }
 
 void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
+  (void)accent;
   if (width <= 0 || height < 16) return;
 
   const int columns = 8;
   const int rows = 2;
   int track = getActiveSequencerTrack();
   int length = getSequencerLength();
+  int pageStart = getSequencerPageStart();
   int rowHeight = height / rows;
   uint16_t trackColor = getSequencerTrackColor(track);
   uint16_t disabledColor = rgb565(38, 43, 56);
 
-  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
-    int row = step / columns;
-    int column = step % columns;
+  for (int localStep = 0; localStep < SEQUENCER_PAGE_SIZE; localStep++) {
+    int step = pageStart + localStep;
+    int row = localStep / columns;
+    int column = localStep % columns;
     int left = (column * width) / columns;
     int right = ((column + 1) * width) / columns;
     int cellWidth = right - left;
@@ -995,6 +1022,7 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
     bool inLength = step < length;
     bool enabled = isSequencerTrackStepEnabled(track, step);
     bool activeHit = playing && inLength && enabled;
+    bool selected = step == sequencerSelectedStep;
 
     // Repaint one cell at a time. Clearing the complete grid first produced
     // a visible black flash on every sequencer step.
@@ -1012,6 +1040,11 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
     if (enabled && inLength) {
       tft.fillRect(drawX + 3, drawY + rowHeight - 3, max(1, cellWidth - 6), 2,
                    activeHit ? COL_INK : trackColor);
+    }
+
+    if (selected && inLength) {
+      tft.drawRect(drawX + 1, drawY + 1, max(1, cellWidth - 2), max(1, rowHeight - 2),
+                   playing ? COL_GOLD : trackColor);
     }
 
     char stepLabel[4];
@@ -1032,6 +1065,24 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
   }
 
   tft.drawFastHLine(x, y + rowHeight, width, COL_LINE);
+}
+
+void drawSequencerPageDots(int y) {
+  int page = getSequencerPage();
+  int availablePages = getSequencerPageCount();
+  const int spacing = 12;
+  const int startX = (SCREEN_W - (SEQUENCER_PAGE_COUNT - 1) * spacing) / 2;
+
+  tft.fillRect(0, y - 4, SCREEN_W, 9, COL_BG);
+  for (int i = 0; i < SEQUENCER_PAGE_COUNT; i++) {
+    int x = startX + i * spacing;
+    uint16_t color = i < availablePages ? COL_MUTED : rgb565(35, 39, 50);
+    if (i == page) {
+      tft.fillCircle(x, y, 3, getSequencerTrackColor(getActiveSequencerTrack()));
+    } else {
+      tft.drawCircle(x, y, 2, color);
+    }
+  }
 }
 
 void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
@@ -1085,7 +1136,8 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
     tft.print(kickTrack ? kickPitch : (int)(getSequencerResultFrequency(voice, shownStep) + 0.5f));
     tft.print("Hz");
 
-    drawSequencerGrid(4, 62, 152, 36, trackColor);
+    drawSequencerGrid(4, 62, 152, 31, trackColor);
+    drawSequencerPageDots(97);
     return;
   }
 
@@ -1144,7 +1196,8 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
   tft.print(kickTrack ? kickPitch : (int)(getSequencerResultFrequency(voice, shownStep) + 0.5f));
   tft.print("Hz");
 
-  drawSequencerGrid(4, 62, 152, 36, trackColor);
+  drawSequencerGrid(4, 62, 152, 31, trackColor);
+  drawSequencerPageDots(97);
 
   tft.fillRect(0, 101, SCREEN_W, 27, COL_BG);
   tft.drawFastHLine(4, 101, 152, COL_LINE);
@@ -1153,7 +1206,9 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
   tft.setCursor(4, 106);
   tft.print("L");
   tft.print(getSequencerLength());
-  tft.print(" FWD");
+  tft.print(" P");
+  tft.print(getSequencerPage() + 1);
+  tft.print(sequencerAutoScroll ? " AUTO" : " MAN");
   char trackValueText[16];
   int trackLevel = kickTrack ? kickLevel : waveVoiceLevels[voice];
   snprintf(trackValueText, sizeof(trackValueText), "%s %d", getSequencerTrackLabel(track), trackLevel);
@@ -1184,18 +1239,19 @@ void drawSequencerEditBody(const char* value, const char* tag, uint16_t accent) 
 
   printRight(tag, 152, 61, 1, COL_MUTED);
   tft.drawFastHLine(8, 75, 144, COL_LINE);
-  drawSequencerGrid(8, 79, 144, 34, accent);
+  drawSequencerGrid(8, 78, 144, 31, accent);
+  drawSequencerPageDots(113);
 }
 
 void drawSequencerEditFooter(const char* left, const char* right,
                              uint16_t leftColor = COL_MUTED,
                              uint16_t rightColor = COL_MUTED) {
-  tft.fillRect(0, 115, SCREEN_W, 13, COL_BG);
+  tft.fillRect(0, 117, SCREEN_W, 11, COL_BG);
   tft.setTextSize(1);
   tft.setTextColor(leftColor);
-  tft.setCursor(8, 119);
+  tft.setCursor(8, 120);
   tft.print(left);
-  printRight(right, 152, 119, 1, rightColor);
+  printRight(right, 152, 120, 1, rightColor);
 }
 
 void drawSequencerStartEdit(uint16_t accent) {
@@ -1212,17 +1268,6 @@ void drawSequencerStopEdit(uint16_t accent) {
                           COL_MUTED, transportRunning ? COL_MUTED : COL_GOLD);
 }
 
-void drawSequencerRunEdit(uint16_t accent) {
-  char bpmText[12];
-  snprintf(bpmText, sizeof(bpmText), "%d BPM", sequencerBpm);
-  drawSequencerEditBody(bpmText, transportRunning && sequencerEnabled ? "RUN" : "STOP", accent);
-  char stepText[24];
-  snprintf(stepText, sizeof(stepText), "STEP %02d/%02d", sequencerCurrentStep + 1, getSequencerLength());
-  char lengthText[12];
-  snprintf(lengthText, sizeof(lengthText), "LEN %d", getSequencerLength());
-  drawSequencerEditFooter(stepText, lengthText);
-}
-
 void drawSequencerBpmEdit(uint16_t accent) {
   char value[12];
   snprintf(value, sizeof(value), "%d", sequencerBpm);
@@ -1236,7 +1281,7 @@ void drawSequencerVoiceEdit(uint16_t accent) {
   int track = getActiveSequencerTrack();
   snprintf(value, sizeof(value), "%s", getSequencerTrackLabel(track));
 
-  tft.fillRect(0, 53, SCREEN_W, 62, COL_BG);
+  tft.fillRect(0, 53, SCREEN_W, 64, COL_BG);
   tft.setTextSize(2);
   tft.setTextColor(getSequencerTrackColor(track));
   tft.setCursor(8, 56);
@@ -1244,34 +1289,42 @@ void drawSequencerVoiceEdit(uint16_t accent) {
   printRight("TRACK", 152, 61, 1, COL_MUTED);
   tft.drawFastHLine(8, 75, 144, COL_LINE);
 
+  int pageStart = getSequencerPageStart();
   for (int row = 0; row < SEQUENCER_TRACK_COUNT; row++) {
-    int y = 80 + row * 11;
+    int y = 80 + row * 10;
     bool active = row == track;
     uint16_t color = getSequencerTrackColor(row);
-    int count = 0;
-    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
-      if (isSequencerTrackStepEnabled(row, step)) count++;
-    }
 
     if (active) {
-      tft.fillRect(8, y - 1, 144, 10, COL_PANEL);
-      tft.drawRect(8, y - 1, 144, 10, color);
+      tft.fillRect(8, y - 1, 144, 9, COL_PANEL);
+      tft.drawRect(8, y - 1, 144, 9, color);
     }
 
-    tft.fillRect(12, y + 2, 18, 3, color);
     tft.setTextSize(1);
-    tft.setTextColor(active ? COL_INK : COL_MUTED);
-    tft.setCursor(36, y);
+    tft.setTextColor(active ? color : COL_MUTED);
+    tft.setCursor(11, y);
     tft.print(getSequencerTrackLabel(row));
 
-    char countText[12];
-    snprintf(countText, sizeof(countText), "%02d", count);
-    printRight(countText, 146, y, 1, active ? color : COL_MUTED);
+    const int laneX = 31;
+    const int laneWidth = 117;
+    for (int localStep = 0; localStep < SEQUENCER_PAGE_SIZE; localStep++) {
+      int step = pageStart + localStep;
+      int left = laneX + (localStep * laneWidth) / SEQUENCER_PAGE_SIZE;
+      int right = laneX + ((localStep + 1) * laneWidth) / SEQUENCER_PAGE_SIZE;
+      int cellWidth = max(2, right - left - 1);
+      bool inLength = step < getSequencerLength();
+      bool enabled = inLength && isSequencerTrackStepEnabled(row, step);
+      uint16_t cellColor = enabled ? color : rgb565(38, 43, 56);
+      tft.fillRect(left, y + 1, cellWidth, 5, cellColor);
+      if (active && step == sequencerSelectedStep) {
+        tft.drawRect(left - 1, y, cellWidth + 2, 7, COL_INK);
+      }
+    }
   }
 
-  tft.setTextSize(1);
+  drawSequencerPageDots(113);
   const char* left = track == SEQUENCER_TRACK_KICK ? "KICK PATTERN" : getWaveformShortName(waveVoiceShape[track]);
-  drawSequencerEditFooter(left, "16 KEYS", getSequencerTrackColor(track), COL_MUTED);
+  drawSequencerEditFooter(left, "16 / PAGE", getSequencerTrackColor(track), COL_MUTED);
 }
 
 void drawSequencerStepEdit(uint16_t accent) {
@@ -1320,6 +1373,25 @@ void drawSequencerLengthEdit(uint16_t accent) {
   drawSequencerUtilityFrame(accent, value, "LENGTH", "STEPS");
   drawSequencerEditFooter("PATTERN", sequencerEnabled ? "LIVE" : "EDIT",
                           COL_MUTED, sequencerEnabled ? COL_GOLD : COL_MUTED);
+}
+
+void drawSequencerPageEdit(uint16_t accent) {
+  char value[8];
+  snprintf(value, sizeof(value), "%d/%d", getSequencerPage() + 1, getSequencerPageCount());
+  drawSequencerUtilityFrame(accent, value, "PAGE", "16 STEPS");
+
+  char rangeText[20];
+  int first = getSequencerPageStart() + 1;
+  int last = min(getSequencerPageStart() + SEQUENCER_PAGE_SIZE, getSequencerLength());
+  snprintf(rangeText, sizeof(rangeText), "%02d-%02d", first, last);
+  drawSequencerEditFooter(rangeText, sequencerAutoScroll ? "AUTO" : "MANUAL",
+                          COL_MUTED, sequencerAutoScroll ? COL_GOLD : COL_INK);
+}
+
+void drawSequencerAutoScrollEdit(uint16_t accent) {
+  drawSequencerUtilityFrame(accent, sequencerAutoScroll ? "ON" : "OFF", "AUTO PAGE", "PLAYHEAD");
+  drawSequencerEditFooter("FOLLOW PLAYHEAD", sequencerAutoScroll ? "AUTO" : "LOCKED",
+                          COL_MUTED, sequencerAutoScroll ? COL_GOLD : COL_CORAL);
 }
 
 void drawSequencerStepEnableEdit(uint16_t accent) {

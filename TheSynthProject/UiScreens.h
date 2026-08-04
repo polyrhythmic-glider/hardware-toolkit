@@ -276,6 +276,8 @@ void drawEditBase() {
   lastSequencerTrack = -1;
   lastSequencerSelectedStep = -1;
   lastSequencerCurrentStep = -1;
+  lastSequencerPage = -1;
+  lastSequencerAutoScroll = -1;
   lastSequencerNoteChecksum = -1;
   lastWaveVoiceChecksum = -1;
   lastKickLevel = -1;
@@ -289,11 +291,12 @@ bool actionShowsSequencerPlayhead(MenuAction action) {
     case ACTION_SYNTH_VIEW:
     case ACTION_SEQ_START:
     case ACTION_SEQ_STOP:
-    case ACTION_SEQ_POWER:
     case ACTION_SEQ_BPM:
     case ACTION_SEQ_STEP:
     case ACTION_SEQ_NOTE:
     case ACTION_SEQ_LENGTH:
+    case ACTION_SEQ_PAGE:
+    case ACTION_SEQ_AUTO_SCROLL:
     case ACTION_SEQ_STEP_ENABLE:
       return true;
 
@@ -338,6 +341,8 @@ bool editValueChanged() {
   if (activeSequencerVoice != lastSequencerVoice) return true;
   if (activeSequencerTrack != lastSequencerTrack) return true;
   if (sequencerSelectedStep != lastSequencerSelectedStep) return true;
+  if (getSequencerPage() != lastSequencerPage) return true;
+  if ((int)sequencerAutoScroll != lastSequencerAutoScroll) return true;
   // Ordinary synth, ADSR, FX and utility pages do not display the playhead.
   // Avoid clearing and repainting them on every sixteenth note.
   if (actionShowsSequencerPlayhead(action) &&
@@ -384,6 +389,8 @@ void saveLastValues() {
   lastSequencerTrack = activeSequencerTrack;
   lastSequencerSelectedStep = sequencerSelectedStep;
   lastSequencerCurrentStep = sequencerCurrentStep;
+  lastSequencerPage = getSequencerPage();
+  lastSequencerAutoScroll = (int)sequencerAutoScroll;
   lastSequencerNoteChecksum = getSequencerNoteChecksum();
   lastWaveVoiceChecksum = getLevelChecksum(waveVoiceLevels, WAVE_VOICE_COUNT);
   lastKickLevel = kickLevel;
@@ -496,10 +503,6 @@ void drawEditValue() {
       drawSequencerStopEdit(accent);
       break;
 
-    case ACTION_SEQ_POWER:
-      drawSequencerRunEdit(accent);
-      break;
-
     case ACTION_SYNTH_VIEW:
       drawSynthView(accent, clearBody, false);
       break;
@@ -522,6 +525,14 @@ void drawEditValue() {
 
     case ACTION_SEQ_LENGTH:
       drawSequencerLengthEdit(accent);
+      break;
+
+    case ACTION_SEQ_PAGE:
+      drawSequencerPageEdit(accent);
+      break;
+
+    case ACTION_SEQ_AUTO_SCROLL:
+      drawSequencerAutoScrollEdit(accent);
       break;
 
     case ACTION_SEQ_STEP_ENABLE:
@@ -639,6 +650,8 @@ void updateEditFast() {
       sequencerLength != lastSequencerLength ||
       activeSequencerTrack != lastSequencerTrack ||
       sequencerSelectedStep != lastSequencerSelectedStep ||
+      getSequencerPage() != lastSequencerPage ||
+      (int)sequencerAutoScroll != lastSequencerAutoScroll ||
       getWaveVoiceParamChecksum() != lastWaveVoiceParamChecksum ||
       getLevelChecksum(waveVoiceLevels, WAVE_VOICE_COUNT) != lastWaveVoiceChecksum ||
       kickLevel != lastKickLevel;

@@ -8,16 +8,16 @@
 // il callback audio della Daisy non deve fare parsing di testo o allocazioni.
 namespace DaisyLinkProtocol {
 
-// Version 2 adds an explicit one-shot kick trigger and UART recovery telemetry.
+// Version 3 expands patterns from one 16-step page to four 16-step pages.
 // Both boards must run firmware built from the same protocol version.
-constexpr uint8_t PROTOCOL_VERSION = 2;
+constexpr uint8_t PROTOCOL_VERSION = 3;
 constexpr uint8_t SYNC_0 = 0xD5;
 constexpr uint8_t SYNC_1 = 0x59;
 constexpr uint8_t CONTROL_PACKET_TYPE = 1;
 constexpr uint8_t STATUS_PACKET_TYPE = 2;
 constexpr uint32_t UART_BAUD_RATE = 115200;
 constexpr int VOICE_COUNT = 2;
-constexpr int STEP_COUNT = 16;
+constexpr int STEP_COUNT = 64;
 
 enum ControlFlag : uint8_t {
   CONTROL_OUTPUT_ENABLED = 1U << 0,
@@ -62,7 +62,7 @@ struct DAISY_LINK_PACKED ControlPayload {
   int8_t detuneCents[VOICE_COUNT];
   uint8_t wavefold[VOICE_COUNT];
 
-  uint16_t voiceEnabledMask[VOICE_COUNT];
+  uint64_t voiceEnabledMask[VOICE_COUNT];
   uint8_t stepMidiNote[VOICE_COUNT][STEP_COUNT];
 
   uint16_t attackMs;
@@ -73,7 +73,7 @@ struct DAISY_LINK_PACKED ControlPayload {
   uint8_t filterType;
   uint16_t filterCutoffHz;
 
-  uint16_t kickEnabledMask;
+  uint64_t kickEnabledMask;
   uint16_t kickTriggerSequence;
   uint8_t kickLevel;
   uint8_t kickPitchHz;
@@ -113,7 +113,7 @@ struct DAISY_LINK_PACKED StatusPacket {
 };
 
 static_assert(sizeof(PacketHeader) == 8, "Unexpected Daisy link header size");
-static_assert(sizeof(ControlPacket) < 128, "Control packet must stay small");
+static_assert(sizeof(ControlPacket) < 256, "Control packet must fit the UART DMA buffer");
 static_assert(sizeof(StatusPacket) < 64, "Status packet must stay small");
 
 inline uint16_t crc16Ccitt(const uint8_t* data, size_t size) {

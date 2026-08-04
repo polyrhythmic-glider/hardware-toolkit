@@ -24,6 +24,13 @@ int wrapIndex(int value, int count) {
   return value;
 }
 
+int getSequencerPageCount();
+int getSequencerPage();
+int getSequencerPageStart();
+void setSequencerPage(int page, bool moveSelection);
+void syncSequencerPageToStep(int step);
+void changeSequencerLengthByPages(int delta);
+
 // getEncoderSteps() restituisce gia uno step per ogni scatto fisico.
 // Un'ulteriore soglia a 2 rendeva toggle e selezioni apparentemente bloccati.
 const int DISCRETE_EDIT_STEP_THRESHOLD = 1;
@@ -90,10 +97,12 @@ bool isDiscreteEditAction(MenuAction action) {
     case ACTION_AUDIO_TEST:
     case ACTION_SEQ_START:
     case ACTION_SEQ_STOP:
-    case ACTION_SEQ_POWER:
     case ACTION_SYNTH_VIEW:
     case ACTION_SEQ_VOICE:
     case ACTION_SEQ_STEP:
+    case ACTION_SEQ_LENGTH:
+    case ACTION_SEQ_PAGE:
+    case ACTION_SEQ_AUTO_SCROLL:
     case ACTION_SEQ_STEP_ENABLE:
     case ACTION_PRESET_SLOT:
     case ACTION_SURFACE_MODE:
@@ -167,6 +176,8 @@ bool isMenuSubmenuAction(MenuAction action) {
          action == ACTION_VOICE_2_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_TRANSPORT_MENU ||
+         action == ACTION_SEQ_PATTERN_MENU ||
+         action == ACTION_SEQ_SETTINGS_MENU ||
          action == ACTION_ENV_1_MENU ||
          action == ACTION_ENV_2_MENU ||
          action == ACTION_ENV_DESTINATIONS_MENU ||
@@ -258,6 +269,12 @@ MenuPage getSubmenuPageForAction(MenuAction action) {
     case ACTION_TRANSPORT_MENU:
       return MENU_PAGE_TRANSPORT;
 
+    case ACTION_SEQ_PATTERN_MENU:
+      return MENU_PAGE_SEQ_PATTERN;
+
+    case ACTION_SEQ_SETTINGS_MENU:
+      return MENU_PAGE_SEQ_SETTINGS;
+
     case ACTION_ENV_1_MENU:
       return MENU_PAGE_ENV_1;
 
@@ -348,6 +365,16 @@ const uint8_t* getCurrentMenuItems(int* count) {
     return MENU_TRANSPORT_ITEMS;
   }
 
+  if (currentMenuPage == MENU_PAGE_SEQ_PATTERN) {
+    *count = sizeof(MENU_SEQ_PATTERN_ITEMS) / sizeof(MENU_SEQ_PATTERN_ITEMS[0]);
+    return MENU_SEQ_PATTERN_ITEMS;
+  }
+
+  if (currentMenuPage == MENU_PAGE_SEQ_SETTINGS) {
+    *count = sizeof(MENU_SEQ_SETTINGS_ITEMS) / sizeof(MENU_SEQ_SETTINGS_ITEMS[0]);
+    return MENU_SEQ_SETTINGS_ITEMS;
+  }
+
   if (isWaveVoicePage(currentMenuPage)) {
     *count = sizeof(MENU_WAVE_VOICE_ITEMS) / sizeof(MENU_WAVE_VOICE_ITEMS[0]);
     return MENU_WAVE_VOICE_ITEMS;
@@ -371,6 +398,12 @@ const char* getCurrentMenuTitle() {
   }
   else if (currentMenuPage == MENU_PAGE_TRANSPORT) {
     source = "TRANSPORT";
+  }
+  else if (currentMenuPage == MENU_PAGE_SEQ_PATTERN) {
+    source = "SEQ PATTERN";
+  }
+  else if (currentMenuPage == MENU_PAGE_SEQ_SETTINGS) {
+    source = "SEQ SETTINGS";
   }
   else if (currentMenuPage == MENU_PAGE_ENV_1 || currentMenuPage == MENU_PAGE_ENV_2) {
     source = activeEnvelopeIndex == ENVELOPE_ENV2 ? "ENV2" : "ENV1";
@@ -418,6 +451,8 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_VOICE_2_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_TRANSPORT_MENU ||
+         action == ACTION_SEQ_PATTERN_MENU ||
+         action == ACTION_SEQ_SETTINGS_MENU ||
          action == ACTION_ENV_1_MENU ||
          action == ACTION_ENV_2_MENU ||
          action == ACTION_ENV_DESTINATIONS_MENU ||
@@ -442,13 +477,14 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_AUDIO_TEST ||
          action == ACTION_SEQ_START ||
          action == ACTION_SEQ_STOP ||
-         action == ACTION_SEQ_POWER ||
          action == ACTION_SYNTH_VIEW ||
          action == ACTION_SEQ_BPM ||
          action == ACTION_SEQ_VOICE ||
          action == ACTION_SEQ_STEP ||
          action == ACTION_SEQ_NOTE ||
          action == ACTION_SEQ_LENGTH ||
+         action == ACTION_SEQ_PAGE ||
+         action == ACTION_SEQ_AUTO_SCROLL ||
          action == ACTION_SEQ_STEP_ENABLE ||
          action == ACTION_MIX_VOICE_1 ||
          action == ACTION_MIX_VOICE_2 ||
@@ -944,10 +980,6 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%s", transportRunning ? "HALT" : "OFF");
       break;
 
-    case ACTION_SEQ_POWER:
-      snprintf(buffer, sizeof(buffer), "%s", sequencerEnabled ? "ON" : "OFF");
-      break;
-
     case ACTION_SYNTH_VIEW:
       snprintf(buffer, sizeof(buffer), "VIEW");
       break;
@@ -974,6 +1006,14 @@ const char* getValueText(int itemIndex) {
 
     case ACTION_SEQ_LENGTH:
       snprintf(buffer, sizeof(buffer), "%d", sequencerLength);
+      break;
+
+    case ACTION_SEQ_PAGE:
+      snprintf(buffer, sizeof(buffer), "%d/%d", getSequencerPage() + 1, getSequencerPageCount());
+      break;
+
+    case ACTION_SEQ_AUTO_SCROLL:
+      snprintf(buffer, sizeof(buffer), "%s", sequencerAutoScroll ? "ON" : "OFF");
       break;
 
     case ACTION_SEQ_STEP_ENABLE:
@@ -1097,6 +1137,61 @@ int getSequencerLength() {
   return clampInt(sequencerLength, 1, SEQUENCER_STEP_COUNT);
 }
 
+int getSequencerPageCount() {
+  return clampInt(
+    (getSequencerLength() + SEQUENCER_PAGE_SIZE - 1) / SEQUENCER_PAGE_SIZE,
+    1,
+    SEQUENCER_PAGE_COUNT
+  );
+}
+
+int getSequencerPage() {
+  sequencerPage = clampInt(sequencerPage, 0, getSequencerPageCount() - 1);
+  return sequencerPage;
+}
+
+int getSequencerPageStart() {
+  return getSequencerPage() * SEQUENCER_PAGE_SIZE;
+}
+
+void setSequencerPage(int page, bool moveSelection) {
+  int pageCount = getSequencerPageCount();
+  sequencerPage = wrapIndex(page, pageCount);
+
+  if (!moveSelection) return;
+
+  int localStep = sequencerSelectedStep % SEQUENCER_PAGE_SIZE;
+  sequencerSelectedStep = min(
+    sequencerPage * SEQUENCER_PAGE_SIZE + localStep,
+    getSequencerLength() - 1
+  );
+
+  if (!transportRunning) {
+    sequencerCurrentStep = sequencerSelectedStep;
+    resetSequencerClock();
+  }
+}
+
+void syncSequencerPageToStep(int step) {
+  step = clampInt(step, 0, getSequencerLength() - 1);
+  sequencerPage = clampInt(step / SEQUENCER_PAGE_SIZE, 0, getSequencerPageCount() - 1);
+}
+
+void changeSequencerLengthByPages(int delta) {
+  int lengthPages = getSequencerPageCount();
+  // Legacy presets may contain lengths below 16. The first edit snaps those
+  // values to the nearest containing page; subsequent detents select exactly
+  // 16, 32, 48 or 64.
+  if (getSequencerLength() % SEQUENCER_PAGE_SIZE == 0) {
+    lengthPages += delta > 0 ? 1 : -1;
+  }
+  lengthPages = clampInt(lengthPages, 1, SEQUENCER_PAGE_COUNT);
+  sequencerLength = lengthPages * SEQUENCER_PAGE_SIZE;
+  clampSequencerIndexes();
+  getSequencerPage();
+  if (!transportRunning) resetSequencerClock();
+}
+
 void clampSequencerIndexes() {
   int length = getSequencerLength();
   activeSequencerTrack = clampInt(activeSequencerTrack, 0, SEQUENCER_TRACK_COUNT - 1);
@@ -1115,6 +1210,8 @@ void clampSequencerIndexes() {
 
   if (sequencerSelectedStep < 0) sequencerSelectedStep = 0;
   if (sequencerCurrentStep < 0) sequencerCurrentStep = 0;
+  sequencerPage = clampInt(sequencerPage, 0,
+                           max(0, (length + SEQUENCER_PAGE_SIZE - 1) / SEQUENCER_PAGE_SIZE - 1));
 }
 
 void changeCurrentValue(int delta) {
@@ -1229,16 +1326,6 @@ void changeCurrentValue(int delta) {
       }
       break;
 
-    case ACTION_SEQ_POWER:
-      if (delta != 0) {
-        sequencerEnabled = true;
-        if (!transportRunning) {
-          transportRunning = true;
-          resetSequencerClock();
-        }
-      }
-      break;
-
     case ACTION_SYNTH_VIEW:
       activeSequencerTrack = wrapIndex(activeSequencerTrack + delta, SEQUENCER_TRACK_COUNT);
       if (activeSequencerTrack < WAVE_VOICE_COUNT) {
@@ -1263,6 +1350,7 @@ void changeCurrentValue(int delta) {
 
     case ACTION_SEQ_STEP:
       sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
+      syncSequencerPageToStep(sequencerSelectedStep);
       if (!transportRunning) {
         sequencerCurrentStep = sequencerSelectedStep;
         resetSequencerClock();
@@ -1286,10 +1374,18 @@ void changeCurrentValue(int delta) {
     }
 
     case ACTION_SEQ_LENGTH:
-      sequencerLength += delta;
-      sequencerLength = clampInt(sequencerLength, 1, SEQUENCER_STEP_COUNT);
-      clampSequencerIndexes();
-      if (!transportRunning) resetSequencerClock();
+      changeSequencerLengthByPages(delta);
+      break;
+
+    case ACTION_SEQ_PAGE:
+      setSequencerPage(getSequencerPage() + delta, true);
+      break;
+
+    case ACTION_SEQ_AUTO_SCROLL:
+      sequencerAutoScroll = !sequencerAutoScroll;
+      if (sequencerAutoScroll && transportRunning) {
+        syncSequencerPageToStep(sequencerCurrentStep);
+      }
       break;
 
     case ACTION_SEQ_STEP_ENABLE:
@@ -1485,7 +1581,9 @@ void updateUiLogic() {
 
     if (uiMode == MODE_PREMENU) {
       applyTypeChoice(selectedType);
-      setMode(MODE_MENU);
+      // The sequencer opens on its performance view. Back reveals its grouped
+      // menu, so Pattern, Transport and Settings remain one gesture away.
+      setMode(selectedType == SEQUENCER_AREA_INDEX ? MODE_EDIT : MODE_MENU);
     }
 
     else if (uiMode == MODE_MENU) {
@@ -1536,6 +1634,11 @@ void updateUiLogic() {
 
     else if (uiMode == MODE_MENU && isInSubmenu()) {
       leaveSubmenu();
+    }
+
+    else if (uiMode == MODE_EDIT && activeType == SEQUENCER_AREA_INDEX &&
+             getSelectedAction() == ACTION_SYNTH_VIEW) {
+      setMode(MODE_MENU);
     }
 
     else if (uiMode == MODE_MENU || uiMode == MODE_EDIT || uiMode == MODE_ABOUT) {

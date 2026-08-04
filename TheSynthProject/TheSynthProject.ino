@@ -123,19 +123,16 @@ const char* presetOperationText = "SELECT";
 bool transportRunning = false;
 bool sequencerEnabled = false;
 int sequencerBpm = 120;
-int sequencerLength = SEQUENCER_STEP_COUNT;
+int sequencerLength = SEQUENCER_DEFAULT_LENGTH;
 int activeSequencerVoice = 0;
 int activeSequencerTrack = SEQUENCER_TRACK_VOICE_1;
 int sequencerSelectedStep = 0;
 volatile int sequencerCurrentStep = 0;
+int sequencerPage = 0;
+bool sequencerAutoScroll = true;
 int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
-bool kickStepEnabled[SEQUENCER_STEP_COUNT] = {
-  false, false, false, false,
-  false, false, false, false,
-  false, false, false, false,
-  false, false, false, false
-};
+bool kickStepEnabled[SEQUENCER_STEP_COUNT] = {};
 uint16_t kickTriggerSequence = 0;
 int waveVoiceLevels[WAVE_VOICE_COUNT] = { 100, 100 };
 int waveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
@@ -154,6 +151,7 @@ bool isSynthAction(MenuAction action);
 void resetSequencerClock();
 void triggerKickVoice();
 int getSequencerLength();
+int getSequencerPage();
 int getActiveSequencerTrack();
 const char* getSequencerTrackLabel(int track);
 void clampSequencerIndexes();
@@ -218,6 +216,8 @@ int lastSequencerVoice = -1;
 int lastSequencerTrack = -1;
 int lastSequencerSelectedStep = -1;
 int lastSequencerCurrentStep = -1;
+int lastSequencerPage = -1;
+int lastSequencerAutoScroll = -1;
 int lastSequencerNoteChecksum = -1;
 int lastWaveVoiceChecksum = -1;
 int lastWaveVoiceParamChecksum = -1;

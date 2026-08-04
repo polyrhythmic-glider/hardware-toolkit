@@ -77,8 +77,8 @@ bool hasControlFlag(uint8_t flag) {
   return (activeControl.flags & flag) != 0U;
 }
 
-bool isStepEnabled(uint16_t mask, uint8_t step) {
-  return (mask & (uint16_t)(1U << step)) != 0U;
+bool isStepEnabled(uint64_t mask, uint8_t step) {
+  return (mask & (uint64_t)(1ULL << step)) != 0U;
 }
 
 uint8_t oscillatorWaveform(uint8_t espShape) {

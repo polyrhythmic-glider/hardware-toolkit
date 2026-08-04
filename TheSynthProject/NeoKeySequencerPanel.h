@@ -46,6 +46,7 @@ int neokeyLastVoice = -1;
 int neokeyLastTrack = -1;
 int neokeyLastStep = -1;
 int neokeyLastPlayStep = -1;
+int neokeyLastPage = -1;
 uint64_t neokeyLastPatternSignature = 0xFFFFFFFFFFFFFFFFULL;
 bool neokeyLastSequencerRunning = false;
 uint32_t neokeyLastStepColors[NEOKEY_TOTAL_KEYS] = { 0 };
@@ -113,19 +114,20 @@ uint32_t neokeyColor(uint8_t r, uint8_t g, uint8_t b) {
   return seesaw_NeoPixel::Color(r, g, b);
 }
 
-uint32_t neokeyStepColor(int stepIndex, bool voice1Active, bool voice2Active, bool kickActive, bool playhead) {
-  (void)stepIndex;
-
-  uint8_t r = voice1Active ? 190 : 0;
-  uint8_t g = kickActive ? 150 : 0;
-  uint8_t b = voice2Active ? 180 : 0;
-
-  bool active = r != 0 || g != 0 || b != 0;
+uint32_t neokeyStepColor(int track, bool active, bool playhead) {
+  uint8_t r = 0;
+  uint8_t g = 0;
+  uint8_t b = 0;
+  if (active) {
+    if (track == SEQUENCER_TRACK_VOICE_1) r = 190;
+    else if (track == SEQUENCER_TRACK_VOICE_2) b = 180;
+    else g = 150;
+  }
   if (playhead && active) {
-    // Keep the track hue, but make an enabled step flash clearly when played.
-    return neokeyColor(r != 0 ? 255 : 48,
-                       g != 0 ? 255 : 48,
-                       b != 0 ? 255 : 48);
+    // Brighten only the selected lane: never mix another track color into it.
+    return neokeyColor(r != 0 ? 255 : 0,
+                       g != 0 ? 255 : 0,
+                       b != 0 ? 255 : 0);
   }
 
   if (playhead) return neokeyColor(28, 28, 28);
@@ -197,8 +199,11 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
     activeSequencerVoice = voice;
   }
 
-  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
-    if ((pressed & ((uint16_t)1U << step)) == 0) continue;
+  int pageStart = getSequencerPageStart();
+  for (int localStep = 0; localStep < NEOKEY_TOTAL_KEYS; localStep++) {
+    if ((pressed & ((uint16_t)1U << localStep)) == 0) continue;
+    int step = pageStart + localStep;
+    if (step >= getSequencerLength()) continue;
     if (kickTrack) {
       kickStepEnabled[step] = !kickStepEnabled[step];
       if (kickLevel == 0 && kickStepEnabled[step]) {
@@ -319,6 +324,7 @@ void neokeyMaintainConnections(uint32_t now) {
     neokeyLastVoice = -1;
     neokeyLastStep = -1;
     neokeyLastPlayStep = -1;
+    neokeyLastPage = -1;
     neokeyLastPatternSignature = 0xFFFFFFFFFFFFFFFFULL;
     neokeyStepColorCacheValid = false;
     neokeySyncButtonDebounce(neokeyAnyReady ? neokeyReadButtonsRaw() : 0, now);
@@ -392,17 +398,14 @@ void pollNeoKeySequencerKeys() {
 }
 
 uint64_t neokeyBuildPatternSignature() {
-  uint16_t voice1Mask = 0;
-  uint16_t voice2Mask = 0;
-  uint16_t kickMask = 0;
+  uint64_t mask = 0;
+  int track = getActiveSequencerTrack();
 
   for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    if (sequencerStepEnabled[0][i]) voice1Mask |= (uint16_t)1U << i;
-    if (sequencerStepEnabled[1][i]) voice2Mask |= (uint16_t)1U << i;
-    if (kickStepEnabled[i]) kickMask |= (uint16_t)1U << i;
+    if (isSequencerTrackStepEnabled(track, i)) mask |= (uint64_t)1ULL << i;
   }
 
-  return ((uint64_t)kickMask << 32) | ((uint64_t)voice2Mask << 16) | voice1Mask;
+  return mask;
 }
 
 void refreshNeoKeySequencerPanel() {
@@ -414,10 +417,13 @@ void refreshNeoKeySequencerPanel() {
   int step = clampInt(sequencerSelectedStep, 0, SEQUENCER_STEP_COUNT - 1);
   int playStep = clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1);
   bool running = neokeySequencerRunning();
+  int page = getSequencerPage();
+  int pageStart = getSequencerPageStart();
   uint64_t patternSignature = neokeyBuildPatternSignature();
   bool stateChanged =
     voice != neokeyLastVoice ||
     track != neokeyLastTrack ||
+    page != neokeyLastPage ||
     step != neokeyLastStep ||
     playStep != neokeyLastPlayStep ||
     running != neokeyLastSequencerRunning ||
@@ -433,15 +439,14 @@ void refreshNeoKeySequencerPanel() {
 
   uint8_t changedBoards = 0;
 
-  for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    // This is the combined pattern view: V1=red, V2=blue, kick=green.
-    // The selected track controls editing only; it must not hide the other
-    // lanes, otherwise the kick appears broken while V1 or V2 is selected.
-    bool voice1Active = isSequencerStepEnabled(0, i);
-    bool voice2Active = isSequencerStepEnabled(1, i);
-    bool kickActive = isKickStepEnabled(i);
-    bool playhead = running && i == playStep;
-    uint32_t color = neokeyStepColor(i, voice1Active, voice2Active, kickActive, playhead);
+  for (int i = 0; i < NEOKEY_TOTAL_KEYS; i++) {
+    int absoluteStep = pageStart + i;
+    bool inLength = absoluteStep < getSequencerLength();
+    bool active = inLength && isSequencerTrackStepEnabled(track, absoluteStep);
+    bool playhead = inLength && running && absoluteStep == playStep;
+    uint32_t color = inLength
+      ? neokeyStepColor(track, active, playhead)
+      : neokeyColor(0, 0, 0);
 
     if (!neokeyStepColorCacheValid || color != neokeyLastStepColors[i]) {
       neokeySetStepPixel(i, color);
@@ -464,6 +469,7 @@ void refreshNeoKeySequencerPanel() {
   neokeyLastTrack = track;
   neokeyLastStep = step;
   neokeyLastPlayStep = playStep;
+  neokeyLastPage = page;
   neokeyLastSequencerRunning = running;
   neokeyLastPatternSignature = patternSignature;
   neokeyStepColorCacheValid = true;
@@ -504,7 +510,7 @@ void initNeoKeySequencerPanel() {
   neokeyRestoreDisplayBusClock();
 
   if (neokeyAnyReady) {
-    for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
+    for (int i = 0; i < NEOKEY_TOTAL_KEYS; i++) {
       neokeySetStepPixel(i, neokeyColor(24, 24, 24));
       neokeyShowAll();
       delay(45);

@@ -295,9 +295,7 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
       case 0: releaseMs = clampInt(releaseMs + delta * 20, 0, 3000); break;
       case 1: sequencerBpm = clampInt(sequencerBpm + delta * 2, 40, 240); break;
       default:
-        sequencerLength = clampInt(sequencerLength + delta, 1, SEQUENCER_STEP_COUNT);
-        clampSequencerIndexes();
-        if (!transportRunning) resetSequencerClock();
+        changeSequencerLengthByPages(delta);
         break;
     }
   } else if (page == PAGE_MIXER) {
@@ -350,6 +348,7 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
     switch (encoderIndex) {
       case 0:
         sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
+        syncSequencerPageToStep(sequencerSelectedStep);
         if (!transportRunning) {
           sequencerCurrentStep = sequencerSelectedStep;
           resetSequencerClock();
@@ -385,15 +384,14 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
     encoderIndex %= 3;
     switch (encoderIndex) {
       case 0:
-        sequencerLength = clampInt(sequencerLength + delta, 1, SEQUENCER_STEP_COUNT);
-        clampSequencerIndexes();
-        if (!transportRunning) resetSequencerClock();
+        changeSequencerLengthByPages(delta);
         break;
       case 1:
         sequencerBpm = clampInt(sequencerBpm + delta * 2, 40, 240);
         break;
       default:
         sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
+        syncSequencerPageToStep(sequencerSelectedStep);
         if (!transportRunning) {
           sequencerCurrentStep = sequencerSelectedStep;
           resetSequencerClock();

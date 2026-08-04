@@ -6,8 +6,9 @@ namespace DaisyBridge {
 
 using namespace DaisyLinkProtocol;
 
-constexpr uint32_t SEND_PERIOD_MS = 20;
+constexpr uint32_t SEND_PERIOD_MS = 25;
 constexpr uint32_t STATUS_TIMEOUT_MS = 500;
+constexpr size_t UART_TX_BUFFER_SIZE = 512;
 
 static uint16_t controlSequence = 0;
 static uint32_t lastSendMs = 0;
@@ -57,18 +58,18 @@ class StatusPacketParser {
 
 static StatusPacketParser statusParser;
 
-uint16_t makeVoiceMask(int voice) {
-  uint16_t mask = 0;
+uint64_t makeVoiceMask(int voice) {
+  uint64_t mask = 0;
   for (int step = 0; step < STEP_COUNT; ++step) {
-    if (isSequencerStepEnabled(voice, step)) mask |= (uint16_t)(1U << step);
+    if (isSequencerStepEnabled(voice, step)) mask |= (uint64_t)(1ULL << step);
   }
   return mask;
 }
 
-uint16_t makeKickMask() {
-  uint16_t mask = 0;
+uint64_t makeKickMask() {
+  uint64_t mask = 0;
   for (int step = 0; step < STEP_COUNT; ++step) {
-    if (isKickStepEnabled(step)) mask |= (uint16_t)(1U << step);
+    if (isKickStepEnabled(step)) mask |= (uint64_t)(1ULL << step);
   }
   return mask;
 }
@@ -177,6 +178,9 @@ void acceptStatus(const StatusPacket& packet, uint32_t now) {
   int length = getSequencerLength();
   if (length > 0) {
     sequencerCurrentStep = clampInt(payload.currentStep, 0, length - 1);
+    if (sequencerAutoScroll && transportRunning) {
+      syncSequencerPageToStep(sequencerCurrentStep);
+    }
   }
 }
 
@@ -241,6 +245,9 @@ void reportLinkDebug(uint32_t now, bool force = false) {
 }
 
 void begin() {
+  // A 64-step control snapshot is larger than the ESP32 UART FIFO. Enable a
+  // ring buffer before begin() so the complete packet can be queued atomically.
+  Serial2.setTxBufferSize(UART_TX_BUFFER_SIZE);
   Serial2.begin(
     UART_BAUD_RATE,
     SERIAL_8N1,

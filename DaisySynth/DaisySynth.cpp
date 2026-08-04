@@ -370,6 +370,17 @@ float processFilter(float input) {
   }
 }
 
+float processKickDrive(float input) {
+  float mix = clampFloat(activeControl.kickDrive / 100.0f, 0.0f, 1.0f);
+  if (mix <= 0.0f) return input;
+
+  // DaisySP Overdrive is not unity gain at low settings and reaches zero
+  // output at Drive=0. Keep a full dry path so this control changes timbre
+  // instead of acting as a second, mandatory kick level control.
+  float driven = kickDrive.Process(input);
+  return input + (driven - input) * mix;
+}
+
 float processDelay(float input) {
   float target = activeControl.delayTimeMs * sampleRate / 1000.0f;
   target = clampFloat(target, 1.0f, MAX_DELAY_SAMPLES - 2.0f);
@@ -422,7 +433,7 @@ void audioCallback(AudioHandle::InterleavingInputBuffer,
       float voices = processFilter(renderVoices() * gate * masterGain);
       float kickSample = kick.Process(kickTriggerPending);
       kickTriggerPending = false;
-      kickSample = kickDrive.Process(kickSample) * (activeControl.kickLevel / 100.0f);
+      kickSample = processKickDrive(kickSample) * (activeControl.kickLevel / 100.0f);
 
       float effected = processDelay(voices + kickSample * 0.72f);
       processReverb(effected, left, right);

@@ -1,10 +1,15 @@
 #include "daisy_seed.h"
 #include "daisysp.h"
+#include "SynthEngine.h"
 
 #include <math.h>
 #include <string.h>
 
 #include "../TheSynthProject/DaisyLinkProtocol.h"
+
+#ifndef SYNTH_ENABLE_STARTUP_VALIDATION
+#define SYNTH_ENABLE_STARTUP_VALIDATION 1
+#endif
 
 using namespace daisy;
 using namespace daisysp;
@@ -13,21 +18,21 @@ using namespace DaisyLinkProtocol;
 namespace {
 
 constexpr size_t AUDIO_BLOCK_SIZE = 48;
-constexpr size_t UART_DMA_BUFFER_SIZE = 256;
+constexpr size_t UART_DMA_BUFFER_SIZE = 512;
 constexpr uint32_t LINK_TIMEOUT_MS = 500;
 constexpr uint32_t STATUS_PERIOD_MS = 40;
 constexpr uint32_t UART_RECOVERY_PERIOD_MS = 1000;
 constexpr float OUTPUT_GAIN = 0.30f;
 constexpr size_t MAX_DELAY_SAMPLES = 48000U * 6U / 10U;
+#if SYNTH_ENABLE_STARTUP_VALIDATION
+constexpr size_t DSP_VALIDATION_FRAMES = 1024;
+#endif
 
 DaisySeed hardware;
 UartHandler controlUart;
 
-Oscillator oscillators[VOICE_COUNT];
 Oscillator testOscillator;
-Wavefolder wavefolders[VOICE_COUNT];
-Adsr ampEnvelope;
-Svf filter;
+PolyDsp::SynthEngine synthEngine;
 SyntheticBassDrum kick;
 Overdrive kickDrive;
 DelayLine<float, MAX_DELAY_SAMPLES> DSY_SDRAM_BSS delayLine;
@@ -59,6 +64,15 @@ float linkGain = 0.0f;
 float delaySamples = 12000.0f;
 bool kickTriggerPending = false;
 
+#if SYNTH_ENABLE_STARTUP_VALIDATION
+// Debugger-visible results from the deterministic boot validation. The test
+// runs before StartAudio(), never from the realtime callback.
+volatile bool dspStartupValidationPassed = false;
+volatile uint32_t dspWorstCaseElapsedUs = 0;
+volatile float dspWorstCaseLoadPercent = 0.0f;
+volatile float dspValidationPeak = 0.0f;
+#endif
+
 float clampFloat(float value, float minimum, float maximum) {
   if (value < minimum) return minimum;
   if (value > maximum) return maximum;
@@ -69,28 +83,12 @@ uint8_t clampByte(uint8_t value, uint8_t maximum) {
   return value > maximum ? maximum : value;
 }
 
-float midiToFrequency(float note) {
-  return 440.0f * powf(2.0f, (note - 69.0f) / 12.0f);
-}
-
 bool hasControlFlag(uint8_t flag) {
   return (activeControl.flags & flag) != 0U;
 }
 
 bool isStepEnabled(uint64_t mask, uint8_t step) {
   return (mask & (uint64_t)(1ULL << step)) != 0U;
-}
-
-uint8_t oscillatorWaveform(uint8_t espShape) {
-  switch (espShape) {
-    case 0: return Oscillator::WAVE_SIN;
-    case 1: return Oscillator::WAVE_POLYBLEP_SQUARE;
-    case 2: return Oscillator::WAVE_POLYBLEP_TRI;
-    case 3: return Oscillator::WAVE_POLYBLEP_SAW;
-    case 4: return Oscillator::WAVE_RAMP;
-    case 5: return Oscillator::WAVE_POLYBLEP_SQUARE;
-    default: return Oscillator::WAVE_SIN;
-  }
 }
 
 void publishControl(const ControlPacket& packet) {
@@ -192,30 +190,304 @@ bool startUartReceiver(bool recovery) {
   return true;
 }
 
-void updateVoiceFrequency(uint8_t voice) {
-  uint8_t step = currentStep < STEP_COUNT ? currentStep : 0;
-  float note = activeControl.stepMidiNote[voice][step]
-             + activeControl.tuneSemitones[voice]
-             + activeControl.detuneCents[voice] / 100.0f;
-  oscillators[voice].SetFreq(midiToFrequency(clampFloat(note, 0.0f, 127.0f)));
-}
-
-bool anyVoiceEnabledAtCurrentStep() {
+bool anyVoiceEnabledAtStep(uint8_t step) {
+  step = step < STEP_COUNT ? step : 0;
   for (uint8_t voice = 0; voice < VOICE_COUNT; ++voice) {
-    if (isStepEnabled(activeControl.voiceEnabledMask[voice], currentStep)) {
+    if (isStepEnabled(activeControl.voiceEnabledMask[voice], step)) {
       return true;
     }
   }
   return false;
 }
 
-void triggerCurrentStep() {
-  for (uint8_t voice = 0; voice < VOICE_COUNT; ++voice) {
-    updateVoiceFrequency(voice);
+bool anyVoiceEnabledAtCurrentStep() {
+  return anyVoiceEnabledAtStep(currentStep);
+}
+
+bool envelopeGateIsOpen();
+
+void configureSynthEngineFromControl() {
+  for (size_t engineVoice = 0; engineVoice < PolyDsp::kMaxVoices; ++engineVoice) {
+    for (size_t oscillator = 0;
+         oscillator < PolyDsp::kOscillatorsPerVoice;
+         ++oscillator) {
+      const OscillatorControlParameters& parameters =
+        activeControl.oscillators[oscillator];
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::Enabled,
+        (parameters.flags & 1U) != 0U ? 1.0f : 0.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::Waveform,
+        parameters.waveform
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::Level,
+        parameters.levelPercent / 100.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::Octave,
+        parameters.octave
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::SemitoneTune,
+        parameters.semitoneTune
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::FineTune,
+        parameters.fineTuneCents
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::PhaseOffset,
+        parameters.phasePercent / 100.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::PulseWidth,
+        parameters.pulseWidthPercent / 100.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::Wavefold,
+        parameters.wavefoldPercent / 100.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::Pan,
+        parameters.panPercent / 100.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::KeyTracking,
+        parameters.keyTrackingPercent / 100.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        engineVoice,
+        oscillator,
+        PolyDsp::OscillatorParameter::ModulationInputAmount,
+        parameters.modulationAmountPercent / 100.0f
+      );
+    }
+
+    for (size_t envelope = 0;
+         envelope < PolyDsp::kEnvelopesPerVoice;
+         ++envelope) {
+      const EnvelopeControlParameters& parameters = activeControl.envelopes[envelope];
+      synthEngine.SetEnvelopeParameter(
+        engineVoice,
+        envelope,
+        PolyDsp::EnvelopeParameter::Enabled,
+        (parameters.flags & 1U) != 0U ? 1.0f : 0.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        engineVoice, envelope, PolyDsp::EnvelopeParameter::Attack,
+        parameters.attackMs / 1000.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        engineVoice, envelope, PolyDsp::EnvelopeParameter::Decay,
+        parameters.decayMs / 1000.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        engineVoice, envelope, PolyDsp::EnvelopeParameter::Sustain,
+        parameters.sustainPercent / 100.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        engineVoice, envelope, PolyDsp::EnvelopeParameter::Release,
+        parameters.releaseMs / 1000.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        engineVoice, envelope, PolyDsp::EnvelopeParameter::Amount,
+        parameters.amountPercent / 100.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        engineVoice, envelope, PolyDsp::EnvelopeParameter::VelocitySensitivity,
+        parameters.velocitySensitivityPercent / 100.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        engineVoice, envelope, PolyDsp::EnvelopeParameter::RetriggerMode,
+        (parameters.flags >> 1) & 0x03U
+      );
+    }
+
+    for (size_t lfo = 0; lfo < PolyDsp::kLfosPerVoice; ++lfo) {
+      const DaisyLinkProtocol::LfoControlParameters& parameters =
+        activeControl.lfos[lfo];
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::Enabled,
+        (parameters.flags & 1U) != 0U ? 1.0f : 0.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::Waveform, parameters.waveform
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::Frequency,
+        parameters.frequencyCentiHz / 100.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::Phase,
+        parameters.phasePercent / 100.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::Bipolar,
+        (parameters.flags & (1U << 1)) != 0U ? 1.0f : 0.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::Amount,
+        parameters.amountPercent / 100.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::RetriggerOnNoteOn,
+        (parameters.flags & (1U << 2)) != 0U ? 1.0f : 0.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::FreeRunning,
+        (parameters.flags & (1U << 3)) != 0U ? 1.0f : 0.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::TempoSync,
+        (parameters.flags & (1U << 4)) != 0U ? 1.0f : 0.0f
+      );
+      synthEngine.SetLfoParameter(
+        engineVoice, lfo, PolyDsp::LfoParameter::TempoDivision,
+        parameters.tempoDivision
+      );
+    }
+
+    for (size_t route = 0; route < PolyDsp::kMaxModRoutesPerVoice; ++route) {
+      const ModulationRouteParameters& packed = activeControl.modulationRoutes[route];
+      PolyDsp::ModulationRoute parameters;
+      parameters.enabled = (packed.flags & 1U) != 0U &&
+                           packed.source < static_cast<uint8_t>(PolyDsp::ModSource::Count) &&
+                           packed.destination < static_cast<uint8_t>(PolyDsp::ModDestination::Count);
+      parameters.source = static_cast<PolyDsp::ModSource>(packed.source);
+      parameters.destination = static_cast<PolyDsp::ModDestination>(packed.destination);
+      parameters.amount = packed.amountPercent / 100.0f;
+      synthEngine.SetModulationRoute(engineVoice, route, parameters);
+    }
+
+    synthEngine.SetVoiceParameter(
+      engineVoice,
+      PolyDsp::VoiceParameter::FilterEnabled,
+      hasControlFlag(CONTROL_FILTER_ENABLED) ? 1.0f : 0.0f
+    );
+    synthEngine.SetVoiceParameter(
+      engineVoice,
+      PolyDsp::VoiceParameter::FilterMode,
+      activeControl.filterType
+    );
+    synthEngine.SetVoiceParameter(
+      engineVoice,
+      PolyDsp::VoiceParameter::FilterCutoff,
+      clampFloat(activeControl.filterCutoffHz, 40.0f, sampleRate / 3.0f)
+    );
+    synthEngine.SetVoiceParameter(
+      engineVoice,
+      PolyDsp::VoiceParameter::FilterResonance,
+      activeControl.filterResonancePercent / 100.0f
+    );
+    synthEngine.SetVoiceParameter(
+      engineVoice, PolyDsp::VoiceParameter::FilterDrive, 0.0f
+    );
+    synthEngine.SetVoiceParameter(
+      engineVoice,
+      PolyDsp::VoiceParameter::NoiseLevel,
+      activeControl.noiseLevelPercent / 100.0f
+    );
+    synthEngine.SetVoiceParameter(
+      engineVoice,
+      PolyDsp::VoiceParameter::Pan,
+      activeControl.voicePanPercent / 100.0f
+    );
+  }
+}
+
+uint8_t getCompatibilityReferenceNote(uint8_t step, bool preview);
+
+void setCompatibilityOscillators(uint8_t step, bool preview) {
+  step = step < STEP_COUNT ? step : 0;
+  uint8_t previewVoice = activeControl.previewVoice < PolyDsp::kOscillatorsPerVoice
+                           ? activeControl.previewVoice
+                           : 0;
+  uint8_t referenceNote = getCompatibilityReferenceNote(step, preview);
+  bool melodicStepActive = anyVoiceEnabledAtStep(step);
+
+  for (size_t oscillator = 0;
+       oscillator < PolyDsp::kOscillatorsPerVoice;
+       ++oscillator) {
+    bool laneHasNote = oscillator < VOICE_COUNT &&
+                       isStepEnabled(activeControl.voiceEnabledMask[oscillator], step);
+    uint8_t note = laneHasNote
+                     ? activeControl.stepMidiNote[oscillator][step]
+                     : referenceNote;
+    bool oscillatorEnabled = (activeControl.oscillators[oscillator].flags & 1U) != 0U;
+    bool enabled = preview
+                     ? oscillator == previewVoice
+                     : oscillatorEnabled &&
+                         hasControlFlag(CONTROL_SEQUENCER_ENABLED) &&
+                         melodicStepActive;
+    synthEngine.SetCompatibilityOscillatorNote(
+      oscillator, note
+    );
+    synthEngine.SetCompatibilityOscillatorGate(oscillator, enabled);
+  }
+}
+
+uint8_t getCompatibilityReferenceNote(uint8_t step, bool preview) {
+  step = step < STEP_COUNT ? step : 0;
+  if (preview) {
+    uint8_t previewVoice = activeControl.previewVoice < VOICE_COUNT
+                             ? activeControl.previewVoice
+                             : 0;
+    return activeControl.stepMidiNote[previewVoice][step];
+  }
+  for (size_t oscillator = 0; oscillator < VOICE_COUNT; ++oscillator) {
+    if (isStepEnabled(activeControl.voiceEnabledMask[oscillator], step)) {
+      return activeControl.stepMidiNote[oscillator][step];
+    }
+  }
+  return activeControl.stepMidiNote[0][step];
+}
+
+void triggerCompatibilityVoice(uint8_t step, bool preview) {
+  bool hasNotes = preview || anyVoiceEnabledAtStep(step);
+  synthEngine.ReserveCompatibilityVoice(preview ||
+                                        hasControlFlag(CONTROL_TRANSPORT_RUNNING));
+  if (!hasNotes) {
+    setCompatibilityOscillators(step, preview);
+    synthEngine.SetCompatibilityGate(false);
+    return;
   }
 
-  if (hasControlFlag(CONTROL_SEQUENCER_ENABLED) && anyVoiceEnabledAtCurrentStep()) {
-    ampEnvelope.Retrigger(false);
+  synthEngine.TriggerCompatibilityVoice(
+    getCompatibilityReferenceNote(step, preview), 127, false
+  );
+  // NoteOn initializes the general polyphonic oscillator gates. Apply the
+  // legacy per-track notes and step masks afterwards.
+  setCompatibilityOscillators(step, preview);
+  synthEngine.SetCompatibilityGate(true);
+}
+
+void triggerCurrentStep() {
+  if (!hasControlFlag(CONTROL_PREVIEW_ENABLED)) {
+    triggerCompatibilityVoice(currentStep, false);
   }
 
   if (activeControl.kickLevel > 0 &&
@@ -248,7 +520,12 @@ void applyControlAtBlockBoundary() {
   activeControl.sequenceLength = clampByte(activeControl.sequenceLength, STEP_COUNT);
   if (activeControl.sequenceLength == 0) activeControl.sequenceLength = 1;
   activeControl.selectedStep %= activeControl.sequenceLength;
-  activeControl.previewVoice = clampByte(activeControl.previewVoice, VOICE_COUNT - 1);
+  activeControl.previewVoice = clampByte(
+    activeControl.previewVoice, PolyDsp::kOscillatorsPerVoice - 1
+  );
+
+  updateClockSettings();
+  configureSynthEngineFromControl();
 
   bool wasRunning = (previous.flags & CONTROL_TRANSPORT_RUNNING) != 0U;
   bool isRunning = hasControlFlag(CONTROL_TRANSPORT_RUNNING);
@@ -264,25 +541,6 @@ void applyControlAtBlockBoundary() {
     stepSample = 0;
     triggerCurrentStep();
   }
-
-  updateClockSettings();
-
-  for (uint8_t voice = 0; voice < VOICE_COUNT; ++voice) {
-    oscillators[voice].SetWaveform(oscillatorWaveform(activeControl.waveform[voice]));
-    oscillators[voice].SetPw(activeControl.waveform[voice] == 5 ? 0.25f : 0.5f);
-    wavefolders[voice].SetGain(1.0f + activeControl.wavefold[voice] * 0.03f);
-    updateVoiceFrequency(voice);
-  }
-
-  ampEnvelope.SetAttackTime(activeControl.attackMs / 1000.0f);
-  ampEnvelope.SetDecayTime(activeControl.decayMs / 1000.0f);
-  ampEnvelope.SetSustainLevel(clampFloat(activeControl.sustainPercent / 100.0f, 0.0f, 1.0f));
-  ampEnvelope.SetReleaseTime(activeControl.releaseMs / 1000.0f);
-
-  float cutoff = clampFloat(activeControl.filterCutoffHz, 40.0f, sampleRate / 3.0f);
-  filter.SetFreq(cutoff);
-  filter.SetRes(0.15f);
-  filter.SetDrive(0.0f);
 
   kick.SetFreq(clampFloat(activeControl.kickPitchHz, 25.0f, 120.0f));
   float kickDecay = clampFloat((activeControl.kickDecayMs - 80.0f) / 1120.0f, 0.0f, 1.0f);
@@ -306,7 +564,19 @@ void applyControlAtBlockBoundary() {
   bool previewChanged = previous.previewVoice != activeControl.previewVoice ||
                         previous.selectedStep != activeControl.selectedStep;
   if (previewEnabled && (!previewWasEnabled || previewChanged)) {
-    ampEnvelope.Retrigger(false);
+    triggerCompatibilityVoice(activeControl.selectedStep, true);
+  } else if (previewEnabled) {
+    synthEngine.ReserveCompatibilityVoice(true);
+    setCompatibilityOscillators(activeControl.selectedStep, true);
+    synthEngine.SetCompatibilityGate(true);
+  } else if (isRunning) {
+    synthEngine.ReserveCompatibilityVoice(true);
+    setCompatibilityOscillators(currentStep, false);
+    synthEngine.SetCompatibilityGate(envelopeGateIsOpen());
+  } else {
+    setCompatibilityOscillators(activeControl.selectedStep, false);
+    synthEngine.SetCompatibilityGate(false);
+    synthEngine.ReserveCompatibilityVoice(false);
   }
 
   if (activeControl.kickTriggerSequence != previous.kickTriggerSequence &&
@@ -329,14 +599,6 @@ void advanceSequencer() {
   triggerCurrentStep();
 }
 
-bool voiceIsAudible(uint8_t voice) {
-  if (hasControlFlag(CONTROL_PREVIEW_ENABLED)) {
-    return voice == activeControl.previewVoice;
-  }
-  if (!hasControlFlag(CONTROL_SEQUENCER_ENABLED)) return false;
-  return isStepEnabled(activeControl.voiceEnabledMask[voice], currentStep);
-}
-
 bool envelopeGateIsOpen() {
   if (!hasControlFlag(CONTROL_OUTPUT_ENABLED)) return false;
   if (hasControlFlag(CONTROL_PREVIEW_ENABLED)) return true;
@@ -346,34 +608,6 @@ bool envelopeGateIsOpen() {
     return false;
   }
   return anyVoiceEnabledAtCurrentStep();
-}
-
-float renderVoices() {
-  float mixed = 0.0f;
-  float totalLevel = 0.0f;
-
-  for (uint8_t voice = 0; voice < VOICE_COUNT; ++voice) {
-    float raw = oscillators[voice].Process();
-    if (!voiceIsAudible(voice)) continue;
-
-    float level = clampFloat(activeControl.voiceLevel[voice] / 100.0f, 0.0f, 1.0f);
-    mixed += wavefolders[voice].Process(raw) * level;
-    totalLevel += level;
-  }
-
-  if (totalLevel > 1.0f) mixed /= totalLevel;
-  return mixed;
-}
-
-float processFilter(float input) {
-  if (!hasControlFlag(CONTROL_FILTER_ENABLED)) return input;
-
-  filter.Process(input);
-  switch (activeControl.filterType) {
-    case 1: return filter.High();
-    case 2: return filter.Band();
-    default: return filter.Low();
-  }
 }
 
 float processKickDrive(float input) {
@@ -387,7 +621,10 @@ float processKickDrive(float input) {
   return input + (driven - input) * mix;
 }
 
-float processDelay(float input) {
+void processDelay(float inputLeft,
+                  float inputRight,
+                  float& outputLeft,
+                  float& outputRight) {
   float target = activeControl.delayTimeMs * sampleRate / 1000.0f;
   target = clampFloat(target, 1.0f, MAX_DELAY_SAMPLES - 2.0f);
   delaySamples += (target - delaySamples) * 0.00035f;
@@ -395,21 +632,180 @@ float processDelay(float input) {
 
   float delayed = delayLine.Read();
   float feedback = clampFloat(activeControl.delayFeedback / 100.0f, 0.0f, 0.90f);
-  delayLine.Write(clampFloat(input + delayed * feedback, -1.0f, 1.0f));
+  float monoInput = (inputLeft + inputRight) * 0.5f;
+  delayLine.Write(clampFloat(monoInput + delayed * feedback, -1.0f, 1.0f));
 
-  float mix = activeControl.delayMix / 100.0f;
-  return input + (delayed - input) * mix;
+  float mix = activeControl.delayMix / 100.0f +
+              synthEngine.GetGlobalModulation().delayMix;
+  mix = clampFloat(mix, 0.0f, 1.0f);
+  outputLeft = inputLeft + (delayed - inputLeft) * mix;
+  outputRight = inputRight + (delayed - inputRight) * mix;
 }
 
-void processReverb(float input, float& left, float& right) {
+void processReverb(float inputLeft, float inputRight, float& left, float& right) {
   float wetLeft = 0.0f;
   float wetRight = 0.0f;
-  reverb.Process(input, input, &wetLeft, &wetRight);
+  reverb.Process(inputLeft, inputRight, &wetLeft, &wetRight);
 
-  float mix = activeControl.reverbMix / 100.0f;
-  left = input + (wetLeft - input) * mix;
-  right = input + (wetRight - input) * mix;
+  float mix = activeControl.reverbMix / 100.0f +
+              synthEngine.GetGlobalModulation().reverbMix;
+  mix = clampFloat(mix, 0.0f, 1.0f);
+  left = inputLeft + (wetLeft - inputLeft) * mix;
+  right = inputRight + (wetRight - inputRight) * mix;
 }
+
+void initializeGlobalProcessors() {
+  kick.Init(sampleRate);
+  kickDrive.Init();
+  delaySamples = 12000.0f;
+  delayLine.Init();
+  delayLine.SetDelay(delaySamples);
+  reverb.Init(sampleRate);
+  reverb.SetFeedback(0.82f);
+  reverb.SetLpFreq(12000.0f);
+}
+
+#if SYNTH_ENABLE_STARTUP_VALIDATION
+void configureWorstCaseValidationPatch() {
+  for (size_t voice = 0; voice < PolyDsp::kMaxVoices; ++voice) {
+    synthEngine.SetVoiceParameter(
+      voice, PolyDsp::VoiceParameter::FilterEnabled, 1.0f
+    );
+    synthEngine.SetVoiceParameter(
+      voice, PolyDsp::VoiceParameter::FilterCutoff, 4200.0f
+    );
+    synthEngine.SetVoiceParameter(
+      voice, PolyDsp::VoiceParameter::FilterResonance, 0.35f
+    );
+    synthEngine.SetVoiceParameter(
+      voice, PolyDsp::VoiceParameter::NoiseLevel, 0.08f
+    );
+
+    for (size_t oscillator = 0;
+         oscillator < PolyDsp::kOscillatorsPerVoice;
+         ++oscillator) {
+      synthEngine.SetOscillatorParameter(
+        voice, oscillator, PolyDsp::OscillatorParameter::Enabled, 1.0f
+      );
+      synthEngine.SetOscillatorParameter(
+        voice, oscillator, PolyDsp::OscillatorParameter::Level, 0.30f
+      );
+      synthEngine.SetOscillatorParameter(
+        voice,
+        oscillator,
+        PolyDsp::OscillatorParameter::Waveform,
+        static_cast<float>(oscillator)
+      );
+    }
+
+    for (size_t envelope = 0;
+         envelope < PolyDsp::kEnvelopesPerVoice;
+         ++envelope) {
+      synthEngine.SetEnvelopeParameter(
+        voice, envelope, PolyDsp::EnvelopeParameter::Enabled, 1.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        voice, envelope, PolyDsp::EnvelopeParameter::Attack, 0.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        voice, envelope, PolyDsp::EnvelopeParameter::Decay, 1.0f
+      );
+      synthEngine.SetEnvelopeParameter(
+        voice, envelope, PolyDsp::EnvelopeParameter::Sustain, 0.8f
+      );
+    }
+
+    for (size_t lfo = 0; lfo < PolyDsp::kLfosPerVoice; ++lfo) {
+      synthEngine.SetLfoParameter(
+        voice, lfo, PolyDsp::LfoParameter::Enabled, 1.0f
+      );
+      synthEngine.SetLfoParameter(
+        voice, lfo, PolyDsp::LfoParameter::Frequency, 5.0f + lfo * 2.0f
+      );
+      synthEngine.SetLfoParameter(
+        voice, lfo, PolyDsp::LfoParameter::Amount, 0.35f
+      );
+    }
+
+    PolyDsp::ModulationRoute route;
+    route.enabled = true;
+    route.source = PolyDsp::ModSource::Env2;
+    route.destination = PolyDsp::ModDestination::FilterCutoff;
+    route.amount = 0.35f;
+    synthEngine.SetModulationRoute(voice, 1, route);
+
+    route.source = PolyDsp::ModSource::Env3;
+    route.destination = PolyDsp::ModDestination::Osc3Wavefold;
+    route.amount = 0.5f;
+    synthEngine.SetModulationRoute(voice, 2, route);
+
+    route.source = PolyDsp::ModSource::Lfo1;
+    route.destination = PolyDsp::ModDestination::AllOscPitch;
+    route.amount = 0.08f;
+    synthEngine.SetModulationRoute(voice, 3, route);
+
+    route.source = PolyDsp::ModSource::Lfo2;
+    route.destination = PolyDsp::ModDestination::Osc1PulseWidth;
+    route.amount = 0.3f;
+    synthEngine.SetModulationRoute(voice, 4, route);
+
+    route.destination = PolyDsp::ModDestination::DelayMix;
+    route.amount = 0.15f;
+    synthEngine.SetModulationRoute(voice, 5, route);
+
+    route.destination = PolyDsp::ModDestination::ReverbMix;
+    route.amount = 0.15f;
+    synthEngine.SetModulationRoute(voice, 6, route);
+  }
+}
+
+void runDspStartupValidation() {
+  configureWorstCaseValidationPatch();
+  synthEngine.NoteOn(60, 127);
+  synthEngine.NoteOn(64, 112);
+  synthEngine.NoteOn(67, 104);
+  synthEngine.NoteOn(71, 96);
+  bool fourVoicesAllocated = synthEngine.ActiveVoiceCount() == PolyDsp::kMaxVoices;
+
+  // With all four voices occupied, the fifth note must replace voice 0: it is
+  // the oldest voice because allocation starts at the first inactive slot.
+  synthEngine.NoteOn(76, 120);
+  bool oldestVoiceStolen =
+    synthEngine.ActiveVoiceCount() == PolyDsp::kMaxVoices &&
+    synthEngine.GetVoice(0).MidiNote() == 76;
+
+  kickDrive.SetDrive(0.8f);
+  bool finiteOutput = true;
+  float peak = 0.0f;
+  uint32_t startedAtUs = System::GetUs();
+  for (size_t frame = 0; frame < DSP_VALIDATION_FRAMES; ++frame) {
+    float voiceLeft = 0.0f;
+    float voiceRight = 0.0f;
+    synthEngine.Process(voiceLeft, voiceRight);
+    float kickSample = kickDrive.Process(kick.Process(frame == 0));
+    float dryLeft = voiceLeft + kickSample * 0.72f;
+    float dryRight = voiceRight + kickSample * 0.72f;
+    float delayedLeft = 0.0f;
+    float delayedRight = 0.0f;
+    float outputLeft = 0.0f;
+    float outputRight = 0.0f;
+    processDelay(dryLeft, dryRight, delayedLeft, delayedRight);
+    processReverb(delayedLeft, delayedRight, outputLeft, outputRight);
+
+    finiteOutput = finiteOutput && isfinite(outputLeft) && isfinite(outputRight);
+    float framePeak = fmaxf(fabsf(outputLeft), fabsf(outputRight));
+    if (framePeak > peak) peak = framePeak;
+  }
+  uint32_t elapsedUs = System::GetUs() - startedAtUs;
+  float availableUs = DSP_VALIDATION_FRAMES * 1000000.0f / sampleRate;
+
+  dspWorstCaseElapsedUs = elapsedUs;
+  dspWorstCaseLoadPercent = elapsedUs * 100.0f / availableUs;
+  dspValidationPeak = peak;
+  dspStartupValidationPassed = fourVoicesAllocated && oldestVoiceStolen &&
+                               finiteOutput && peak > 0.00001f;
+}
+#endif
 
 void audioCallback(AudioHandle::InterleavingInputBuffer,
                    AudioHandle::InterleavingOutputBuffer out,
@@ -434,14 +830,20 @@ void audioCallback(AudioHandle::InterleavingInputBuffer,
     } else {
       advanceSequencer();
 
-      float gate = ampEnvelope.Process(envelopeGateIsOpen());
-      float voices = processFilter(renderVoices() * gate);
+      synthEngine.SetCompatibilityGate(envelopeGateIsOpen());
+      float voiceLeft = 0.0f;
+      float voiceRight = 0.0f;
+      synthEngine.Process(voiceLeft, voiceRight);
       float kickSample = kick.Process(kickTriggerPending);
       kickTriggerPending = false;
       kickSample = processKickDrive(kickSample) * (activeControl.kickLevel / 100.0f);
 
-      float effected = processDelay(voices + kickSample * 0.72f);
-      processReverb(effected, left, right);
+      float dryLeft = voiceLeft + kickSample * 0.72f;
+      float dryRight = voiceRight + kickSample * 0.72f;
+      float delayedLeft = 0.0f;
+      float delayedRight = 0.0f;
+      processDelay(dryLeft, dryRight, delayedLeft, delayedRight);
+      processReverb(delayedLeft, delayedRight, left, right);
       left *= OUTPUT_GAIN;
       right *= OUTPUT_GAIN;
     }
@@ -484,38 +886,22 @@ void sendStatus(uint32_t now) {
 
 void initializeDsp() {
   sampleRate = hardware.AudioSampleRate();
-
-  for (uint8_t voice = 0; voice < VOICE_COUNT; ++voice) {
-    oscillators[voice].Init(sampleRate);
-    oscillators[voice].SetWaveform(Oscillator::WAVE_SIN);
-    oscillators[voice].SetFreq(220.0f);
-    oscillators[voice].SetAmp(1.0f);
-    wavefolders[voice].Init();
-    wavefolders[voice].SetGain(1.0f);
-  }
+  synthEngine.Init(sampleRate);
 
   testOscillator.Init(sampleRate);
   testOscillator.SetWaveform(Oscillator::WAVE_SIN);
   testOscillator.SetFreq(440.0f);
   testOscillator.SetAmp(1.0f);
 
-  ampEnvelope.Init(sampleRate);
-  ampEnvelope.SetAttackTime(0.01f);
-  ampEnvelope.SetDecayTime(0.08f);
-  ampEnvelope.SetSustainLevel(0.68f);
-  ampEnvelope.SetReleaseTime(0.32f);
+  initializeGlobalProcessors();
+#if SYNTH_ENABLE_STARTUP_VALIDATION
+  runDspStartupValidation();
 
-  filter.Init(sampleRate);
-  filter.SetFreq(2400.0f);
-  filter.SetRes(0.15f);
-
-  kick.Init(sampleRate);
-  kickDrive.Init();
-  delayLine.Init();
-  delayLine.SetDelay(delaySamples);
-  reverb.Init(sampleRate);
-  reverb.SetFeedback(0.82f);
-  reverb.SetLpFreq(12000.0f);
+  // Validation deliberately exercises every processor. Reinitialize the live
+  // state so startup sounds and the first UART snapshot see clean DSP state.
+  synthEngine.Init(sampleRate);
+  initializeGlobalProcessors();
+#endif
 }
 
 }  // namespace

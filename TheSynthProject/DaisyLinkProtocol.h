@@ -8,9 +8,10 @@
 // il callback audio della Daisy non deve fare parsing di testo o allocazioni.
 namespace DaisyLinkProtocol {
 
-// Version 3 expands patterns from one 16-step page to four 16-step pages.
+// Version 4 keeps the 64-step sequencer payload and appends the modern
+// three-oscillator/three-envelope/two-LFO patch plus 16 modulation routes.
 // Both boards must run firmware built from the same protocol version.
-constexpr uint8_t PROTOCOL_VERSION = 3;
+constexpr uint8_t PROTOCOL_VERSION = 4;
 constexpr uint8_t SYNC_0 = 0xD5;
 constexpr uint8_t SYNC_1 = 0x59;
 constexpr uint8_t CONTROL_PACKET_TYPE = 1;
@@ -18,6 +19,45 @@ constexpr uint8_t STATUS_PACKET_TYPE = 2;
 constexpr uint32_t UART_BAUD_RATE = 115200;
 constexpr int VOICE_COUNT = 2;
 constexpr int STEP_COUNT = 64;
+constexpr int OSCILLATOR_PARAMETER_COUNT = 3;
+constexpr int ENVELOPE_PARAMETER_COUNT = 3;
+constexpr int LFO_PARAMETER_COUNT = 2;
+constexpr int MODULATION_ROUTE_COUNT = 16;
+
+enum DspModSource : uint8_t {
+  DSP_MOD_ENV1,
+  DSP_MOD_ENV2,
+  DSP_MOD_ENV3,
+  DSP_MOD_LFO1,
+  DSP_MOD_LFO2,
+  DSP_MOD_VELOCITY,
+  DSP_MOD_NOTE_NUMBER,
+  DSP_MOD_KEY_TRACK
+};
+
+enum DspModDestination : uint8_t {
+  DSP_DEST_AMP,
+  DSP_DEST_FILTER_CUTOFF,
+  DSP_DEST_FILTER_RESONANCE,
+  DSP_DEST_OSC1_PITCH,
+  DSP_DEST_OSC2_PITCH,
+  DSP_DEST_OSC3_PITCH,
+  DSP_DEST_ALL_OSC_PITCH,
+  DSP_DEST_OSC1_LEVEL,
+  DSP_DEST_OSC2_LEVEL,
+  DSP_DEST_OSC3_LEVEL,
+  DSP_DEST_NOISE_LEVEL,
+  DSP_DEST_OSC1_PULSE_WIDTH,
+  DSP_DEST_OSC2_PULSE_WIDTH,
+  DSP_DEST_OSC3_PULSE_WIDTH,
+  DSP_DEST_OSC1_WAVEFOLD,
+  DSP_DEST_OSC2_WAVEFOLD,
+  DSP_DEST_OSC3_WAVEFOLD,
+  DSP_DEST_PAN,
+  DSP_DEST_DELAY_MIX,
+  DSP_DEST_REVERB_MIX,
+  DSP_DESTINATION_COUNT
+};
 
 enum ControlFlag : uint8_t {
   CONTROL_OUTPUT_ENABLED = 1U << 0,
@@ -38,6 +78,47 @@ enum StatusFlag : uint8_t {
 #else
 #define DAISY_LINK_PACKED
 #endif
+
+struct DAISY_LINK_PACKED OscillatorControlParameters {
+  uint8_t flags;
+  uint8_t waveform;
+  uint8_t levelPercent;
+  int8_t octave;
+  int8_t semitoneTune;
+  int8_t fineTuneCents;
+  uint8_t phasePercent;
+  uint8_t pulseWidthPercent;
+  uint8_t wavefoldPercent;
+  int8_t panPercent;
+  uint8_t keyTrackingPercent;
+  int8_t modulationAmountPercent;
+};
+
+struct DAISY_LINK_PACKED EnvelopeControlParameters {
+  uint8_t flags;
+  uint16_t attackMs;
+  uint16_t decayMs;
+  uint8_t sustainPercent;
+  uint16_t releaseMs;
+  int8_t amountPercent;
+  uint8_t velocitySensitivityPercent;
+};
+
+struct DAISY_LINK_PACKED LfoControlParameters {
+  uint8_t flags;
+  uint8_t waveform;
+  uint16_t frequencyCentiHz;
+  uint8_t phasePercent;
+  int8_t amountPercent;
+  uint8_t tempoDivision;
+};
+
+struct DAISY_LINK_PACKED ModulationRouteParameters {
+  uint8_t flags;
+  uint8_t source;
+  uint8_t destination;
+  int8_t amountPercent;
+};
 
 struct DAISY_LINK_PACKED PacketHeader {
   uint8_t sync0;
@@ -87,6 +168,14 @@ struct DAISY_LINK_PACKED ControlPayload {
   uint8_t delayFeedback;
   uint8_t reverbMix;
   uint8_t reverbRoom;
+
+  OscillatorControlParameters oscillators[OSCILLATOR_PARAMETER_COUNT];
+  EnvelopeControlParameters envelopes[ENVELOPE_PARAMETER_COUNT];
+  LfoControlParameters lfos[LFO_PARAMETER_COUNT];
+  ModulationRouteParameters modulationRoutes[MODULATION_ROUTE_COUNT];
+  uint8_t filterResonancePercent;
+  uint8_t noiseLevelPercent;
+  int8_t voicePanPercent;
 };
 
 struct DAISY_LINK_PACKED StatusPayload {
@@ -113,7 +202,7 @@ struct DAISY_LINK_PACKED StatusPacket {
 };
 
 static_assert(sizeof(PacketHeader) == 8, "Unexpected Daisy link header size");
-static_assert(sizeof(ControlPacket) < 256, "Control packet must fit the UART DMA buffer");
+static_assert(sizeof(ControlPacket) < 512, "Control packet must fit the UART DMA buffer");
 static_assert(sizeof(StatusPacket) < 64, "Status packet must stay small");
 
 inline uint16_t crc16Ccitt(const uint8_t* data, size_t size) {

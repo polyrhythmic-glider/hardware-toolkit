@@ -438,9 +438,12 @@ void refreshNeoKeySequencerPanel() {
   uint8_t changedBoards = 0;
 
   for (int i = 0; i < SEQUENCER_STEP_COUNT; i++) {
-    bool voice1Active = track == SEQUENCER_TRACK_VOICE_1 && isSequencerStepEnabled(0, i);
-    bool voice2Active = track == SEQUENCER_TRACK_VOICE_2 && isSequencerStepEnabled(1, i);
-    bool kickActive = track == SEQUENCER_TRACK_KICK && isKickStepEnabled(i);
+    // This is the combined pattern view: V1=red, V2=blue, kick=green.
+    // The selected track controls editing only; it must not hide the other
+    // lanes, otherwise the kick appears broken while V1 or V2 is selected.
+    bool voice1Active = isSequencerStepEnabled(0, i);
+    bool voice2Active = isSequencerStepEnabled(1, i);
+    bool kickActive = isKickStepEnabled(i);
     bool playhead = running && i == playStep;
     uint32_t color = neokeyStepColor(i, voice1Active, voice2Active, kickActive, playhead);
 

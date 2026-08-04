@@ -95,7 +95,7 @@ const int WAVE_SHAPE_COUNT = sizeof(waveformNames) / sizeof(waveformNames[0]);
 
 int waveform = 0;
 int frequency = 220;
-int volume = 80;
+int volume = DEFAULT_OUTPUT_VOLUME_PERCENT;
 AdsrParameters envelopeParameters[ENVELOPE_COUNT] = {
   { 10, 80, 68, 320 },
   { 10, 80, 68, 320 }

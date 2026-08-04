@@ -2,6 +2,7 @@
 
 // Shared UI/control limits. Audio rendering runs exclusively on Daisy Seed.
 constexpr int AUDIO_TEST_FREQUENCY_HZ = 440;
+constexpr int DEFAULT_OUTPUT_VOLUME_PERCENT = 70;
 constexpr int WAVE_VOICE_COUNT = 2;
 constexpr int DELAY_MAX_MS = 600;
 

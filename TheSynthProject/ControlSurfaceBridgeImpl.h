@@ -43,7 +43,7 @@ const char* parameterLabel(uint8_t page, uint8_t encoderIndex) {
   static const char* TUNING_LABELS[] = { "PITCH", "TUNE", "FINE" };
   static const char* ENVELOPE_LABELS[] = { "ATTACK", "DECAY", "SUSTAIN" };
   static const char* ENVELOPE_CLOCK_LABELS[] = { "RELEASE", "BPM", "LENGTH" };
-  static const char* MIXER_LABELS[] = { "MASTER", "TRACK", "NOTE" };
+  static const char* MIXER_LABELS[] = { "OUTPUT", "TRACK", "NOTE" };
   static const char* FILTER_LABELS[] = { "CUTOFF", "TYPE", "POWER" };
   static const char* DELAY_REVERB_LABELS[] = { "DELAY", "FEEDBACK", "REVERB" };
   static const char* KICK_SHAPE_LABELS[] = { "DECAY", "SWEEP", "DRIVE" };

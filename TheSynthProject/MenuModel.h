@@ -187,7 +187,7 @@ const MenuItem menuItems[] = {
   { "DET", "Voice Detune", ACTION_VOICE_DETUNE },
   { "SCP", "Voice Scope", ACTION_VOICE_SCOPE },
   { "TUNE", "Pitch", ACTION_PITCH },
-  { "GAIN", "Master Level", ACTION_LEVEL },
+  { "VOL", "Output Volume", ACTION_LEVEL },
   { "ADSR", "ADSR View", ACTION_ADSR },
   { "A", "Attack", ACTION_ATTACK },
   { "D", "Decay", ACTION_DECAY },
@@ -284,7 +284,6 @@ const uint8_t MENU_FILTER_ITEMS[] = {
   ITEM_FILTER_CUTOFF
 };
 const uint8_t MENU_MIXER_ITEMS[] = {
-  ITEM_LEVEL,
   ITEM_MIX_VOICE_1,
   ITEM_MIX_VOICE_2,
   ITEM_DELAY_MIX,
@@ -360,6 +359,7 @@ const uint8_t MENU_UTILITY_ITEMS[] = {
   ITEM_NEOKEY_DEBUG,
   ITEM_SERIAL_DEBUG,
   ITEM_CONNECTION_STATUS,
+  ITEM_LEVEL,
   ITEM_AUDIO_TEST,
   ITEM_ABOUT,
   ITEM_PRESET_SLOT,

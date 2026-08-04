@@ -711,7 +711,7 @@ void printSerialDiagnosticsSnapshot() {
   Serial.println(sequencerSelectedStep + 1);
   Serial.println("Clock owner: DAISY (playhead received over UART)");
 
-  Serial.print("Mixer master/V1/V2/kick: ");
+  Serial.print("Output/V1/V2/kick: ");
   Serial.print(volume);
   Serial.print("/");
   Serial.print(waveVoiceLevels[0]);

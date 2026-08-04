@@ -12,6 +12,8 @@ libreria. ESP32 controlla Level, Tune, Attack, Decay, Sweep e Drive. Il percorso
 dry resta a livello pieno: `Drive 0%` e' pulito, mentre valori superiori
 miscelano progressivamente la saturazione senza essere necessari per rendere
 udibile la voce.
+Il controllo `Utility > Output Volume` della ESP32 viene applicato alla fine
+della catena stereo e regola insieme voci, kick, effetti e test audio.
 
 Istruzioni complete, pinout e sequenza di collaudo:
 [`../TheSynthProject/DAISY_MIGRATION.md`](../TheSynthProject/DAISY_MIGRATION.md).

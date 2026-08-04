@@ -656,7 +656,7 @@ void drawLevelEdit(uint16_t accent) {
   char dbText[12];
   snprintf(dbText, sizeof(dbText), "%ddB", getRmsDbFs());
 
-  drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), "RMS", accent);
+  drawValueReadout(getValueText(getMenuItemIndex(selectedItem)), "OUTPUT", accent);
   printRight(dbText, 150, 67, 1, COL_INK);
 
   int leftFill = map(volume, 0, 100, 0, 62);

@@ -421,6 +421,8 @@ void audioCallback(AudioHandle::InterleavingInputBuffer,
     bool audioTest = outputEnabled && hasControlFlag(CONTROL_AUDIO_TEST_ENABLED);
     float targetLinkGain = linkActive ? 1.0f : 0.0f;
     linkGain += (targetLinkGain - linkGain) * 0.0015f;
+    float targetMaster = activeControl.masterVolume / 100.0f;
+    masterGain += (targetMaster - masterGain) * 0.0015f;
 
     float left = 0.0f;
     float right = 0.0f;
@@ -433,10 +435,7 @@ void audioCallback(AudioHandle::InterleavingInputBuffer,
       advanceSequencer();
 
       float gate = ampEnvelope.Process(envelopeGateIsOpen());
-      float targetMaster = activeControl.masterVolume / 100.0f;
-      masterGain += (targetMaster - masterGain) * 0.0015f;
-
-      float voices = processFilter(renderVoices() * gate * masterGain);
+      float voices = processFilter(renderVoices() * gate);
       float kickSample = kick.Process(kickTriggerPending);
       kickTriggerPending = false;
       kickSample = processKickDrive(kickSample) * (activeControl.kickLevel / 100.0f);
@@ -447,8 +446,9 @@ void audioCallback(AudioHandle::InterleavingInputBuffer,
       right *= OUTPUT_GAIN;
     }
 
-    left = clampFloat(left * linkGain, -1.0f, 1.0f);
-    right = clampFloat(right * linkGain, -1.0f, 1.0f);
+    float outputGain = masterGain * linkGain;
+    left = clampFloat(left * outputGain, -1.0f, 1.0f);
+    right = clampFloat(right * outputGain, -1.0f, 1.0f);
     out[i] = left;
     out[i + 1] = right;
   }

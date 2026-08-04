@@ -8,17 +8,23 @@
 enum EnvelopeId : uint8_t {
   ENVELOPE_ENV1,
   ENVELOPE_ENV2,
+  ENVELOPE_ENV3,
   ENVELOPE_COUNT
 };
 
 enum ModSourceId : uint8_t {
   MOD_SOURCE_ENV1,
   MOD_SOURCE_ENV2,
+  MOD_SOURCE_ENV3,
+  MOD_SOURCE_LFO1,
+  MOD_SOURCE_LFO2,
   MOD_SOURCE_COUNT
 };
 
 inline ModSourceId getEnvelopeModSource(int envelopeIndex) {
-  return envelopeIndex == ENVELOPE_ENV2 ? MOD_SOURCE_ENV2 : MOD_SOURCE_ENV1;
+  if (envelopeIndex == ENVELOPE_ENV3) return MOD_SOURCE_ENV3;
+  if (envelopeIndex == ENVELOPE_ENV2) return MOD_SOURCE_ENV2;
+  return MOD_SOURCE_ENV1;
 }
 
 enum ModDestinationId : uint8_t {
@@ -27,18 +33,20 @@ enum ModDestinationId : uint8_t {
   MOD_DEST_FILTER_RESONANCE,
   MOD_DEST_OSC1_PITCH,
   MOD_DEST_OSC2_PITCH,
-  MOD_DEST_OSC_MIX,
-  MOD_DEST_PWM,
-  MOD_DEST_FM_AMOUNT,
-  MOD_DEST_WAVEFOLD_AMOUNT,
-  MOD_DEST_DRIVE,
+  MOD_DEST_OSC3_PITCH,
+  MOD_DEST_ALL_OSC_PITCH,
+  MOD_DEST_OSC1_LEVEL,
+  MOD_DEST_OSC2_LEVEL,
+  MOD_DEST_OSC3_LEVEL,
+  MOD_DEST_NOISE_LEVEL,
+  MOD_DEST_OSC1_PULSE_WIDTH,
+  MOD_DEST_OSC2_PULSE_WIDTH,
+  MOD_DEST_OSC3_PULSE_WIDTH,
+  MOD_DEST_OSC1_WAVEFOLD,
+  MOD_DEST_OSC2_WAVEFOLD,
+  MOD_DEST_OSC3_WAVEFOLD,
   MOD_DEST_PAN,
-  MOD_DEST_LFO1_RATE,
-  MOD_DEST_LFO1_DEPTH,
-  MOD_DEST_LFO2_RATE,
-  MOD_DEST_LFO2_DEPTH,
-  MOD_DEST_FX_MIX,
-  MOD_DEST_DELAY_FEEDBACK,
+  MOD_DEST_DELAY_MIX,
   MOD_DEST_REVERB_MIX,
   MOD_DESTINATION_COUNT
 };
@@ -54,18 +62,20 @@ const ModDestinationInfo MOD_DESTINATIONS[MOD_DESTINATION_COUNT] = {
   { "RES", "Filter Resonance" },
   { "O1P", "Oscillator 1 Pitch" },
   { "O2P", "Oscillator 2 Pitch" },
-  { "MIX", "Oscillator Mix" },
-  { "PWM", "PWM" },
-  { "FM", "FM Amount" },
-  { "FOLD", "Wavefold Amount" },
-  { "DRV", "Drive" },
+  { "O3P", "Oscillator 3 Pitch" },
+  { "ALLP", "All Osc Pitch" },
+  { "O1L", "Oscillator 1 Level" },
+  { "O2L", "Oscillator 2 Level" },
+  { "O3L", "Oscillator 3 Level" },
+  { "NOISE", "Noise Level" },
+  { "O1PW", "Oscillator 1 PWM" },
+  { "O2PW", "Oscillator 2 PWM" },
+  { "O3PW", "Oscillator 3 PWM" },
+  { "O1F", "Oscillator 1 Fold" },
+  { "O2F", "Oscillator 2 Fold" },
+  { "O3F", "Oscillator 3 Fold" },
   { "PAN", "Pan" },
-  { "L1R", "LFO1 Rate" },
-  { "L1D", "LFO1 Depth" },
-  { "L2R", "LFO2 Rate" },
-  { "L2D", "LFO2 Depth" },
-  { "FX", "FX Mix" },
-  { "DFB", "Delay Feedback" },
+  { "DLY", "Delay Mix" },
   { "REV", "Reverb Mix" }
 };
 
@@ -79,6 +89,34 @@ struct AdsrParameters {
 struct ModRouteSettings {
   bool enabled;
   int8_t amountPercent;
+};
+
+enum LfoWaveformId : uint8_t {
+  LFO_WAVE_SINE,
+  LFO_WAVE_TRIANGLE,
+  LFO_WAVE_SAW,
+  LFO_WAVE_RAMP,
+  LFO_WAVE_SQUARE,
+  LFO_WAVE_SAMPLE_HOLD,
+  LFO_WAVE_COUNT
+};
+
+const char* const LFO_WAVEFORM_NAMES[LFO_WAVE_COUNT] = {
+  "SINE", "TRI", "SAW", "RAMP", "SQUARE", "S+H"
+};
+
+struct LfoControlParameters {
+  bool enabled;
+  uint8_t waveform;
+  int frequencyCentiHz;
+  int phasePercent;
+  bool bipolar;
+  int amountPercent;
+  bool retriggerOnNoteOn;
+  bool freeRunning;
+  bool tempoSync;
+  uint8_t tempoDivision;
+  uint8_t performanceDestination;
 };
 
 inline int clampModulationAmount(int amount) {

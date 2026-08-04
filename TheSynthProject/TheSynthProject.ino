@@ -98,8 +98,13 @@ int frequency = 220;
 int volume = DEFAULT_OUTPUT_VOLUME_PERCENT;
 AdsrParameters envelopeParameters[ENVELOPE_COUNT] = {
   { 10, 80, 68, 320 },
+  { 10, 80, 68, 320 },
   { 10, 80, 68, 320 }
 };
+bool envelopeEnabled[ENVELOPE_COUNT] = { true, false, false };
+int envelopeAmountPercent[ENVELOPE_COUNT] = { 100, 100, 100 };
+int envelopeVelocitySensitivityPercent[ENVELOPE_COUNT] = { 0, 0, 0 };
+int envelopeRetriggerMode[ENVELOPE_COUNT] = { 1, 1, 1 };
 ModRouteSettings modulationRoutes[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT] = {};
 // Compatibility aliases keep the existing control-surface page focused on
 // ENV1 while the TFT menu can select either independent envelope.
@@ -112,6 +117,9 @@ int wavePhase = 0;
 bool filterEnabled = false;
 int filterType = 0;
 int filterCutoff = 2400;
+int filterResonance = 15;
+int synthNoiseLevel = 0;
+int synthPan = 0;
 int delayMix = 0;
 int delayTimeMs = 280;
 int delayFeedback = 35;
@@ -134,11 +142,22 @@ int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool kickStepEnabled[SEQUENCER_STEP_COUNT] = {};
 uint16_t kickTriggerSequence = 0;
-int waveVoiceLevels[WAVE_VOICE_COUNT] = { 100, 100 };
-int waveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
-int waveVoiceTune[WAVE_VOICE_COUNT] = { 0, 0 };
-int waveVoiceFold[WAVE_VOICE_COUNT] = { 0, 0 };
-int waveVoiceDetune[WAVE_VOICE_COUNT] = { 0, 0 };
+bool oscillatorEnabled[SYNTH_OSCILLATOR_COUNT] = { true, true, false };
+int waveVoiceLevels[SYNTH_OSCILLATOR_COUNT] = { 100, 100, 0 };
+int waveVoiceShape[SYNTH_OSCILLATOR_COUNT] = { 0, 1, 0 };
+int waveVoiceTune[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
+int waveVoiceFold[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
+int waveVoiceDetune[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
+int oscillatorOctave[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
+int oscillatorPhasePercent[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
+int oscillatorPulseWidthPercent[SYNTH_OSCILLATOR_COUNT] = { 50, 50, 50 };
+int oscillatorPanPercent[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
+int oscillatorKeyTrackingPercent[SYNTH_OSCILLATOR_COUNT] = { 100, 100, 100 };
+int oscillatorModulationAmountPercent[SYNTH_OSCILLATOR_COUNT] = { 100, 100, 100 };
+LfoControlParameters lfoParameters[SYNTH_LFO_COUNT] = {
+  { false, LFO_WAVE_SINE, 100, 0, true, 0, false, true, false, 0, MOD_DEST_OSC1_PITCH },
+  { false, LFO_WAVE_TRIANGLE, 100, 0, true, 0, false, true, false, 0, MOD_DEST_FILTER_CUTOFF }
+};
 int kickLevel = 0;
 int kickPitch = 48;
 int kickDecay = 420;

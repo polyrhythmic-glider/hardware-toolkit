@@ -4,8 +4,9 @@
 #include <stddef.h>
 
 const uint32_t PRESET_MAGIC = 0x50474C44;
-// Versione 7: quattro pagine da 16 step, pagina visibile e auto-scroll.
-const uint16_t PRESET_VERSION = 7;
+// Versione 8: patch Daisy moderno (OSC3, ENV3, LFO e route estese).
+const uint16_t PRESET_VERSION = 8;
+const uint16_t LEGACY_PRESET_VERSION_7 = 7;
 const uint16_t LEGACY_PRESET_VERSION_6 = 6;
 const uint16_t LEGACY_PRESET_VERSION_5 = 5;
 const uint16_t LEGACY_PRESET_VERSION = 4;
@@ -14,6 +15,30 @@ const int PRESET_KICK_PATTERN_MAGIC = 0x4B49434B;
 const int LEGACY_SEQUENCER_STEP_COUNT_16 = 16;
 const int LEGACY_SEQUENCER_STEP_COUNT_8 = 8;
 const int PRESET_SLOT_COUNT = 8;
+const int LEGACY_ENVELOPE_COUNT = 2;
+const int LEGACY_MOD_SOURCE_COUNT = 2;
+const int LEGACY_MOD_DESTINATION_COUNT = 18;
+
+enum LegacyModDestinationV7 : uint8_t {
+  LEGACY_MOD_DEST_AMP_LEVEL,
+  LEGACY_MOD_DEST_FILTER_CUTOFF,
+  LEGACY_MOD_DEST_FILTER_RESONANCE,
+  LEGACY_MOD_DEST_OSC1_PITCH,
+  LEGACY_MOD_DEST_OSC2_PITCH,
+  LEGACY_MOD_DEST_OSC_MIX,
+  LEGACY_MOD_DEST_PWM,
+  LEGACY_MOD_DEST_FM_AMOUNT,
+  LEGACY_MOD_DEST_WAVEFOLD_AMOUNT,
+  LEGACY_MOD_DEST_DRIVE,
+  LEGACY_MOD_DEST_PAN,
+  LEGACY_MOD_DEST_LFO1_RATE,
+  LEGACY_MOD_DEST_LFO1_DEPTH,
+  LEGACY_MOD_DEST_LFO2_RATE,
+  LEGACY_MOD_DEST_LFO2_DEPTH,
+  LEGACY_MOD_DEST_FX_MIX,
+  LEGACY_MOD_DEST_DELAY_FEEDBACK,
+  LEGACY_MOD_DEST_REVERB_MIX
+};
 
 struct SynthPreset {
   uint32_t magic;
@@ -53,6 +78,68 @@ struct SynthPreset {
   int reverbRoom;
   AdsrParameters envelopeParameters[ENVELOPE_COUNT];
   ModRouteSettings modulationRoutes[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT];
+  bool oscillatorEnabled[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorLevels[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorShape[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorTune[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorFold[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorDetune[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorOctave[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorPhasePercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorPulseWidthPercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorPanPercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorKeyTrackingPercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorModulationAmountPercent[SYNTH_OSCILLATOR_COUNT];
+  bool envelopeEnabled[ENVELOPE_COUNT];
+  int envelopeAmountPercent[ENVELOPE_COUNT];
+  int envelopeVelocitySensitivityPercent[ENVELOPE_COUNT];
+  int envelopeRetriggerMode[ENVELOPE_COUNT];
+  LfoControlParameters lfoParameters[SYNTH_LFO_COUNT];
+  int filterResonance;
+  int synthNoiseLevel;
+  int synthPan;
+};
+
+// Layout v7 esatto, prima dell'estensione del patch DSP Daisy.
+struct LegacySynthPresetV7 {
+  uint32_t magic;
+  uint16_t version;
+  int frequency;
+  int volume;
+  int attack;
+  int decay;
+  int sustain;
+  int releaseMs;
+  bool filterEnabled;
+  int filterType;
+  int filterCutoff;
+  int waveVoiceLevels[WAVE_VOICE_COUNT];
+  int waveVoiceShape[WAVE_VOICE_COUNT];
+  int waveVoiceTune[WAVE_VOICE_COUNT];
+  int waveVoiceFold[WAVE_VOICE_COUNT];
+  int waveVoiceDetune[WAVE_VOICE_COUNT];
+  int kickLevel;
+  int kickPitch;
+  int kickDecay;
+  int kickSweep;
+  int kickAttack;
+  int kickDrive;
+  int sequencerBpm;
+  int sequencerLength;
+  int reservedSequencerA;
+  int reservedSequencerB;
+  int reservedSequencerC;
+  int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int reservedStepData[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int delayMix;
+  int delayTimeMs;
+  int delayFeedback;
+  int reverbMix;
+  int reverbRoom;
+  AdsrParameters envelopeParameters[LEGACY_ENVELOPE_COUNT];
+  ModRouteSettings
+    modulationRoutes[LEGACY_MOD_SOURCE_COUNT][LEGACY_MOD_DESTINATION_COUNT];
 };
 
 // Layout v4 precedente all'introduzione della modulation matrix.
@@ -131,13 +218,14 @@ struct LegacySynthPresetV6 {
   int delayFeedback;
   int reverbMix;
   int reverbRoom;
-  AdsrParameters envelopeParameters[ENVELOPE_COUNT];
-  ModRouteSettings modulationRoutes[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT];
+  AdsrParameters envelopeParameters[LEGACY_ENVELOPE_COUNT];
+  ModRouteSettings
+    modulationRoutes[LEGACY_MOD_SOURCE_COUNT][LEGACY_MOD_DESTINATION_COUNT];
 };
 
 static_assert(offsetof(LegacySynthPresetV6, envelopeParameters) == sizeof(LegacySynthPresetV4),
               "Preset v5/v6 must retain the complete v4 prefix");
-static_assert(offsetof(SynthPreset, sequencerStepPitches) ==
+static_assert(offsetof(LegacySynthPresetV7, sequencerStepPitches) ==
               offsetof(LegacySynthPresetV6, sequencerStepPitches),
               "Preset v7 must retain the scalar v6 prefix");
 
@@ -225,10 +313,115 @@ void convertLegacyStepOffsetsToPitches(LegacySynthPresetV6& preset) {
   }
 }
 
-void migrateLegacyPresetV6(const LegacySynthPresetV6& legacy, SynthPreset& migrated) {
+void initializeModernPresetDefaults(SynthPreset& preset) {
+  for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; ++oscillator) {
+    preset.oscillatorEnabled[oscillator] = oscillator < WAVE_VOICE_COUNT;
+    preset.oscillatorLevels[oscillator] = oscillator < WAVE_VOICE_COUNT ? 100 : 0;
+    preset.oscillatorShape[oscillator] = oscillator == 1 ? 1 : 0;
+    preset.oscillatorTune[oscillator] = 0;
+    preset.oscillatorFold[oscillator] = 0;
+    preset.oscillatorDetune[oscillator] = 0;
+    preset.oscillatorOctave[oscillator] = 0;
+    preset.oscillatorPhasePercent[oscillator] = 0;
+    preset.oscillatorPulseWidthPercent[oscillator] = 50;
+    preset.oscillatorPanPercent[oscillator] = 0;
+    preset.oscillatorKeyTrackingPercent[oscillator] = 100;
+    preset.oscillatorModulationAmountPercent[oscillator] = 100;
+  }
+
+  for (int envelope = 0; envelope < ENVELOPE_COUNT; ++envelope) {
+    preset.envelopeParameters[envelope] = { 10, 80, 68, 320 };
+    preset.envelopeEnabled[envelope] = envelope == ENVELOPE_ENV1;
+    preset.envelopeAmountPercent[envelope] = 100;
+    preset.envelopeVelocitySensitivityPercent[envelope] = 0;
+    preset.envelopeRetriggerMode[envelope] = 1;
+  }
+
+  for (int source = 0; source < MOD_SOURCE_COUNT; ++source) {
+    for (int destination = 0; destination < MOD_DESTINATION_COUNT; ++destination) {
+      preset.modulationRoutes[source][destination] = { false, 0 };
+    }
+  }
+  preset.modulationRoutes[MOD_SOURCE_ENV1][MOD_DEST_AMP_LEVEL] = { true, 100 };
+
+  preset.lfoParameters[0] = {
+    false, LFO_WAVE_SINE, 100, 0, true, 0, false, true, false, 0,
+    MOD_DEST_OSC1_PITCH
+  };
+  preset.lfoParameters[1] = {
+    false, LFO_WAVE_TRIANGLE, 100, 0, true, 0, false, true, false, 0,
+    MOD_DEST_FILTER_CUTOFF
+  };
+  preset.modulationRoutes[MOD_SOURCE_LFO1][MOD_DEST_OSC1_PITCH] = { true, 100 };
+  preset.modulationRoutes[MOD_SOURCE_LFO2][MOD_DEST_FILTER_CUTOFF] = { true, 100 };
+  preset.filterResonance = 15;
+  preset.synthNoiseLevel = 0;
+  preset.synthPan = 0;
+}
+
+int mapLegacyModDestinationV7(int legacyDestination) {
+  switch (legacyDestination) {
+    case LEGACY_MOD_DEST_AMP_LEVEL: return MOD_DEST_AMP_LEVEL;
+    case LEGACY_MOD_DEST_FILTER_CUTOFF: return MOD_DEST_FILTER_CUTOFF;
+    case LEGACY_MOD_DEST_FILTER_RESONANCE: return MOD_DEST_FILTER_RESONANCE;
+    case LEGACY_MOD_DEST_OSC1_PITCH: return MOD_DEST_OSC1_PITCH;
+    case LEGACY_MOD_DEST_OSC2_PITCH: return MOD_DEST_OSC2_PITCH;
+    case LEGACY_MOD_DEST_OSC_MIX: return MOD_DEST_ALL_OSC_PITCH;
+    case LEGACY_MOD_DEST_PWM: return MOD_DEST_OSC1_PULSE_WIDTH;
+    case LEGACY_MOD_DEST_FM_AMOUNT: return MOD_DEST_ALL_OSC_PITCH;
+    case LEGACY_MOD_DEST_WAVEFOLD_AMOUNT: return MOD_DEST_OSC1_WAVEFOLD;
+    case LEGACY_MOD_DEST_PAN: return MOD_DEST_PAN;
+    case LEGACY_MOD_DEST_FX_MIX: return MOD_DEST_DELAY_MIX;
+    case LEGACY_MOD_DEST_DELAY_FEEDBACK: return MOD_DEST_DELAY_MIX;
+    case LEGACY_MOD_DEST_REVERB_MIX: return MOD_DEST_REVERB_MIX;
+    default: return -1;
+  }
+}
+
+void migrateLegacyPresetV7(const LegacySynthPresetV7& legacy, SynthPreset& migrated) {
   migrated = {};
-  memcpy(&migrated, &legacy, offsetof(SynthPreset, sequencerStepPitches));
+  memcpy(&migrated, &legacy, offsetof(LegacySynthPresetV7, envelopeParameters));
   migrated.version = PRESET_VERSION;
+  initializeModernPresetDefaults(migrated);
+
+  memcpy(migrated.envelopeParameters,
+         legacy.envelopeParameters,
+         sizeof(legacy.envelopeParameters));
+  for (int source = 0; source < LEGACY_MOD_SOURCE_COUNT; ++source) {
+    for (int destination = 0; destination < MOD_DESTINATION_COUNT; ++destination) {
+      migrated.modulationRoutes[source][destination] = { false, 0 };
+    }
+
+    for (int legacyDestination = 0;
+         legacyDestination < LEGACY_MOD_DESTINATION_COUNT;
+         ++legacyDestination) {
+      const ModRouteSettings& legacyRoute =
+        legacy.modulationRoutes[source][legacyDestination];
+      int destination = mapLegacyModDestinationV7(legacyDestination);
+      if (!legacyRoute.enabled || destination < 0) continue;
+
+      ModRouteSettings& route = migrated.modulationRoutes[source][destination];
+      route.enabled = true;
+      route.amountPercent = (int8_t)clampModulationAmount(
+        (int)route.amountPercent + (int)legacyRoute.amountPercent
+      );
+    }
+  }
+
+  for (int oscillator = 0; oscillator < WAVE_VOICE_COUNT; ++oscillator) {
+    migrated.oscillatorLevels[oscillator] = legacy.waveVoiceLevels[oscillator];
+    migrated.oscillatorShape[oscillator] = legacy.waveVoiceShape[oscillator];
+    migrated.oscillatorTune[oscillator] = legacy.waveVoiceTune[oscillator];
+    migrated.oscillatorFold[oscillator] = legacy.waveVoiceFold[oscillator];
+    migrated.oscillatorDetune[oscillator] = legacy.waveVoiceDetune[oscillator];
+  }
+}
+
+void migrateLegacyPresetV6(const LegacySynthPresetV6& legacy,
+                           LegacySynthPresetV7& migrated) {
+  migrated = {};
+  memcpy(&migrated, &legacy, offsetof(LegacySynthPresetV7, sequencerStepPitches));
+  migrated.version = LEGACY_PRESET_VERSION_7;
   migrated.reservedSequencerA = 1;  // auto-scroll enabled by default
   migrated.reservedSequencerB = 0;  // first page
 
@@ -250,11 +443,16 @@ void migrateLegacyPresetV6(const LegacySynthPresetV6& legacy, SynthPreset& migra
   migrated.delayFeedback = legacy.delayFeedback;
   migrated.reverbMix = legacy.reverbMix;
   migrated.reverbRoom = legacy.reverbRoom;
-  memcpy(migrated.envelopeParameters, legacy.envelopeParameters, sizeof(migrated.envelopeParameters));
-  memcpy(migrated.modulationRoutes, legacy.modulationRoutes, sizeof(migrated.modulationRoutes));
+  memcpy(migrated.envelopeParameters,
+         legacy.envelopeParameters,
+         sizeof(legacy.envelopeParameters));
+  memcpy(migrated.modulationRoutes,
+         legacy.modulationRoutes,
+         sizeof(legacy.modulationRoutes));
 }
 
 void capturePreset(SynthPreset& preset) {
+  preset = {};
   preset.magic = PRESET_MAGIC;
   preset.version = PRESET_VERSION;
   preset.frequency = frequency;
@@ -266,11 +464,11 @@ void capturePreset(SynthPreset& preset) {
   preset.filterEnabled = filterEnabled;
   preset.filterType = filterType;
   preset.filterCutoff = filterCutoff;
-  memcpy(preset.waveVoiceLevels, waveVoiceLevels, sizeof(waveVoiceLevels));
-  memcpy(preset.waveVoiceShape, waveVoiceShape, sizeof(waveVoiceShape));
-  memcpy(preset.waveVoiceTune, waveVoiceTune, sizeof(waveVoiceTune));
-  memcpy(preset.waveVoiceFold, waveVoiceFold, sizeof(waveVoiceFold));
-  memcpy(preset.waveVoiceDetune, waveVoiceDetune, sizeof(waveVoiceDetune));
+  memcpy(preset.waveVoiceLevels, waveVoiceLevels, sizeof(preset.waveVoiceLevels));
+  memcpy(preset.waveVoiceShape, waveVoiceShape, sizeof(preset.waveVoiceShape));
+  memcpy(preset.waveVoiceTune, waveVoiceTune, sizeof(preset.waveVoiceTune));
+  memcpy(preset.waveVoiceFold, waveVoiceFold, sizeof(preset.waveVoiceFold));
+  memcpy(preset.waveVoiceDetune, waveVoiceDetune, sizeof(preset.waveVoiceDetune));
   preset.kickLevel = kickLevel;
   preset.kickPitch = kickPitch;
   preset.kickDecay = kickDecay;
@@ -296,6 +494,42 @@ void capturePreset(SynthPreset& preset) {
   preset.reverbRoom = reverbRoom;
   memcpy(preset.envelopeParameters, envelopeParameters, sizeof(envelopeParameters));
   memcpy(preset.modulationRoutes, modulationRoutes, sizeof(modulationRoutes));
+  memcpy(preset.oscillatorEnabled, oscillatorEnabled, sizeof(oscillatorEnabled));
+  memcpy(preset.oscillatorLevels, waveVoiceLevels, sizeof(waveVoiceLevels));
+  memcpy(preset.oscillatorShape, waveVoiceShape, sizeof(waveVoiceShape));
+  memcpy(preset.oscillatorTune, waveVoiceTune, sizeof(waveVoiceTune));
+  memcpy(preset.oscillatorFold, waveVoiceFold, sizeof(waveVoiceFold));
+  memcpy(preset.oscillatorDetune, waveVoiceDetune, sizeof(waveVoiceDetune));
+  memcpy(preset.oscillatorOctave, oscillatorOctave, sizeof(oscillatorOctave));
+  memcpy(preset.oscillatorPhasePercent,
+         oscillatorPhasePercent,
+         sizeof(oscillatorPhasePercent));
+  memcpy(preset.oscillatorPulseWidthPercent,
+         oscillatorPulseWidthPercent,
+         sizeof(oscillatorPulseWidthPercent));
+  memcpy(preset.oscillatorPanPercent,
+         oscillatorPanPercent,
+         sizeof(oscillatorPanPercent));
+  memcpy(preset.oscillatorKeyTrackingPercent,
+         oscillatorKeyTrackingPercent,
+         sizeof(oscillatorKeyTrackingPercent));
+  memcpy(preset.oscillatorModulationAmountPercent,
+         oscillatorModulationAmountPercent,
+         sizeof(oscillatorModulationAmountPercent));
+  memcpy(preset.envelopeEnabled, envelopeEnabled, sizeof(envelopeEnabled));
+  memcpy(preset.envelopeAmountPercent,
+         envelopeAmountPercent,
+         sizeof(envelopeAmountPercent));
+  memcpy(preset.envelopeVelocitySensitivityPercent,
+         envelopeVelocitySensitivityPercent,
+         sizeof(envelopeVelocitySensitivityPercent));
+  memcpy(preset.envelopeRetriggerMode,
+         envelopeRetriggerMode,
+         sizeof(envelopeRetriggerMode));
+  memcpy(preset.lfoParameters, lfoParameters, sizeof(lfoParameters));
+  preset.filterResonance = filterResonance;
+  preset.synthNoiseLevel = synthNoiseLevel;
+  preset.synthPan = synthPan;
 }
 
 void applyPreset(const SynthPreset& preset) {
@@ -308,13 +542,46 @@ void applyPreset(const SynthPreset& preset) {
   filterEnabled = preset.filterEnabled;
   filterType = preset.filterType;
   filterCutoff = preset.filterCutoff;
-  memcpy(waveVoiceLevels, preset.waveVoiceLevels, sizeof(waveVoiceLevels));
-  memcpy(waveVoiceShape, preset.waveVoiceShape, sizeof(waveVoiceShape));
-  memcpy(waveVoiceTune, preset.waveVoiceTune, sizeof(waveVoiceTune));
-  memcpy(waveVoiceFold, preset.waveVoiceFold, sizeof(waveVoiceFold));
-  memcpy(waveVoiceDetune, preset.waveVoiceDetune, sizeof(waveVoiceDetune));
-  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
-    waveVoiceDetune[voice] = clampPresetInt(waveVoiceDetune[voice], -50, 50);
+  memcpy(waveVoiceLevels, preset.oscillatorLevels, sizeof(waveVoiceLevels));
+  memcpy(waveVoiceShape, preset.oscillatorShape, sizeof(waveVoiceShape));
+  memcpy(waveVoiceTune, preset.oscillatorTune, sizeof(waveVoiceTune));
+  memcpy(waveVoiceFold, preset.oscillatorFold, sizeof(waveVoiceFold));
+  memcpy(waveVoiceDetune, preset.oscillatorDetune, sizeof(waveVoiceDetune));
+  memcpy(oscillatorEnabled, preset.oscillatorEnabled, sizeof(oscillatorEnabled));
+  memcpy(oscillatorOctave, preset.oscillatorOctave, sizeof(oscillatorOctave));
+  memcpy(oscillatorPhasePercent,
+         preset.oscillatorPhasePercent,
+         sizeof(oscillatorPhasePercent));
+  memcpy(oscillatorPulseWidthPercent,
+         preset.oscillatorPulseWidthPercent,
+         sizeof(oscillatorPulseWidthPercent));
+  memcpy(oscillatorPanPercent,
+         preset.oscillatorPanPercent,
+         sizeof(oscillatorPanPercent));
+  memcpy(oscillatorKeyTrackingPercent,
+         preset.oscillatorKeyTrackingPercent,
+         sizeof(oscillatorKeyTrackingPercent));
+  memcpy(oscillatorModulationAmountPercent,
+         preset.oscillatorModulationAmountPercent,
+         sizeof(oscillatorModulationAmountPercent));
+  for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; oscillator++) {
+    waveVoiceLevels[oscillator] = clampPresetInt(waveVoiceLevels[oscillator], 0, 100);
+    waveVoiceShape[oscillator] = clampPresetInt(waveVoiceShape[oscillator], 0, WAVE_SHAPE_COUNT - 1);
+    waveVoiceTune[oscillator] = clampPresetInt(waveVoiceTune[oscillator], -48, 48);
+    waveVoiceFold[oscillator] = clampPresetInt(waveVoiceFold[oscillator], 0, 100);
+    waveVoiceDetune[oscillator] = clampPresetInt(waveVoiceDetune[oscillator], -100, 100);
+    oscillatorOctave[oscillator] = clampPresetInt(oscillatorOctave[oscillator], -4, 4);
+    oscillatorPhasePercent[oscillator] = clampPresetInt(oscillatorPhasePercent[oscillator], 0, 100);
+    oscillatorPulseWidthPercent[oscillator] = clampPresetInt(
+      oscillatorPulseWidthPercent[oscillator], 1, 99
+    );
+    oscillatorPanPercent[oscillator] = clampPresetInt(oscillatorPanPercent[oscillator], -100, 100);
+    oscillatorKeyTrackingPercent[oscillator] = clampPresetInt(
+      oscillatorKeyTrackingPercent[oscillator], 0, 100
+    );
+    oscillatorModulationAmountPercent[oscillator] = clampPresetInt(
+      oscillatorModulationAmountPercent[oscillator], -100, 100
+    );
   }
   kickLevel = preset.kickLevel;
   kickPitch = preset.kickPitch;
@@ -353,11 +620,30 @@ void applyPreset(const SynthPreset& preset) {
   reverbRoom = preset.reverbRoom;
   memcpy(envelopeParameters, preset.envelopeParameters, sizeof(envelopeParameters));
   memcpy(modulationRoutes, preset.modulationRoutes, sizeof(modulationRoutes));
+  memcpy(envelopeEnabled, preset.envelopeEnabled, sizeof(envelopeEnabled));
+  memcpy(envelopeAmountPercent,
+         preset.envelopeAmountPercent,
+         sizeof(envelopeAmountPercent));
+  memcpy(envelopeVelocitySensitivityPercent,
+         preset.envelopeVelocitySensitivityPercent,
+         sizeof(envelopeVelocitySensitivityPercent));
+  memcpy(envelopeRetriggerMode,
+         preset.envelopeRetriggerMode,
+         sizeof(envelopeRetriggerMode));
+  memcpy(lfoParameters, preset.lfoParameters, sizeof(lfoParameters));
+  filterResonance = clampPresetInt(preset.filterResonance, 0, 100);
+  synthNoiseLevel = clampPresetInt(preset.synthNoiseLevel, 0, 100);
+  synthPan = clampPresetInt(preset.synthPan, -100, 100);
   for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
     envelopeParameters[envelope].attackMs = clampPresetInt(envelopeParameters[envelope].attackMs, 0, 500);
     envelopeParameters[envelope].decayMs = clampPresetInt(envelopeParameters[envelope].decayMs, 0, 2000);
     envelopeParameters[envelope].sustainPercent = clampPresetInt(envelopeParameters[envelope].sustainPercent, 0, 100);
     envelopeParameters[envelope].releaseMs = clampPresetInt(envelopeParameters[envelope].releaseMs, 0, 3000);
+    envelopeAmountPercent[envelope] = clampPresetInt(envelopeAmountPercent[envelope], -100, 100);
+    envelopeVelocitySensitivityPercent[envelope] = clampPresetInt(
+      envelopeVelocitySensitivityPercent[envelope], 0, 100
+    );
+    envelopeRetriggerMode[envelope] = clampPresetInt(envelopeRetriggerMode[envelope], 0, 2);
   }
   for (int source = 0; source < MOD_SOURCE_COUNT; source++) {
     for (int destination = 0; destination < MOD_DESTINATION_COUNT; destination++) {
@@ -366,8 +652,27 @@ void applyPreset(const SynthPreset& preset) {
       );
     }
   }
+  for (int lfo = 0; lfo < SYNTH_LFO_COUNT; ++lfo) {
+    lfoParameters[lfo].waveform = (uint8_t)clampPresetInt(
+      lfoParameters[lfo].waveform, 0, LFO_WAVE_COUNT - 1
+    );
+    lfoParameters[lfo].frequencyCentiHz = clampPresetInt(
+      lfoParameters[lfo].frequencyCentiHz, 0, 20000
+    );
+    lfoParameters[lfo].phasePercent = clampPresetInt(lfoParameters[lfo].phasePercent, 0, 100);
+    lfoParameters[lfo].amountPercent = clampPresetInt(lfoParameters[lfo].amountPercent, -100, 100);
+    lfoParameters[lfo].performanceDestination = (uint8_t)clampPresetInt(
+      lfoParameters[lfo].performanceDestination, 0, MOD_DESTINATION_COUNT - 1
+    );
+  }
   clampSequencerIndexes();
   resetSequencerClock();
+}
+
+void applyLegacyPresetV7(const LegacySynthPresetV7& legacy) {
+  SynthPreset migrated;
+  migrateLegacyPresetV7(legacy, migrated);
+  applyPreset(migrated);
 }
 
 void applyLegacyPresetV4(const LegacySynthPresetV4& preset) {
@@ -381,9 +686,9 @@ void applyLegacyPresetV4(const LegacySynthPresetV4& preset) {
   expanded.modulationRoutes[MOD_SOURCE_ENV1][MOD_DEST_AMP_LEVEL].amountPercent = 100;
   convertLegacyStepOffsetsToPitches(expanded);
 
-  SynthPreset migrated;
+  LegacySynthPresetV7 migrated;
   migrateLegacyPresetV6(expanded, migrated);
-  applyPreset(migrated);
+  applyLegacyPresetV7(migrated);
 }
 
 void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
@@ -396,11 +701,11 @@ void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
   filterEnabled = preset.filterEnabled;
   filterType = preset.filterType;
   filterCutoff = preset.filterCutoff;
-  memcpy(waveVoiceLevels, preset.waveVoiceLevels, sizeof(waveVoiceLevels));
-  memcpy(waveVoiceShape, preset.waveVoiceShape, sizeof(waveVoiceShape));
-  memcpy(waveVoiceTune, preset.waveVoiceTune, sizeof(waveVoiceTune));
-  memcpy(waveVoiceFold, preset.waveVoiceFold, sizeof(waveVoiceFold));
-  memcpy(waveVoiceDetune, preset.waveVoiceDetune, sizeof(waveVoiceDetune));
+  memcpy(waveVoiceLevels, preset.waveVoiceLevels, sizeof(preset.waveVoiceLevels));
+  memcpy(waveVoiceShape, preset.waveVoiceShape, sizeof(preset.waveVoiceShape));
+  memcpy(waveVoiceTune, preset.waveVoiceTune, sizeof(preset.waveVoiceTune));
+  memcpy(waveVoiceFold, preset.waveVoiceFold, sizeof(preset.waveVoiceFold));
+  memcpy(waveVoiceDetune, preset.waveVoiceDetune, sizeof(preset.waveVoiceDetune));
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
     waveVoiceDetune[voice] = clampPresetInt(waveVoiceDetune[voice], -50, 50);
   }
@@ -445,6 +750,42 @@ void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
   reverbMix = preset.reverbMix;
   reverbRoom = preset.reverbRoom;
   envelopeParameters[ENVELOPE_ENV2] = { 10, 80, 68, 320 };
+  envelopeParameters[ENVELOPE_ENV3] = { 10, 80, 68, 320 };
+  oscillatorEnabled[0] = true;
+  oscillatorEnabled[1] = true;
+  oscillatorEnabled[2] = false;
+  waveVoiceLevels[2] = 0;
+  waveVoiceShape[2] = 0;
+  waveVoiceTune[2] = 0;
+  waveVoiceFold[2] = 0;
+  waveVoiceDetune[2] = 0;
+  for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; ++oscillator) {
+    oscillatorOctave[oscillator] = 0;
+    oscillatorPhasePercent[oscillator] = 0;
+    oscillatorPulseWidthPercent[oscillator] = 50;
+    oscillatorPanPercent[oscillator] = 0;
+    oscillatorKeyTrackingPercent[oscillator] = 100;
+    oscillatorModulationAmountPercent[oscillator] = 100;
+  }
+  envelopeEnabled[0] = true;
+  envelopeEnabled[1] = false;
+  envelopeEnabled[2] = false;
+  for (int envelope = 0; envelope < ENVELOPE_COUNT; ++envelope) {
+    envelopeAmountPercent[envelope] = 100;
+    envelopeVelocitySensitivityPercent[envelope] = 0;
+    envelopeRetriggerMode[envelope] = 1;
+  }
+  lfoParameters[0] = {
+    false, LFO_WAVE_SINE, 100, 0, true, 0, false, true, false, 0,
+    MOD_DEST_OSC1_PITCH
+  };
+  lfoParameters[1] = {
+    false, LFO_WAVE_TRIANGLE, 100, 0, true, 0, false, true, false, 0,
+    MOD_DEST_FILTER_CUTOFF
+  };
+  filterResonance = 15;
+  synthNoiseLevel = 0;
+  synthPan = 0;
   initializeDefaultModulationRouting();
   clampSequencerIndexes();
   resetSequencerClock();
@@ -478,6 +819,16 @@ bool loadCurrentPreset() {
     return true;
   }
 
+  if (storedSize == sizeof(LegacySynthPresetV7)) {
+    LegacySynthPresetV7 preset;
+    size_t read = preferences.getBytes(key, &preset, sizeof(preset));
+    preferences.end();
+    if (read != sizeof(preset) || preset.magic != PRESET_MAGIC ||
+        preset.version != LEGACY_PRESET_VERSION_7) return false;
+    applyLegacyPresetV7(preset);
+    return true;
+  }
+
   if (storedSize == sizeof(LegacySynthPresetV6)) {
     LegacySynthPresetV6 preset;
     size_t read = preferences.getBytes(key, &preset, sizeof(preset));
@@ -488,9 +839,9 @@ bool loadCurrentPreset() {
     if (preset.version == LEGACY_PRESET_VERSION_5) {
       convertLegacyStepOffsetsToPitches(preset);
     }
-    SynthPreset migrated;
+    LegacySynthPresetV7 migrated;
     migrateLegacyPresetV6(preset, migrated);
-    applyPreset(migrated);
+    applyLegacyPresetV7(migrated);
     return true;
   }
 

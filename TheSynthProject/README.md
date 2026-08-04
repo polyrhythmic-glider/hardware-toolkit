@@ -47,6 +47,13 @@ ogni pressione stabile e aggiornano solo i LED realmente cambiati. La vista LED
 corsie usano lo stesso step, mentre la traccia selezionata decide solo cosa si
 modifica.
 
+La traccia kick pilota il modello `SyntheticBassDrum` di DaisySP, scelto per il
+carattere 909. Sui mini OLED la pagina `909 MAIN` assegna E1-E3 a Level, Tune e
+Attack; `909 SHAPE` assegna E1-E3 a Decay, Sweep e Drive. Il quarto encoder
+continua a cambiare pagina e il suo OLED mostra il `PAGE MENU`. I preset
+precedenti restano leggibili: il vecchio valore `Click` viene interpretato come
+`Attack` nello stesso campo salvato.
+
 Nel menu TFT, `Utility > Control Surface` permette di scegliere con
 l'encoder master una delle sei modalità OLED. Control surface e diagnostica
 hardware sono raccolte in `Utility`.

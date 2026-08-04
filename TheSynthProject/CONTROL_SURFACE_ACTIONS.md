@@ -12,6 +12,19 @@ Azioni del click sull'encoder E3 nella control surface OLED:
 | Sequencer | Toggle step on/rest della track attiva |
 | Transport | Start/stop transport |
 
+Quando la traccia TFT e' `KICK`, i tre mini OLED parametrici espongono la voce
+909 della Daisy:
+
+| Pagina OLED | E1 | E2 | E3 |
+| --- | --- | --- | --- |
+| `909 MAIN` | Level | Tune | Attack |
+| `909 SHAPE` | Decay | Sweep | Drive |
+
+La voce usa `DaisySP::SyntheticBassDrum`: Tune regola la fondamentale, Attack
+il transiente, Decay la coda, Sweep l'inviluppo di pitch e Drive miscela la
+saturazione conservando il percorso dry. E3 premuto fa sempre il preview del
+kick nelle due pagine 909; E4 ruotato cambia pagina.
+
 Note sequencer:
 
 - Track `V1`: i NeoKey scrivono solo la sequenza V1.

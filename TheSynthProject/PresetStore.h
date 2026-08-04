@@ -34,7 +34,7 @@ struct SynthPreset {
   int kickPitch;
   int kickDecay;
   int kickSweep;
-  int kickClick;
+  int kickAttack;
   int kickDrive;
   int sequencerBpm;
   int sequencerLength;
@@ -75,7 +75,7 @@ struct LegacySynthPresetV4 {
   int kickPitch;
   int kickDecay;
   int kickSweep;
-  int kickClick;
+  int kickAttack;
   int kickDrive;
   int sequencerBpm;
   int sequencerLength;
@@ -117,7 +117,7 @@ struct LegacySynthPresetV3 {
   int kickPitch;
   int kickDecay;
   int kickSweep;
-  int kickClick;
+  int kickAttack;
   int kickDrive;
   int sequencerBpm;
   int sequencerLength;
@@ -200,7 +200,7 @@ void capturePreset(SynthPreset& preset) {
   preset.kickPitch = kickPitch;
   preset.kickDecay = kickDecay;
   preset.kickSweep = kickSweep;
-  preset.kickClick = kickClick;
+  preset.kickAttack = kickAttack;
   preset.kickDrive = kickDrive;
   preset.sequencerBpm = sequencerBpm;
   preset.sequencerLength = sequencerLength;
@@ -247,8 +247,14 @@ void applyPreset(const SynthPreset& preset) {
   kickPitch = preset.kickPitch;
   kickDecay = preset.kickDecay;
   kickSweep = preset.kickSweep;
-  kickClick = preset.kickClick;
+  kickAttack = preset.kickAttack;
   kickDrive = preset.kickDrive;
+  kickLevel = clampPresetInt(kickLevel, 0, 100);
+  kickPitch = clampPresetInt(kickPitch, 25, 120);
+  kickDecay = clampPresetInt(kickDecay, 80, 1200);
+  kickSweep = clampPresetInt(kickSweep, 0, 260);
+  kickAttack = clampPresetInt(kickAttack, 0, 100);
+  kickDrive = clampPresetInt(kickDrive, 0, 100);
   sequencerBpm = preset.sequencerBpm;
   sequencerLength = preset.sequencerLength;
   memcpy(sequencerStepPitches, preset.sequencerStepPitches, sizeof(sequencerStepPitches));
@@ -325,8 +331,14 @@ void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
   kickPitch = preset.kickPitch;
   kickDecay = preset.kickDecay;
   kickSweep = preset.kickSweep;
-  kickClick = preset.kickClick;
+  kickAttack = preset.kickAttack;
   kickDrive = preset.kickDrive;
+  kickLevel = clampPresetInt(kickLevel, 0, 100);
+  kickPitch = clampPresetInt(kickPitch, 25, 120);
+  kickDecay = clampPresetInt(kickDecay, 80, 1200);
+  kickSweep = clampPresetInt(kickSweep, 0, 260);
+  kickAttack = clampPresetInt(kickAttack, 0, 100);
+  kickDrive = clampPresetInt(kickDrive, 0, 100);
   sequencerBpm = preset.sequencerBpm;
   sequencerLength = preset.sequencerLength;
   if (sequencerLength < 1) sequencerLength = 1;

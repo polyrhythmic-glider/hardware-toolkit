@@ -79,7 +79,7 @@ struct DAISY_LINK_PACKED ControlPayload {
   uint8_t kickPitchHz;
   uint16_t kickDecayMs;
   uint16_t kickSweepHz;
-  uint8_t kickClick;
+  uint8_t kickAttack;
   uint8_t kickDrive;
 
   uint8_t delayMix;

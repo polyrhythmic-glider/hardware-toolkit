@@ -292,7 +292,7 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       tft.drawLine(cx - 2, cy - 3, cx + 8, cy - 5, COL_GOLD);
       break;
 
-    case ACTION_KICK_CLICK:
+    case ACTION_KICK_ATTACK:
       tft.drawFastVLine(cx - 4, cy - 7, 14, COL_GOLD);
       tft.drawLine(cx - 4, cy - 7, cx + 8, cy + 5, color);
       break;
@@ -1396,8 +1396,8 @@ float getKickDesignerPreviewSample(float t) {
   float tail = 1.0f - t;
   float envelope = tail * tail * tail;
   float phaseCurve = t * (1.2f + kickPitch / 36.0f) + (1.0f - tail * tail) * (kickSweep / 95.0f);
-  float click = t < 0.08f ? (1.0f - t / 0.08f) * (kickClick / 100.0f) * 0.55f : 0.0f;
-  float sample = sinf(phaseCurve * TWO_PI_F) * envelope + click;
+  float transient = t < 0.08f ? (1.0f - t / 0.08f) * (kickAttack / 100.0f) * 0.55f : 0.0f;
+  float sample = sinf(phaseCurve * TWO_PI_F) * envelope + transient;
   float drive = 1.0f + kickDrive / 35.0f;
 
   sample *= drive;
@@ -1453,8 +1453,8 @@ void drawKickSweepEdit(uint16_t accent) {
   drawKickDesignerEdit("KSWP", kickSweep, 0, 260, "FLAT", "DROP", accent);
 }
 
-void drawKickClickEdit(uint16_t accent) {
-  drawKickDesignerEdit("KCLK", kickClick, 0, 100, "SOFT", "CLICK", accent);
+void drawKickAttackEdit(uint16_t accent) {
+  drawKickDesignerEdit("KATK", kickAttack, 0, 100, "SOFT", "HARD", accent);
 }
 
 void drawKickDriveEdit(uint16_t accent) {

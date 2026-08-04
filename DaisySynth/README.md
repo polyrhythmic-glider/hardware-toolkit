@@ -7,9 +7,11 @@ solo ai confini dei blocchi audio e mantiene sequencer e DSP nel callback
 realtime. Il parsing UART e la telemetria restano fuori dal callback.
 Il ricevitore si riavvia automaticamente dopo errori UART o un power cycle
 della ESP32; i contatori di recupero tornano alla ESP32 nella telemetria.
-Il kick mantiene un percorso dry a livello pieno: `Drive 0%` e' pulito, mentre
-valori superiori miscelano progressivamente la saturazione senza essere
-necessari per rendere udibile la voce.
+Il kick usa `DaisySP::SyntheticBassDrum`, il modello sintetico 909-style della
+libreria. ESP32 controlla Level, Tune, Attack, Decay, Sweep e Drive. Il percorso
+dry resta a livello pieno: `Drive 0%` e' pulito, mentre valori superiori
+miscelano progressivamente la saturazione senza essere necessari per rendere
+udibile la voce.
 
 Istruzioni complete, pinout e sequenza di collaudo:
 [`../TheSynthProject/DAISY_MIGRATION.md`](../TheSynthProject/DAISY_MIGRATION.md).

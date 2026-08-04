@@ -146,7 +146,7 @@ int kickLevel = 0;
 int kickPitch = 48;
 int kickDecay = 420;
 int kickSweep = 120;
-int kickClick = 20;
+int kickAttack = 55;
 int kickDrive = 20;
 
 MenuAction getSelectedAction();

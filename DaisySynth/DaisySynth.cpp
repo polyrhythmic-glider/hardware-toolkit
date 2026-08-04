@@ -28,7 +28,7 @@ Oscillator testOscillator;
 Wavefolder wavefolders[VOICE_COUNT];
 Adsr ampEnvelope;
 Svf filter;
-AnalogBassDrum kick;
+SyntheticBassDrum kick;
 Overdrive kickDrive;
 DelayLine<float, MAX_DELAY_SAMPLES> DSY_SDRAM_BSS delayLine;
 ReverbSc reverb;
@@ -285,10 +285,16 @@ void applyControlAtBlockBoundary() {
   filter.SetDrive(0.0f);
 
   kick.SetFreq(clampFloat(activeControl.kickPitchHz, 25.0f, 120.0f));
-  kick.SetDecay(clampFloat((activeControl.kickDecayMs - 80.0f) / 1120.0f, 0.0f, 1.0f));
-  kick.SetTone(activeControl.kickClick / 100.0f);
-  kick.SetAttackFmAmount(clampFloat(activeControl.kickSweepHz / 260.0f, 0.0f, 1.0f));
-  kick.SetSelfFmAmount(0.25f);
+  float kickDecay = clampFloat((activeControl.kickDecayMs - 80.0f) / 1120.0f, 0.0f, 1.0f);
+  // SyntheticBassDrum squares its decay input internally. Square-rooting the
+  // UI value keeps the 80-1200 ms control perceptually useful over its range.
+  kick.SetDecay(sqrtf(kickDecay));
+  // DaisySP's Tone parameter controls both the transient level and brightness,
+  // which is the closest match for the classic 909 Attack control.
+  kick.SetTone(activeControl.kickAttack / 100.0f);
+  kick.SetDirtiness(0.18f);
+  kick.SetFmEnvelopeAmount(clampFloat(activeControl.kickSweepHz / 260.0f, 0.0f, 1.0f));
+  kick.SetFmEnvelopeDecay(0.28f);
   kick.SetAccent(0.8f);
   kickDrive.SetDrive(activeControl.kickDrive / 100.0f);
 

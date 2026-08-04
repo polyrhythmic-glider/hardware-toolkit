@@ -64,11 +64,11 @@
 
 - Kick Voice
   - Kick Level
-  - Kick Pitch
-  - Kick Decay
-  - Kick Sweep
-  - Kick Click
-  - Kick Drive
+  - 909 Tune
+  - 909 Attack
+  - 909 Decay
+  - 909 Sweep
+  - 909 Drive
 
 - Envelope
   - ENV1

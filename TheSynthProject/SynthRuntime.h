@@ -68,7 +68,7 @@ int getKickParamChecksum() {
   int checksum = kickPitch;
   checksum = checksum * 31 + kickDecay;
   checksum = checksum * 31 + kickSweep;
-  checksum = checksum * 31 + kickClick;
+  checksum = checksum * 31 + kickAttack;
   checksum = checksum * 31 + kickDrive;
   return checksum;
 }

@@ -456,7 +456,7 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_KICK_PITCH ||
          action == ACTION_KICK_DECAY ||
          action == ACTION_KICK_SWEEP ||
-         action == ACTION_KICK_CLICK ||
+         action == ACTION_KICK_ATTACK ||
          action == ACTION_KICK_DRIVE ||
          action == ACTION_DELAY_MIX ||
          action == ACTION_DELAY_TIME ||
@@ -735,14 +735,14 @@ void printSerialDiagnosticsSnapshot() {
   Serial.print(waveVoiceFold[1]);
   Serial.print("/");
   Serial.println(waveVoiceDetune[1]);
-  Serial.print("Kick pitch/decay/sweep/click/drive: ");
+  Serial.print("Kick 909 tune/attack/decay/sweep/drive: ");
   Serial.print(kickPitch);
+  Serial.print("/");
+  Serial.print(kickAttack);
   Serial.print("/");
   Serial.print(kickDecay);
   Serial.print("/");
   Serial.print(kickSweep);
-  Serial.print("/");
-  Serial.print(kickClick);
   Serial.print("/");
   Serial.println(kickDrive);
   for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
@@ -1004,8 +1004,8 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%dHz", kickSweep);
       break;
 
-    case ACTION_KICK_CLICK:
-      snprintf(buffer, sizeof(buffer), "%d%%", kickClick);
+    case ACTION_KICK_ATTACK:
+      snprintf(buffer, sizeof(buffer), "%d%%", kickAttack);
       break;
 
     case ACTION_KICK_DRIVE:
@@ -1341,9 +1341,9 @@ void changeCurrentValue(int delta) {
       kickSweep = clampInt(kickSweep, 0, 260);
       break;
 
-    case ACTION_KICK_CLICK:
-      kickClick += delta * 5;
-      kickClick = clampInt(kickClick, 0, 100);
+    case ACTION_KICK_ATTACK:
+      kickAttack += delta * 5;
+      kickAttack = clampInt(kickAttack, 0, 100);
       break;
 
     case ACTION_KICK_DRIVE:

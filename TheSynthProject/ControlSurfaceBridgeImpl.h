@@ -22,8 +22,8 @@ const char* pageName(uint8_t page) {
     case PAGE_MIXER: return "MIXER";
     case PAGE_FILTER_FX: return "FILTER";
     case PAGE_DELAY_REVERB: return "DELAY + REV";
-    case PAGE_KICK: return "KICK PARAMETERS";
-    case PAGE_KICK_SHAPE: return "KICK SHAPE";
+    case PAGE_KICK: return "909 MAIN";
+    case PAGE_KICK_SHAPE: return "909 SHAPE";
     case PAGE_SEQUENCER: return "SEQUENCER";
     case PAGE_TRANSPORT: return "TRANSPORT";
     default: return "SYNTH";
@@ -34,9 +34,9 @@ const char* parameterLabel(uint8_t page, uint8_t encoderIndex) {
   page %= PAGE_COUNT;
 
   static const char* VOICE_LABELS[] = { "WAVE", "TUNE", "FOLD", "DETUNE" };
-  static const char* KICK_LABELS[] = { "LEVEL", "PITCH", "DECAY", "SWEEP" };
+  static const char* KICK_LABELS[] = { "LEVEL", "TUNE", "ATTACK" };
   if (page == PAGE_VOICE_1 || page == PAGE_VOICE_2) return VOICE_LABELS[encoderIndex % 4];
-  if (page == PAGE_KICK) return KICK_LABELS[encoderIndex % 4];
+  if (page == PAGE_KICK) return KICK_LABELS[encoderIndex % 3];
 
   encoderIndex %= 3;
 
@@ -46,7 +46,7 @@ const char* parameterLabel(uint8_t page, uint8_t encoderIndex) {
   static const char* MIXER_LABELS[] = { "MASTER", "TRACK", "NOTE" };
   static const char* FILTER_LABELS[] = { "CUTOFF", "TYPE", "POWER" };
   static const char* DELAY_REVERB_LABELS[] = { "DELAY", "FEEDBACK", "REVERB" };
-  static const char* KICK_SHAPE_LABELS[] = { "SWEEP", "CLICK", "DRIVE" };
+  static const char* KICK_SHAPE_LABELS[] = { "DECAY", "SWEEP", "DRIVE" };
   static const char* SEQUENCER_LABELS[] = { "STEP", "NOTE", "STATE" };
   static const char* TRANSPORT_LABELS[] = { "LENGTH", "BPM", "STEP" };
 
@@ -98,11 +98,10 @@ void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size
   }
 
   if (page == PAGE_KICK) {
-    switch (encoderIndex % 4) {
+    switch (encoderIndex % 3) {
       case 0: snprintf(output, outputSize, "%d%%", kickLevel); return;
       case 1: snprintf(output, outputSize, "%d Hz", kickPitch); return;
-      case 2: snprintf(output, outputSize, "%d ms", kickDecay); return;
-      default: snprintf(output, outputSize, "%d Hz", kickSweep); return;
+      default: snprintf(output, outputSize, "%d%%", kickAttack); return;
     }
   }
 
@@ -170,8 +169,8 @@ void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size
 
   if (page == PAGE_KICK_SHAPE) {
     switch (encoderIndex) {
-      case 0: snprintf(output, outputSize, "%d Hz", kickSweep); return;
-      case 1: snprintf(output, outputSize, "%d%%", kickClick); return;
+      case 0: snprintf(output, outputSize, "%d ms", kickDecay); return;
+      case 1: snprintf(output, outputSize, "%d Hz", kickSweep); return;
       default: snprintf(output, outputSize, "%d%%", kickDrive); return;
     }
   }
@@ -262,14 +261,13 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
         break;
     }
   } else if (page == PAGE_KICK) {
-    switch (encoderIndex % 4) {
+    switch (encoderIndex % 3) {
       case 0:
         kickLevel = clampInt(kickLevel + delta * 5, 0, 100);
         if (kickLevel > 0) triggerKickVoice();
         break;
       case 1: kickPitch = clampInt(kickPitch + delta, 25, 120); break;
-      case 2: kickDecay = clampInt(kickDecay + delta * 10, 80, 1200); break;
-      default: kickSweep = clampInt(kickSweep + delta * 5, 0, 260); break;
+      default: kickAttack = clampInt(kickAttack + delta * 5, 0, 100); break;
     }
   } else if (page == PAGE_TUNING) {
     encoderIndex %= 3;
@@ -343,8 +341,8 @@ void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta) {
   } else if (page == PAGE_KICK_SHAPE) {
     encoderIndex %= 3;
     switch (encoderIndex) {
-      case 0: kickSweep = clampInt(kickSweep + delta * 5, 0, 260); break;
-      case 1: kickClick = clampInt(kickClick + delta * 5, 0, 100); break;
+      case 0: kickDecay = clampInt(kickDecay + delta * 10, 80, 1200); break;
+      case 1: kickSweep = clampInt(kickSweep + delta * 5, 0, 260); break;
       default: kickDrive = clampInt(kickDrive + delta * 5, 0, 100); break;
     }
   } else if (page == PAGE_SEQUENCER) {
@@ -442,7 +440,7 @@ uint32_t stateHash() {
     waveVoiceFold[0], waveVoiceFold[1], waveVoiceDetune[0], waveVoiceDetune[1],
     waveVoiceLevels[0], waveVoiceLevels[1], frequency,
     attack, decay, sustain, releaseMs, volume, kickLevel,
-    kickPitch, kickDecay, kickSweep, kickClick, kickDrive,
+    kickPitch, kickDecay, kickSweep, kickAttack, kickDrive,
     filterCutoff, filterType, filterEnabled ? 1 : 0,
     delayMix, delayFeedback, reverbMix,
     sequencerBpm, activeSequencerTrack, activeSequencerVoice, sequencerSelectedStep, sequencerLength,

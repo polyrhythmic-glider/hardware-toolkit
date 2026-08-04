@@ -129,7 +129,7 @@ void fillControlPayload(ControlPayload& payload) {
   payload.kickPitchHz = (uint8_t)clampInt(kickPitch, 25, 120);
   payload.kickDecayMs = (uint16_t)clampInt(kickDecay, 80, 1200);
   payload.kickSweepHz = (uint16_t)clampInt(kickSweep, 0, 260);
-  payload.kickClick = (uint8_t)clampInt(kickClick, 0, 100);
+  payload.kickAttack = (uint8_t)clampInt(kickAttack, 0, 100);
   payload.kickDrive = (uint8_t)clampInt(kickDrive, 0, 100);
 
   payload.delayMix = (uint8_t)clampInt(delayMix, 0, 100);

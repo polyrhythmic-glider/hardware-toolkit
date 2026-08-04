@@ -549,8 +549,8 @@ void drawEditValue() {
       drawKickSweepEdit(accent);
       break;
 
-    case ACTION_KICK_CLICK:
-      drawKickClickEdit(accent);
+    case ACTION_KICK_ATTACK:
+      drawKickAttackEdit(accent);
       break;
 
     case ACTION_KICK_DRIVE:

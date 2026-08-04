@@ -58,6 +58,8 @@ Nel menu TFT, `Utility > Control Surface` permette di scegliere con
 l'encoder master una delle sei modalità OLED. Control surface e diagnostica
 hardware sono raccolte in `Utility`.
 
+`Test Audio` compare soltanto in `Utility`, non in `Wave Engine`.
+
 `Utility > OLED Debug` funziona anche se tutti gli OLED sono spenti.
 Entrando esegue una scansione completa; ruotando l'encoder master la ripete.
 Il TFT mostra livelli D21/D22, PCA, indirizzi dei quattro canali, maschere ACK e

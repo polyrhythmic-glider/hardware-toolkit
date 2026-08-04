@@ -2,14 +2,14 @@
 
 ## Structure Rules
 
-- `Wave Engine` owns the two synth voices, global pitch, filter access, and audio test.
+- `Wave Engine` owns the two synth voices, global pitch, and filter access.
 - Each voice opens a submenu where the base wave can be selected and then shaped with tune, fold, detune, and scope.
 - `Mixer` owns master level, per-voice volume, delay, and reverb.
 - `Kick Voice` owns kick level, kick tone design, and the dedicated kick pattern lane.
 - `Envelope` contiene due ADSR indipendenti; ogni sorgente può pilotare più destinazioni.
 - Il routing usa una tabella sorgente/destinazione condivisa con il DSP, predisposta per nuove sorgenti.
 - `Sequencer` owns one active voice sequencer at a time and its basic transport controls.
-- `Utility` includes diagnostics and hardware tests without duplicating entries from the other areas.
+- `Utility` includes diagnostics and hardware tests, including the only `Test Audio` entry.
 
 ## Wave Types
 
@@ -50,8 +50,6 @@
     - Filter Power
     - Filter Type
     - Filter Cutoff
-  - Test Audio
-
 - Mixer
   - Master Level
   - Voice 1 Volume
@@ -131,6 +129,7 @@ conservare il comportamento del synth precedente; ENV2 parte senza route.
   - NeoKey Debug
   - Serial Diagnostics
   - Connection Status
+  - Test Audio
   - About
   - Preset Slot
   - Load Preset

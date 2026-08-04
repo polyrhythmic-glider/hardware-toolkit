@@ -422,6 +422,17 @@ void drawEditValue() {
   }
 
   switch (action) {
+    case ACTION_OSC_ENABLED:
+    case ACTION_OSC_LEVEL:
+    case ACTION_OSC_OCTAVE:
+    case ACTION_OSC_PHASE:
+    case ACTION_OSC_PULSE_WIDTH:
+    case ACTION_OSC_PAN:
+    case ACTION_OSC_KEY_TRACK:
+    case ACTION_OSC_MOD_AMOUNT:
+      drawOscillatorParameterEdit(accent);
+      break;
+
     case ACTION_VOICE_WAVE:
       drawVoiceWaveEdit(accent);
       break;
@@ -635,9 +646,10 @@ void updateEditFast() {
   }
 
   if (getSelectedAction() == ACTION_SYNTH_VIEW) {
-    bool clearView = fullRedraw || lastDrawnMode != MODE_EDIT || valueDirty;
+    bool clearView = fullRedraw || lastDrawnMode != MODE_EDIT;
+    bool explicitViewUpdate = valueDirty;
 
-    if (!clearView && !editValueChanged()) {
+    if (!clearView && !explicitViewUpdate && !editValueChanged()) {
       return;
     }
 
@@ -652,10 +664,11 @@ void updateEditFast() {
       sequencerSelectedStep != lastSequencerSelectedStep ||
       getSequencerPage() != lastSequencerPage ||
       (int)sequencerAutoScroll != lastSequencerAutoScroll ||
+      getSequencerNoteChecksum() != lastSequencerNoteChecksum ||
       getWaveVoiceParamChecksum() != lastWaveVoiceParamChecksum ||
       getLevelChecksum(waveVoiceLevels, WAVE_VOICE_COUNT) != lastWaveVoiceChecksum ||
       kickLevel != lastKickLevel;
-    bool playheadOnly = !clearView && !staticViewChanged &&
+    bool playheadOnly = !clearView && !explicitViewUpdate && !staticViewChanged &&
                         sequencerCurrentStep != lastSequencerCurrentStep;
 
     valueDirty = false;

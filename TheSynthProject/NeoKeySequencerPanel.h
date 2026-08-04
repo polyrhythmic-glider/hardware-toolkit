@@ -189,9 +189,6 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
   if (pressed == 0) return;
   int track = getActiveSequencerTrack();
   bool kickTrack = track == SEQUENCER_TRACK_KICK;
-  bool oscillatorPitchEntry = !kickTrack &&
-                              ControlSurface::getMode() == ControlSurface::SYNTH_CONTROL &&
-                              ControlSurface::getSynthPage() == ControlSurfaceBridge::PAGE_TUNING;
   int voice = getActiveSequencerTrackVoice();
   int selectedStep = -1;
 
@@ -213,11 +210,7 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
         triggerKickVoice();
       }
     } else {
-      // On the Oscillator page a key means "edit this beat": select it and
-      // keep it active. Toggle remains available from the Sequencer page.
-      sequencerStepEnabled[voice][step] = oscillatorPitchEntry
-        ? true
-        : !sequencerStepEnabled[voice][step];
+      sequencerStepEnabled[voice][step] = !sequencerStepEnabled[voice][step];
     }
     selectedStep = step;
   }

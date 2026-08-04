@@ -25,10 +25,18 @@ bool isVoicePreviewActive() {
   if (uiMode != MODE_EDIT) return false;
 
   MenuAction action = getSelectedAction();
-  return action == ACTION_VOICE_WAVE ||
+  return action == ACTION_OSC_ENABLED ||
+         action == ACTION_VOICE_WAVE ||
+         action == ACTION_OSC_LEVEL ||
+         action == ACTION_OSC_OCTAVE ||
          action == ACTION_VOICE_TUNE ||
-         action == ACTION_VOICE_FOLD ||
          action == ACTION_VOICE_DETUNE ||
+         action == ACTION_OSC_PHASE ||
+         action == ACTION_OSC_PULSE_WIDTH ||
+         action == ACTION_VOICE_FOLD ||
+         action == ACTION_OSC_PAN ||
+         action == ACTION_OSC_KEY_TRACK ||
+         action == ACTION_OSC_MOD_AMOUNT ||
          action == ACTION_VOICE_SCOPE;
 }
 
@@ -54,11 +62,19 @@ int getSequencerNoteChecksum() {
 int getWaveVoiceParamChecksum() {
   int checksum = 0;
 
-  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
-    checksum = checksum * 31 + waveVoiceShape[voice];
-    checksum = checksum * 31 + waveVoiceTune[voice];
-    checksum = checksum * 31 + waveVoiceFold[voice];
-    checksum = checksum * 31 + waveVoiceDetune[voice];
+  for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; oscillator++) {
+    checksum = checksum * 31 + (oscillatorEnabled[oscillator] ? 1 : 0);
+    checksum = checksum * 31 + waveVoiceShape[oscillator];
+    checksum = checksum * 31 + waveVoiceLevels[oscillator];
+    checksum = checksum * 31 + oscillatorOctave[oscillator];
+    checksum = checksum * 31 + waveVoiceTune[oscillator];
+    checksum = checksum * 31 + waveVoiceFold[oscillator];
+    checksum = checksum * 31 + waveVoiceDetune[oscillator];
+    checksum = checksum * 31 + oscillatorPhasePercent[oscillator];
+    checksum = checksum * 31 + oscillatorPulseWidthPercent[oscillator];
+    checksum = checksum * 31 + oscillatorPanPercent[oscillator];
+    checksum = checksum * 31 + oscillatorKeyTrackingPercent[oscillator];
+    checksum = checksum * 31 + oscillatorModulationAmountPercent[oscillator];
   }
 
   return checksum;

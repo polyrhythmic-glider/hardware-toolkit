@@ -737,6 +737,39 @@ void drawVoiceWaveEdit(uint16_t accent) {
   drawWaveShapeTabs(shape, 114, accent);
 }
 
+void drawOscillatorParameterEdit(uint16_t accent) {
+  int oscillator = getCurrentWaveVoiceIndex();
+  int itemIndex = getMenuItemIndex(selectedItem);
+  const char* value = getValueText(itemIndex);
+
+  drawValueReadout(value, menuItems[itemIndex].tag, accent);
+  char oscillatorText[12];
+  snprintf(oscillatorText,
+           sizeof(oscillatorText),
+           "OSC%d %s",
+           oscillator + 1,
+           oscillatorEnabled[oscillator] ? "ON" : "OFF");
+  printRight(oscillatorText,
+             150,
+             67,
+             1,
+             oscillatorEnabled[oscillator] ? getMixerVoiceColor(oscillator, accent)
+                                           : COL_MUTED);
+  drawVoiceScopePanel(oscillator, accent);
+
+  tft.setTextSize(1);
+  tft.setTextColor(COL_MUTED);
+  tft.setCursor(11, 120);
+  tft.print(getWaveformShortName(waveVoiceShape[oscillator]));
+  char levelText[12];
+  snprintf(levelText, sizeof(levelText), "LEVEL %d", waveVoiceLevels[oscillator]);
+  printRight(levelText,
+             149,
+             120,
+             1,
+             waveVoiceLevels[oscillator] > 0 ? COL_GOLD : COL_MUTED);
+}
+
 void drawVoiceTuneEdit(uint16_t accent) {
   int voice = getCurrentWaveVoiceIndex();
   char value[12];
@@ -749,9 +782,9 @@ void drawVoiceTuneEdit(uint16_t accent) {
   tft.setTextSize(1);
   tft.setTextColor(COL_MUTED);
   tft.setCursor(10, 112);
-  tft.print("-24");
-  printRight("+24", 150, 112, 1, COL_MUTED);
-  drawGrooveBar(50, 115, 60, 8, map(waveVoiceTune[voice], -24, 24, 0, 58), accent);
+  tft.print("-48");
+  printRight("+48", 150, 112, 1, COL_MUTED);
+  drawGrooveBar(50, 115, 60, 8, map(waveVoiceTune[voice], -48, 48, 0, 58), accent);
 }
 
 void drawVoiceFoldEdit(uint16_t accent) {
@@ -790,7 +823,7 @@ void drawVoiceDetuneEdit(uint16_t accent) {
   tft.setCursor(10, 112);
   tft.print("FLAT");
   printRight("SHARP", 150, 112, 1, COL_MUTED);
-  drawGrooveBar(50, 115, 60, 8, map(waveVoiceDetune[voice], -50, 50, 0, 58), accent);
+  drawGrooveBar(50, 115, 60, 8, map(waveVoiceDetune[voice], -100, 100, 0, 58), accent);
 }
 
 void drawVoiceScopeEdit(uint16_t accent) {
@@ -1035,6 +1068,11 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
     if (playing) {
       tft.fillRect(drawX + 2, drawY + 1, max(1, cellWidth - 4), activeHit ? 3 : 2,
                    activeHit ? COL_INK : COL_GOLD);
+      tft.drawRect(drawX + 1,
+                   drawY + 1,
+                   max(1, cellWidth - 2),
+                   max(1, rowHeight - 2),
+                   activeHit ? COL_INK : COL_GOLD);
     }
 
     if (enabled && inLength) {
@@ -1044,14 +1082,14 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
 
     if (selected && inLength) {
       tft.drawRect(drawX + 1, drawY + 1, max(1, cellWidth - 2), max(1, rowHeight - 2),
-                   playing ? COL_GOLD : trackColor);
+                   playing ? (activeHit ? COL_INK : COL_GOLD) : trackColor);
     }
 
     char stepLabel[4];
     snprintf(stepLabel, sizeof(stepLabel), "%d", step + 1);
     int textWidth = strlen(stepLabel) * 6;
     uint16_t numberColor = !inLength ? disabledColor
-                         : activeHit ? COL_BG
+                         : activeHit ? COL_INK
                          : enabled ? COL_INK
                          : COL_MUTED;
     tft.setTextSize(1);

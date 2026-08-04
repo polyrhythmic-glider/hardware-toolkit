@@ -252,31 +252,25 @@ uint8_t lastTouchedPage = ControlSurfaceBridge::PAGE_VOICE_1;
 uint8_t lastTouchedEncoder = 0;
 uint32_t lastParameterChangeMs = 0;
 
-const uint8_t VOICE_1_CONTEXT_PAGES[] = {
+const uint8_t PERFORMANCE_PAGES[] = {
   ControlSurfaceBridge::PAGE_VOICE_1,
-  ControlSurfaceBridge::PAGE_TUNING,
-  ControlSurfaceBridge::PAGE_SEQUENCER,
-  ControlSurfaceBridge::PAGE_TRANSPORT
-};
-const uint8_t VOICE_2_CONTEXT_PAGES[] = {
   ControlSurfaceBridge::PAGE_VOICE_2,
-  ControlSurfaceBridge::PAGE_TUNING,
-  ControlSurfaceBridge::PAGE_SEQUENCER,
-  ControlSurfaceBridge::PAGE_TRANSPORT
-};
-const uint8_t KICK_CONTEXT_PAGES[] = {
+  ControlSurfaceBridge::PAGE_VOICE_3,
+  ControlSurfaceBridge::PAGE_ENV_1,
+  ControlSurfaceBridge::PAGE_ENV_2,
+  ControlSurfaceBridge::PAGE_ENV_3,
+  ControlSurfaceBridge::PAGE_LFO_1,
+  ControlSurfaceBridge::PAGE_LFO_2,
+  ControlSurfaceBridge::PAGE_MIXER,
+  ControlSurfaceBridge::PAGE_FILTER_FX,
+  ControlSurfaceBridge::PAGE_DELAY_REVERB,
   ControlSurfaceBridge::PAGE_KICK,
-  ControlSurfaceBridge::PAGE_KICK_SHAPE,
-  ControlSurfaceBridge::PAGE_SEQUENCER,
-  ControlSurfaceBridge::PAGE_TRANSPORT
+  ControlSurfaceBridge::PAGE_KICK_SHAPE
 };
 
 const uint8_t* getContextPages(uint8_t& count) {
-  count = 4;
-  uint8_t trackPage = ControlSurfaceBridge::activeTrackPage();
-  if (trackPage == ControlSurfaceBridge::PAGE_VOICE_2) return VOICE_2_CONTEXT_PAGES;
-  if (trackPage == ControlSurfaceBridge::PAGE_KICK) return KICK_CONTEXT_PAGES;
-  return VOICE_1_CONTEXT_PAGES;
+  count = sizeof(PERFORMANCE_PAGES) / sizeof(PERFORMANCE_PAGES[0]);
+  return PERFORMANCE_PAGES;
 }
 
 void syncSynthPageToActiveTrack() {
@@ -1290,8 +1284,23 @@ void drawSynthControlPanel() {
 
     uint8_t count = 0;
     const uint8_t* pages = getContextPages(count);
+    uint8_t selectedIndex = 0;
     for (uint8_t i = 0; i < count; i++) {
-      int y = 18 + i * 12;
+      if (synthPage == pages[i]) {
+        selectedIndex = i;
+        break;
+      }
+    }
+
+    const uint8_t visibleRows = 4;
+    uint8_t firstVisible = selectedIndex > 1 ? selectedIndex - 1 : 0;
+    if (count > visibleRows && firstVisible > count - visibleRows) {
+      firstVisible = count - visibleRows;
+    }
+
+    uint8_t lastVisible = min((uint8_t)(firstVisible + visibleRows), count);
+    for (uint8_t i = firstVisible; i < lastVisible; i++) {
+      int y = 18 + (i - firstVisible) * 12;
       bool selected = synthPage == pages[i];
       if (selected) {
         oled.fillRect(0, y - 1, SCREEN_WIDTH, 11, SSD1306_WHITE);

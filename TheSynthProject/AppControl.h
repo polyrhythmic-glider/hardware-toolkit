@@ -56,6 +56,13 @@ void initializeDefaultModulationRouting() {
   // Preserve the former hard-wired amplitude envelope as the initial patch.
   modulationRoutes[MOD_SOURCE_ENV1][MOD_DEST_AMP_LEVEL].enabled = true;
   modulationRoutes[MOD_SOURCE_ENV1][MOD_DEST_AMP_LEVEL].amountPercent = 100;
+
+  // Each performance LFO starts with one explicit route. The LFO itself is
+  // disabled, so these routes remain sonically neutral until enabled.
+  modulationRoutes[MOD_SOURCE_LFO1][lfoParameters[0].performanceDestination].enabled = true;
+  modulationRoutes[MOD_SOURCE_LFO1][lfoParameters[0].performanceDestination].amountPercent = 100;
+  modulationRoutes[MOD_SOURCE_LFO2][lfoParameters[1].performanceDestination].enabled = true;
+  modulationRoutes[MOD_SOURCE_LFO2][lfoParameters[1].performanceDestination].amountPercent = 100;
 }
 
 AdsrParameters& getActiveEnvelopeParameters() {
@@ -89,7 +96,9 @@ const char* getResetReasonText(esp_reset_reason_t reason) {
 
 bool isDiscreteEditAction(MenuAction action) {
   switch (action) {
+    case ACTION_OSC_ENABLED:
     case ACTION_VOICE_WAVE:
+    case ACTION_OSC_OCTAVE:
     case ACTION_VOICE_TUNE:
     case ACTION_FILTER_POWER:
     case ACTION_FILTER_TYPE:
@@ -146,7 +155,8 @@ int getEditDeltaForAction(MenuAction action, int delta) {
 
 bool isWaveVoicePage(MenuPage page) {
   return page == MENU_PAGE_VOICE_1 ||
-         page == MENU_PAGE_VOICE_2;
+         page == MENU_PAGE_VOICE_2 ||
+         page == MENU_PAGE_VOICE_3;
 }
 
 int getWaveVoiceIndexForPage(MenuPage page) {
@@ -156,6 +166,9 @@ int getWaveVoiceIndexForPage(MenuPage page) {
 
     case MENU_PAGE_VOICE_2:
       return 1;
+
+    case MENU_PAGE_VOICE_3:
+      return 2;
 
     default:
       return 0;
@@ -167,19 +180,21 @@ int getCurrentWaveVoiceIndex() {
     activeWaveVoiceIndex = getWaveVoiceIndexForPage(currentMenuPage);
   }
 
-  activeWaveVoiceIndex = clampInt(activeWaveVoiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  activeWaveVoiceIndex = clampInt(activeWaveVoiceIndex, 0, SYNTH_OSCILLATOR_COUNT - 1);
   return activeWaveVoiceIndex;
 }
 
 bool isMenuSubmenuAction(MenuAction action) {
   return action == ACTION_VOICE_1_MENU ||
          action == ACTION_VOICE_2_MENU ||
+         action == ACTION_VOICE_3_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_TRANSPORT_MENU ||
          action == ACTION_SEQ_PATTERN_MENU ||
          action == ACTION_SEQ_SETTINGS_MENU ||
          action == ACTION_ENV_1_MENU ||
          action == ACTION_ENV_2_MENU ||
+         action == ACTION_ENV_3_MENU ||
          action == ACTION_ENV_DESTINATIONS_MENU ||
          action == ACTION_MOD_DESTINATION_MENU;
 }
@@ -263,6 +278,9 @@ MenuPage getSubmenuPageForAction(MenuAction action) {
     case ACTION_VOICE_2_MENU:
       return MENU_PAGE_VOICE_2;
 
+    case ACTION_VOICE_3_MENU:
+      return MENU_PAGE_VOICE_3;
+
     case ACTION_FILTER_MENU:
       return MENU_PAGE_FILTER;
 
@@ -280,6 +298,9 @@ MenuPage getSubmenuPageForAction(MenuAction action) {
 
     case ACTION_ENV_2_MENU:
       return MENU_PAGE_ENV_2;
+
+    case ACTION_ENV_3_MENU:
+      return MENU_PAGE_ENV_3;
 
     case ACTION_ENV_DESTINATIONS_MENU:
       return MENU_PAGE_ENV_DESTINATIONS;
@@ -308,6 +329,7 @@ int getMenuItemIndex(int visibleIndex);
 void enterSubmenu(MenuAction action) {
   if (action == ACTION_ENV_1_MENU) activeEnvelopeIndex = ENVELOPE_ENV1;
   if (action == ACTION_ENV_2_MENU) activeEnvelopeIndex = ENVELOPE_ENV2;
+  if (action == ACTION_ENV_3_MENU) activeEnvelopeIndex = ENVELOPE_ENV3;
   if (action == ACTION_MOD_DESTINATION_MENU) {
     activeModDestinationIndex = getModulationDestinationForMenuItem(getMenuItemIndex(selectedItem));
   }
@@ -330,7 +352,9 @@ void leaveSubmenu() {
   if (currentMenuPage == MENU_PAGE_MOD_DESTINATION) {
     currentMenuPage = MENU_PAGE_ENV_DESTINATIONS;
   } else if (currentMenuPage == MENU_PAGE_ENV_DESTINATIONS) {
-    currentMenuPage = activeEnvelopeIndex == ENVELOPE_ENV2 ? MENU_PAGE_ENV_2 : MENU_PAGE_ENV_1;
+    currentMenuPage = activeEnvelopeIndex == ENVELOPE_ENV3
+                        ? MENU_PAGE_ENV_3
+                        : (activeEnvelopeIndex == ENVELOPE_ENV2 ? MENU_PAGE_ENV_2 : MENU_PAGE_ENV_1);
   } else {
     currentMenuPage = MENU_PAGE_ROOT;
   }
@@ -340,7 +364,9 @@ void leaveSubmenu() {
 }
 
 const uint8_t* getCurrentMenuItems(int* count) {
-  if (currentMenuPage == MENU_PAGE_ENV_1 || currentMenuPage == MENU_PAGE_ENV_2) {
+  if (currentMenuPage == MENU_PAGE_ENV_1 ||
+      currentMenuPage == MENU_PAGE_ENV_2 ||
+      currentMenuPage == MENU_PAGE_ENV_3) {
     *count = sizeof(MENU_ENV_SOURCE_ITEMS) / sizeof(MENU_ENV_SOURCE_ITEMS[0]);
     return MENU_ENV_SOURCE_ITEMS;
   }
@@ -405,11 +431,17 @@ const char* getCurrentMenuTitle() {
   else if (currentMenuPage == MENU_PAGE_SEQ_SETTINGS) {
     source = "SEQ SETTINGS";
   }
-  else if (currentMenuPage == MENU_PAGE_ENV_1 || currentMenuPage == MENU_PAGE_ENV_2) {
-    source = activeEnvelopeIndex == ENVELOPE_ENV2 ? "ENV2" : "ENV1";
+  else if (currentMenuPage == MENU_PAGE_ENV_1 ||
+           currentMenuPage == MENU_PAGE_ENV_2 ||
+           currentMenuPage == MENU_PAGE_ENV_3) {
+    source = activeEnvelopeIndex == ENVELOPE_ENV3
+               ? "ENV3"
+               : (activeEnvelopeIndex == ENVELOPE_ENV2 ? "ENV2" : "ENV1");
   }
   else if (currentMenuPage == MENU_PAGE_ENV_DESTINATIONS) {
-    source = activeEnvelopeIndex == ENVELOPE_ENV2 ? "ENV2 DESTINATIONS" : "ENV1 DESTINATIONS";
+    source = activeEnvelopeIndex == ENVELOPE_ENV3
+               ? "ENV3 DESTINATIONS"
+               : (activeEnvelopeIndex == ENVELOPE_ENV2 ? "ENV2 DESTINATIONS" : "ENV1 DESTINATIONS");
   }
   else if (currentMenuPage == MENU_PAGE_MOD_DESTINATION) {
     source = MOD_DESTINATIONS[activeModDestinationIndex].label;
@@ -449,20 +481,30 @@ MenuAction getSelectedAction() {
 bool isSynthAction(MenuAction action) {
   return action == ACTION_VOICE_1_MENU ||
          action == ACTION_VOICE_2_MENU ||
+         action == ACTION_VOICE_3_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_TRANSPORT_MENU ||
          action == ACTION_SEQ_PATTERN_MENU ||
          action == ACTION_SEQ_SETTINGS_MENU ||
          action == ACTION_ENV_1_MENU ||
          action == ACTION_ENV_2_MENU ||
+         action == ACTION_ENV_3_MENU ||
          action == ACTION_ENV_DESTINATIONS_MENU ||
          action == ACTION_MOD_DESTINATION_MENU ||
          action == ACTION_MOD_ROUTE_ENABLED ||
          action == ACTION_MOD_ROUTE_AMOUNT ||
+         action == ACTION_OSC_ENABLED ||
          action == ACTION_VOICE_WAVE ||
+         action == ACTION_OSC_LEVEL ||
+         action == ACTION_OSC_OCTAVE ||
          action == ACTION_VOICE_TUNE ||
-         action == ACTION_VOICE_FOLD ||
          action == ACTION_VOICE_DETUNE ||
+         action == ACTION_OSC_PHASE ||
+         action == ACTION_OSC_PULSE_WIDTH ||
+         action == ACTION_VOICE_FOLD ||
+         action == ACTION_OSC_PAN ||
+         action == ACTION_OSC_KEY_TRACK ||
+         action == ACTION_OSC_MOD_AMOUNT ||
          action == ACTION_VOICE_SCOPE ||
          action == ACTION_PITCH ||
          action == ACTION_LEVEL ||
@@ -682,7 +724,7 @@ bool isAnySequencerVoiceEnabledAtStep(int stepIndex) {
 }
 
 void setWaveVoiceShapeForTrack(int voiceIndex, int shapeIndex) {
-  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  voiceIndex = clampInt(voiceIndex, 0, SYNTH_OSCILLATOR_COUNT - 1);
   shapeIndex = wrapIndex(shapeIndex, WAVE_SHAPE_COUNT);
   waveVoiceShape[voiceIndex] = shapeIndex;
 
@@ -879,10 +921,12 @@ const char* getValueText(int itemIndex) {
   switch (action) {
     case ACTION_VOICE_1_MENU:
     case ACTION_VOICE_2_MENU:
+    case ACTION_VOICE_3_MENU:
     case ACTION_FILTER_MENU:
     case ACTION_TRANSPORT_MENU:
     case ACTION_ENV_1_MENU:
     case ACTION_ENV_2_MENU:
+    case ACTION_ENV_3_MENU:
     case ACTION_ENV_DESTINATIONS_MENU:
       snprintf(buffer, sizeof(buffer), "OPEN");
       break;
@@ -904,8 +948,23 @@ const char* getValueText(int itemIndex) {
       snprintf(buffer, sizeof(buffer), "%+d%%", (int)getActiveModulationRoute().amountPercent);
       break;
 
+    case ACTION_OSC_ENABLED:
+      snprintf(buffer,
+               sizeof(buffer),
+               "%s",
+               oscillatorEnabled[getCurrentWaveVoiceIndex()] ? "ON" : "OFF");
+      break;
+
     case ACTION_VOICE_WAVE:
       snprintf(buffer, sizeof(buffer), "%s", waveformNames[waveVoiceShape[getCurrentWaveVoiceIndex()]]);
+      break;
+
+    case ACTION_OSC_LEVEL:
+      snprintf(buffer, sizeof(buffer), "%d%%", waveVoiceLevels[getCurrentWaveVoiceIndex()]);
+      break;
+
+    case ACTION_OSC_OCTAVE:
+      snprintf(buffer, sizeof(buffer), "%+d oct", oscillatorOctave[getCurrentWaveVoiceIndex()]);
       break;
 
     case ACTION_VOICE_TUNE:
@@ -918,6 +977,26 @@ const char* getValueText(int itemIndex) {
 
     case ACTION_VOICE_DETUNE:
       snprintf(buffer, sizeof(buffer), "%+dct", waveVoiceDetune[getCurrentWaveVoiceIndex()]);
+      break;
+
+    case ACTION_OSC_PHASE:
+      snprintf(buffer, sizeof(buffer), "%d%%", oscillatorPhasePercent[getCurrentWaveVoiceIndex()]);
+      break;
+
+    case ACTION_OSC_PULSE_WIDTH:
+      snprintf(buffer, sizeof(buffer), "%d%%", oscillatorPulseWidthPercent[getCurrentWaveVoiceIndex()]);
+      break;
+
+    case ACTION_OSC_PAN:
+      snprintf(buffer, sizeof(buffer), "%+d%%", oscillatorPanPercent[getCurrentWaveVoiceIndex()]);
+      break;
+
+    case ACTION_OSC_KEY_TRACK:
+      snprintf(buffer, sizeof(buffer), "%d%%", oscillatorKeyTrackingPercent[getCurrentWaveVoiceIndex()]);
+      break;
+
+    case ACTION_OSC_MOD_AMOUNT:
+      snprintf(buffer, sizeof(buffer), "%+d%%", oscillatorModulationAmountPercent[getCurrentWaveVoiceIndex()]);
       break;
 
     case ACTION_VOICE_SCOPE:
@@ -1220,6 +1299,13 @@ void changeCurrentValue(int delta) {
   if (delta == 0) return;
 
   switch (action) {
+    case ACTION_OSC_ENABLED:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      oscillatorEnabled[oscillator] = !oscillatorEnabled[oscillator];
+      break;
+    }
+
     case ACTION_VOICE_WAVE:
     {
       int voice = getCurrentWaveVoiceIndex();
@@ -1227,11 +1313,29 @@ void changeCurrentValue(int delta) {
       break;
     }
 
+    case ACTION_OSC_LEVEL:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      waveVoiceLevels[oscillator] = clampInt(
+        waveVoiceLevels[oscillator] + delta * 2, 0, 100
+      );
+      break;
+    }
+
+    case ACTION_OSC_OCTAVE:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      oscillatorOctave[oscillator] = clampInt(
+        oscillatorOctave[oscillator] + delta, -4, 4
+      );
+      break;
+    }
+
     case ACTION_VOICE_TUNE:
     {
       int voice = getCurrentWaveVoiceIndex();
       waveVoiceTune[voice] += delta;
-      waveVoiceTune[voice] = clampInt(waveVoiceTune[voice], -24, 24);
+      waveVoiceTune[voice] = clampInt(waveVoiceTune[voice], -48, 48);
       break;
     }
 
@@ -1247,7 +1351,25 @@ void changeCurrentValue(int delta) {
     {
       int voice = getCurrentWaveVoiceIndex();
       waveVoiceDetune[voice] += delta;
-      waveVoiceDetune[voice] = clampInt(waveVoiceDetune[voice], -50, 50);
+      waveVoiceDetune[voice] = clampInt(waveVoiceDetune[voice], -100, 100);
+      break;
+    }
+
+    case ACTION_OSC_PHASE:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      oscillatorPhasePercent[oscillator] = wrapIndex(
+        oscillatorPhasePercent[oscillator] + delta, 101
+      );
+      break;
+    }
+
+    case ACTION_OSC_PULSE_WIDTH:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      oscillatorPulseWidthPercent[oscillator] = clampInt(
+        oscillatorPulseWidthPercent[oscillator] + delta, 1, 99
+      );
       break;
     }
 
@@ -1308,6 +1430,33 @@ void changeCurrentValue(int delta) {
     {
       int amount = (int)getActiveModulationRoute().amountPercent + delta;
       getActiveModulationRoute().amountPercent = (int8_t)clampModulationAmount(amount);
+      break;
+    }
+
+    case ACTION_OSC_PAN:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      oscillatorPanPercent[oscillator] = clampInt(
+        oscillatorPanPercent[oscillator] + delta * 2, -100, 100
+      );
+      break;
+    }
+
+    case ACTION_OSC_KEY_TRACK:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      oscillatorKeyTrackingPercent[oscillator] = clampInt(
+        oscillatorKeyTrackingPercent[oscillator] + delta, 0, 100
+      );
+      break;
+    }
+
+    case ACTION_OSC_MOD_AMOUNT:
+    {
+      int oscillator = getCurrentWaveVoiceIndex();
+      oscillatorModulationAmountPercent[oscillator] = clampInt(
+        oscillatorModulationAmountPercent[oscillator] + delta * 2, -100, 100
+      );
       break;
     }
 
@@ -1538,7 +1687,10 @@ void updateUiLogic() {
     }
 
     if (bootReady && millis() - bootCompletedAtMs >= bootCompleteHoldMs) {
-      setMode(MODE_PREMENU);
+      // Synth View is the instrument home screen. Its back button opens the
+      // sequencer's TFT-only menu (Transport, Pattern and Settings).
+      applyTypeChoice(SEQUENCER_AREA_INDEX);
+      setMode(MODE_EDIT);
     }
 
     return;

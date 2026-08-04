@@ -21,8 +21,12 @@ enum Page : uint8_t {
 };
 
 const char* pageName(uint8_t page);
+uint8_t activeTrackPage();
 const char* parameterLabel(uint8_t page, uint8_t encoderIndex);
 void formatParameterValue(uint8_t page, uint8_t encoderIndex, char* output, size_t outputSize);
+bool isOscillatorSummaryPage(uint8_t page);
+void formatOscillatorSummaryTitle(char* output, size_t outputSize);
+void formatOscillatorSummaryLine(uint8_t line, char* output, size_t outputSize);
 void adjustParameter(uint8_t page, uint8_t encoderIndex, int delta);
 void activatePageAction(uint8_t page);
 uint32_t stateHash();

@@ -16,7 +16,6 @@ const uint8_t NEOKEY_BOARD_ADDRESSES[NEOKEY_BOARD_COUNT] = { 0x30, 0x31, 0x32, 0
 const uint8_t NEOKEY_LOCAL_KEY_MAP[NEOKEY_KEYS_PER_BOARD] = { 0, 1, 2, 3 };
 const uint32_t NEOKEY_KEY_POLL_MS = 10;
 const uint32_t NEOKEY_KEY_DEBOUNCE_MS = 20;
-const uint32_t NEOKEY_CHORD_WINDOW_MS = 70;
 const uint32_t NEOKEY_REFRESH_MS = 25;
 const uint32_t NEOKEY_RECONNECT_MS = 1800;
 const uint8_t NEOKEY_BOOT_RETRY_COUNT = 4;
@@ -34,8 +33,6 @@ bool neokeyBoardReady[NEOKEY_BOARD_COUNT] = { false };
 bool neokeyAnyReady = false;
 uint16_t neokeyLastRawKeys = 0;
 uint16_t neokeyStableKeys = 0;
-uint16_t neokeyPendingPressMask = 0;
-uint32_t neokeyPendingPressUntilMs = 0;
 uint32_t neokeyLastPollMs = 0;
 uint32_t neokeyLastRefreshMs = 0;
 uint32_t neokeyLastReconnectMs = 0;
@@ -122,7 +119,14 @@ uint32_t neokeyStepColor(int stepIndex, bool voice1Active, bool voice2Active, bo
   uint8_t r = voice1Active ? 190 : 0;
   uint8_t g = kickActive ? 150 : 0;
   uint8_t b = voice2Active ? 180 : 0;
-  if (r != 0 || g != 0 || b != 0) return neokeyColor(r, g, b);
+
+  bool active = r != 0 || g != 0 || b != 0;
+  if (playhead && active) {
+    // Keep the track hue, but make an enabled step flash clearly when played.
+    return neokeyColor(r != 0 ? 255 : 48,
+                       g != 0 ? 255 : 48,
+                       b != 0 ? 255 : 48);
+  }
 
   if (playhead) return neokeyColor(28, 28, 28);
   return neokeyColor(r, g, b);
@@ -187,6 +191,9 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
   if (pressed == 0) return;
   int track = getActiveSequencerTrack();
   bool kickTrack = track == SEQUENCER_TRACK_KICK;
+  bool oscillatorPitchEntry = !kickTrack &&
+                              ControlSurface::getMode() == ControlSurface::SYNTH_CONTROL &&
+                              ControlSurface::getSynthPage() == ControlSurfaceBridge::PAGE_TUNING;
   int voice = getActiveSequencerTrackVoice();
   int selectedStep = -1;
 
@@ -205,7 +212,11 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
         triggerKickVoice();
       }
     } else {
-      sequencerStepEnabled[voice][step] = !sequencerStepEnabled[voice][step];
+      // On the Oscillator page a key means "edit this beat": select it and
+      // keep it active. Toggle remains available from the Sequencer page.
+      sequencerStepEnabled[voice][step] = oscillatorPitchEntry
+        ? true
+        : !sequencerStepEnabled[voice][step];
     }
     selectedStep = step;
   }
@@ -287,8 +298,10 @@ void neokeyMaintainConnections(uint32_t now) {
         neokeyBoardReady[board] = false;
         neokeyBoardFailureCount[board] = 0;
         stateChanged = true;
-        Serial.print("[EVENT][NEOKEY] connection lost at 0x");
-        Serial.println(address, HEX);
+        if (isSerialDiagnosticsEnabled()) {
+          Serial.print("[EVENT][NEOKEY] connection lost at 0x");
+          Serial.println(address, HEX);
+        }
       }
       continue;
     }
@@ -297,8 +310,10 @@ void neokeyMaintainConnections(uint32_t now) {
       neokeyBoardReady[board] = true;
       neokeyBoardFailureCount[board] = 0;
       stateChanged = true;
-      Serial.print("[EVENT][NEOKEY] recovered at 0x");
-      Serial.println(address, HEX);
+      if (isSerialDiagnosticsEnabled()) {
+        Serial.print("[EVENT][NEOKEY] recovered at 0x");
+        Serial.println(address, HEX);
+      }
     }
   }
 
@@ -317,8 +332,6 @@ void neokeyMaintainConnections(uint32_t now) {
 void neokeySyncButtonDebounce(uint16_t rawKeys, uint32_t now) {
   neokeyLastRawKeys = rawKeys;
   neokeyStableKeys = rawKeys;
-  neokeyPendingPressMask = 0;
-  neokeyPendingPressUntilMs = 0;
 
   for (int i = 0; i < NEOKEY_TOTAL_KEYS; i++) {
     bool raw = (rawKeys & ((uint16_t)1U << i)) != 0;
@@ -368,8 +381,7 @@ void pollNeoKeySequencerKeys() {
       neokeyButtonStable[i] = raw;
 
       if (raw) {
-        neokeyPendingPressMask |= (uint16_t)1U << i;
-        neokeyPendingPressUntilMs = now + NEOKEY_CHORD_WINDOW_MS;
+        pressed |= (uint16_t)1U << i;
       }
     }
 
@@ -379,12 +391,6 @@ void pollNeoKeySequencerKeys() {
   }
 
   neokeyStableKeys = stableMask;
-
-  if (neokeyPendingPressMask != 0 && now >= neokeyPendingPressUntilMs) {
-    pressed = neokeyPendingPressMask;
-    neokeyPendingPressMask = 0;
-    neokeyPendingPressUntilMs = 0;
-  }
 
   neokeyTogglePressedSteps(pressed);
 }
@@ -486,13 +492,15 @@ void initNeoKeySequencerPanel() {
     delay(120);
   }
 
-  serialDebugBegin("NEOKEY INITIALIZATION");
-  for (uint8_t board = 0; board < NEOKEY_BOARD_COUNT; board++) {
-    Serial.print("NeoKey PCA channel 4 ");
-    Serial.print(neokeyBoardReady[board] ? "found at 0x" : "missing at 0x");
-    Serial.println(NEOKEY_BOARD_ADDRESSES[board], HEX);
+  if (isSerialDiagnosticsEnabled()) {
+    serialDebugBegin("NEOKEY INITIALIZATION");
+    for (uint8_t board = 0; board < NEOKEY_BOARD_COUNT; board++) {
+      Serial.print("NeoKey PCA channel 4 ");
+      Serial.print(neokeyBoardReady[board] ? "found at 0x" : "missing at 0x");
+      Serial.println(NEOKEY_BOARD_ADDRESSES[board], HEX);
+    }
+    serialDebugEnd("NEOKEY INITIALIZATION");
   }
-  serialDebugEnd("NEOKEY INITIALIZATION");
 
   neokeyRestoreDisplayBusClock();
 

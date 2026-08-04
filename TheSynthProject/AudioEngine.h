@@ -18,17 +18,46 @@ static float audioDelayTargetSamples = (280.0f * SYNTH_AUDIO_SAMPLE_RATE) / 1000
 static float audioDelayCurrentSamples = (280.0f * SYNTH_AUDIO_SAMPLE_RATE) / 1000.0f;
 static float audioReverbMixAmount = 0.0f;
 static float audioReverbRoomAmount = 0.65f;
-static uint32_t audioAttackSamples = (10U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
-static uint32_t audioDecaySamples = (80U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
-static uint32_t audioReleaseSamples = (320U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
+static uint32_t audioEnvelopeAttackSamples[ENVELOPE_COUNT] = {};
+static uint32_t audioEnvelopeDecaySamples[ENVELOPE_COUNT] = {};
+static uint32_t audioEnvelopeReleaseSamples[ENVELOPE_COUNT] = {};
+static float audioEnvelopeSustainLevels[ENVELOPE_COUNT] = {};
+static bool audioModulationRouteEnabled[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT] = {};
+static float audioModulationRouteAmounts[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT] = {};
+static float audioModulationValues[MOD_DESTINATION_COUNT] = {};
+static float audioModulatedPitchRatios[WAVE_VOICE_COUNT] = { 1.0f, 1.0f };
+static float audioModulatedPulseWidth = 0.5f;
+static float audioModulatedFilterResonance = 0.0f;
+static float audioModulatedDrive = 0.0f;
+static float audioModulatedPan = 0.0f;
+// These target values are already part of the destination layer. Future LFO
+// source producers can consume them without changing routes, menus or presets.
+static float audioModulatedLfoRates[2] = { 0.5f, 1.0f };
+static float audioModulatedLfoDepths[2] = { 0.0f, 0.0f };
+static uint8_t audioModulationControlCounter = 0;
 static uint32_t audioKickMaxSamples = (420U * SYNTH_AUDIO_SAMPLE_RATE) / 1000U;
 static uint32_t audioSequencerStepSamples = (SYNTH_AUDIO_SAMPLE_RATE * 15U) / 120U;
 static uint32_t audioSequencerGateSamples = ((SYNTH_AUDIO_SAMPLE_RATE * 15U) / 120U) * 70U / 100U;
-static float audioSustainLevel = 0.68f;
 static bool audioDelayRequested = false;
 static bool audioReverbRequested = false;
 static bool audioDelayPathActive = false;
 static bool audioReverbPathActive = false;
+
+enum AudioEnvelopeStage : uint8_t {
+  AUDIO_ENV_IDLE,
+  AUDIO_ENV_ATTACK,
+  AUDIO_ENV_DECAY,
+  AUDIO_ENV_SUSTAIN,
+  AUDIO_ENV_RELEASE
+};
+
+struct AudioEnvelopeRuntime {
+  AudioEnvelopeStage stage;
+  float level;
+  float releaseStep;
+};
+
+static AudioEnvelopeRuntime audioEnvelopeRuntimes[ENVELOPE_COUNT] = {};
 
 bool isVoicePreviewActive();
 
@@ -54,6 +83,13 @@ void clearSynthReverbState() {
 void resetSynthDspState(bool clearEffectBuffers) {
   clearSynthFilterState();
   synthEnvelopeSmoothed = 0.0f;
+  audioModulationControlCounter = 0;
+
+  for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
+    audioEnvelopeRuntimes[envelope].stage = AUDIO_ENV_IDLE;
+    audioEnvelopeRuntimes[envelope].level = 0.0f;
+    audioEnvelopeRuntimes[envelope].releaseStep = 0.0f;
+  }
 
   if (clearEffectBuffers) {
     clearSynthDelayState();
@@ -63,7 +99,7 @@ void resetSynthDspState(bool clearEffectBuffers) {
   }
 }
 
-float getCrossfadedVoiceSample(int voiceIndex, float phase, int targetShape) {
+float getCrossfadedVoiceSample(int voiceIndex, float phase, int targetShape, float foldAmount, float pulseWidth) {
   targetShape = clampInt(targetShape, 0, WAVE_SHAPE_COUNT - 1);
 
   if (targetShape != synthRenderedVoiceShape[voiceIndex]) {
@@ -72,21 +108,23 @@ float getCrossfadedVoiceSample(int voiceIndex, float phase, int targetShape) {
     synthVoiceShapeCrossfadeRemaining[voiceIndex] = SYNTH_SHAPE_CROSSFADE_SAMPLES;
   }
 
-  float currentSample = getOscillatorSampleForParams(
+  float currentSample = getOscillatorSampleForModParams(
     phase,
     synthRenderedVoiceShape[voiceIndex],
-    audioWaveVoiceFold[voiceIndex],
-    0.0f
+    foldAmount,
+    0.0f,
+    pulseWidth
   );
 
   int remaining = synthVoiceShapeCrossfadeRemaining[voiceIndex];
   if (remaining <= 0) return currentSample;
 
-  float previousSample = getOscillatorSampleForParams(
+  float previousSample = getOscillatorSampleForModParams(
     phase,
     synthPreviousVoiceShape[voiceIndex],
-    audioWaveVoiceFold[voiceIndex],
-    0.0f
+    foldAmount,
+    0.0f,
+    pulseWidth
   );
   float mix = 1.0f - ((float)remaining / (float)SYNTH_SHAPE_CROSSFADE_SAMPLES);
   synthVoiceShapeCrossfadeRemaining[voiceIndex] = remaining - 1;
@@ -98,12 +136,29 @@ void updateAudioVoicePhaseSteps() {
   int step = clampInt(sequencerCurrentStep, 0, SEQUENCER_STEP_COUNT - 1);
 
   for (int i = 0; i < WAVE_VOICE_COUNT; i++) {
-    float semitoneOffset = audioWaveVoiceTune[i] + audioWaveVoiceDetune[i] / 100.0f;
-    if (sequencerEnabled) semitoneOffset += getSequencerStepNote(i, step);
+    float voiceFrequency = audioFrequency;
+    if (sequencerEnabled) {
+      float midiPitch = getSequencerStepPitch(i, step) +
+                        audioWaveVoiceTune[i] + audioWaveVoiceDetune[i] / 100.0f;
+      voiceFrequency = midiPitchToFrequency(clampFloat(
+        midiPitch,
+        (float)SEQUENCER_MIN_PITCH,
+        (float)SEQUENCER_MAX_PITCH
+      ));
+    } else {
+      float semitoneOffset = audioWaveVoiceTune[i] + audioWaveVoiceDetune[i] / 100.0f;
+      voiceFrequency *= powf(2.0f, semitoneOffset / 12.0f);
+    }
 
-    float tuneRatio = powf(2.0f, semitoneOffset / 12.0f);
-    audioVoicePhaseSteps[i] = (audioFrequency * tuneRatio) / (float)SYNTH_AUDIO_SAMPLE_RATE;
+    audioVoicePhaseSteps[i] = voiceFrequency / (float)SYNTH_AUDIO_SAMPLE_RATE;
   }
+}
+
+bool isAudioModDestinationRouted(ModDestinationId destination) {
+  for (int source = 0; source < MOD_SOURCE_COUNT; source++) {
+    if (audioModulationRouteEnabled[source][destination]) return true;
+  }
+  return false;
 }
 
 void updateAudioParametersForBlock() {
@@ -147,13 +202,27 @@ void updateAudioParametersForBlock() {
   audioDelayTargetSamples = (float)((clampInt(delayTimeMs, 20, DELAY_MAX_MS) * SYNTH_AUDIO_SAMPLE_RATE) / 1000);
   audioReverbMixAmount = smoothToward(audioReverbMixAmount, targetReverbMix / 100.0f, amount);
   audioReverbRoomAmount = smoothToward(audioReverbRoomAmount, clampInt(reverbRoom, 0, 95) / 100.0f, amount);
-  audioDelayRequested = targetDelayMix > 0 || audioDelayMixAmount > 0.001f;
-  audioReverbRequested = targetReverbMix > 0 || audioReverbMixAmount > 0.001f;
+  for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
+    const AdsrParameters& parameters = envelopeParameters[envelope];
+    audioEnvelopeAttackSamples[envelope] = ((uint32_t)clampInt(parameters.attackMs, 0, 500) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
+    audioEnvelopeDecaySamples[envelope] = ((uint32_t)clampInt(parameters.decayMs, 0, 2000) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
+    audioEnvelopeReleaseSamples[envelope] = ((uint32_t)clampInt(parameters.releaseMs, 0, 3000) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
+    audioEnvelopeSustainLevels[envelope] = clampInt(parameters.sustainPercent, 0, 100) / 100.0f;
+  }
+  for (int source = 0; source < MOD_SOURCE_COUNT; source++) {
+    for (int destination = 0; destination < MOD_DESTINATION_COUNT; destination++) {
+      audioModulationRouteEnabled[source][destination] = modulationRoutes[source][destination].enabled;
+      audioModulationRouteAmounts[source][destination] =
+        clampModulationAmount((int)modulationRoutes[source][destination].amountPercent) / 100.0f;
+    }
+  }
 
-  audioAttackSamples = ((uint32_t)clampInt(attack, 0, 500) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
-  audioDecaySamples = ((uint32_t)clampInt(decay, 0, 2000) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
-  audioReleaseSamples = ((uint32_t)clampInt(releaseMs, 0, 3000) * SYNTH_AUDIO_SAMPLE_RATE) / 1000;
-  audioSustainLevel = clampInt(sustain, 0, 100) / 100.0f;
+  audioDelayRequested = targetDelayMix > 0 || audioDelayMixAmount > 0.001f ||
+                        isAudioModDestinationRouted(MOD_DEST_FX_MIX) ||
+                        isAudioModDestinationRouted(MOD_DEST_DELAY_FEEDBACK);
+  audioReverbRequested = targetReverbMix > 0 || audioReverbMixAmount > 0.001f ||
+                         isAudioModDestinationRouted(MOD_DEST_FX_MIX) ||
+                         isAudioModDestinationRouted(MOD_DEST_REVERB_MIX);
   audioKickMaxSamples = (uint32_t)((audioKickDecay * (float)SYNTH_AUDIO_SAMPLE_RATE) / 1000.0f);
   if (audioKickMaxSamples < 80) audioKickMaxSamples = 80;
 
@@ -163,6 +232,48 @@ void updateAudioParametersForBlock() {
   if (audioSequencerGateSamples < 1) audioSequencerGateSamples = 1;
 
   updateAudioVoicePhaseSteps();
+}
+
+void updateAudioModulationControlValues(const float sourceValues[]) {
+  for (int destination = 0; destination < MOD_DESTINATION_COUNT; destination++) {
+    float value = 0.0f;
+    for (int source = 0; source < MOD_SOURCE_COUNT; source++) {
+      if (!audioModulationRouteEnabled[source][destination]) continue;
+      value += sourceValues[source] * audioModulationRouteAmounts[source][destination];
+    }
+    audioModulationValues[destination] = clampFloat(value, -1.0f, 1.0f);
+  }
+
+  audioModulatedPitchRatios[0] = powf(2.0f, audioModulationValues[MOD_DEST_OSC1_PITCH] * 2.0f);
+  audioModulatedPitchRatios[1] = powf(2.0f, audioModulationValues[MOD_DEST_OSC2_PITCH] * 2.0f);
+  audioModulatedPulseWidth = clampFloat(0.5f + audioModulationValues[MOD_DEST_PWM] * 0.45f, 0.05f, 0.95f);
+  audioModulatedFilterResonance = clampFloat(audioModulationValues[MOD_DEST_FILTER_RESONANCE] * 0.95f, 0.0f, 0.95f);
+  audioModulatedDrive = clampFloat(audioModulationValues[MOD_DEST_DRIVE], 0.0f, 1.0f);
+  audioModulatedPan = clampFloat(audioModulationValues[MOD_DEST_PAN], -1.0f, 1.0f);
+  audioModulatedLfoRates[0] = clampFloat(0.5f * powf(2.0f, audioModulationValues[MOD_DEST_LFO1_RATE] * 5.0f), 0.01f, 20.0f);
+  audioModulatedLfoRates[1] = clampFloat(1.0f * powf(2.0f, audioModulationValues[MOD_DEST_LFO2_RATE] * 5.0f), 0.01f, 20.0f);
+  audioModulatedLfoDepths[0] = clampFloat(audioModulationValues[MOD_DEST_LFO1_DEPTH], -1.0f, 1.0f);
+  audioModulatedLfoDepths[1] = clampFloat(audioModulationValues[MOD_DEST_LFO2_DEPTH], -1.0f, 1.0f);
+
+  float cutoff = audioFilterCutoff * powf(2.0f, audioModulationValues[MOD_DEST_FILTER_CUTOFF] * 4.0f);
+  cutoff = clampFloat(cutoff, (float)FILTER_MIN_CUTOFF_HZ, (float)FILTER_MAX_CUTOFF_HZ);
+  float cutoffRadians = TWO_PI_F * cutoff / (float)SYNTH_AUDIO_SAMPLE_RATE;
+  audioFilterCoefficient = clampFloat(1.0f - expf(-cutoffRadians), 0.001f, 0.95f);
+}
+
+float getModulatedAmpMultiplier(const float sourceValues[], bool gateOpen) {
+  bool hasRoute = false;
+  float multiplier = 1.0f;
+
+  for (int source = 0; source < MOD_SOURCE_COUNT; source++) {
+    if (!audioModulationRouteEnabled[source][MOD_DEST_AMP_LEVEL]) continue;
+    hasRoute = true;
+    float amount = audioModulationRouteAmounts[source][MOD_DEST_AMP_LEVEL];
+    float shaped = amount >= 0.0f ? sourceValues[source] : 1.0f - sourceValues[source];
+    multiplier *= 1.0f - fabsf(amount) + shaped * fabsf(amount);
+  }
+
+  return clampFloat(hasRoute ? multiplier : (gateOpen ? 1.0f : 0.0f), 0.0f, 1.0f);
 }
 
 float getAudioWaveMixSample() {
@@ -175,16 +286,29 @@ float getAudioWaveMixSample() {
     if (!sequencerEnabled && previewVoice >= 0 && i != previewVoice) continue;
 
     float gain = audioWaveVoiceLevels[i] / 100.0f;
+    float mixModulation = audioModulationValues[MOD_DEST_OSC_MIX];
+    if (i == 0 && mixModulation > 0.0f) gain *= 1.0f - mixModulation;
+    if (i == 1 && mixModulation < 0.0f) gain *= 1.0f + mixModulation;
+    gain = clampFloat(gain, 0.0f, 1.0f);
     if (gain <= 0.001f) continue;
 
     if (sequencerEnabled) {
       if (!isSequencerStepEnabled(i, step)) continue;
     }
 
-    mixed += getCrossfadedVoiceSample(i, synthVoicePhases[i], audioWaveVoiceShape[i]) * gain;
+    float phase = synthVoicePhases[i];
+    if (i == 0 && fabsf(audioModulationValues[MOD_DEST_FM_AMOUNT]) > 0.0001f) {
+      phase += getFastSineSample(synthVoicePhases[1]) * audioModulationValues[MOD_DEST_FM_AMOUNT] * 0.20f;
+    }
+    float foldAmount = clampFloat(
+      audioWaveVoiceFold[i] + audioModulationValues[MOD_DEST_WAVEFOLD_AMOUNT] * 100.0f,
+      0.0f,
+      100.0f
+    );
+    mixed += getCrossfadedVoiceSample(i, phase, audioWaveVoiceShape[i], foldAmount, audioModulatedPulseWidth) * gain;
     totalGain += gain;
 
-    synthVoicePhases[i] += audioVoicePhaseSteps[i];
+    synthVoicePhases[i] += audioVoicePhaseSteps[i] * audioModulatedPitchRatios[i];
     if (synthVoicePhases[i] >= 1.0f) {
       synthVoicePhases[i] -= 1.0f;
     }
@@ -208,11 +332,14 @@ float applySynthFilter(float input) {
   float high = input - filterLowState;
   filterBandState += audioFilterCoefficient * (high - filterBandState);
 
-  float filtered = filterLowState;
+  // Resonance is added from the bounded band state, retaining the numerical
+  // safety of the one-pole core while exposing a useful Q-like destination.
+  float resonanceAccent = filterBandState * audioModulatedFilterResonance * 2.4f;
+  float filtered = filterLowState + resonanceAccent;
   if (audioFilterType == 1) {
-    filtered = high;
+    filtered = high + resonanceAccent;
   } else if (audioFilterType == 2) {
-    filtered = filterBandState;
+    filtered = filterBandState * (1.0f + audioModulatedFilterResonance * 2.0f);
   }
 
   if (!isfinite(filtered)) {
@@ -251,12 +378,22 @@ float processSynthDelay(float input) {
   float first = delayBuffer[firstIndex] / 32767.0f;
   float second = delayBuffer[secondIndex] / 32767.0f;
   float delayed = first + (second - first) * fraction;
-  float delayStored = input + delayed * audioDelayFeedbackAmount;
+  float feedback = clampFloat(
+    audioDelayFeedbackAmount + audioModulationValues[MOD_DEST_DELAY_FEEDBACK] * 0.90f,
+    0.0f,
+    0.95f
+  );
+  float wetMix = clampFloat(
+    audioDelayMixAmount + audioModulationValues[MOD_DEST_FX_MIX],
+    0.0f,
+    1.0f
+  );
+  float delayStored = input + delayed * feedback;
   delayBuffer[delayWriteIndex] = (int16_t)(clampFloat(delayStored, -1.0f, 1.0f) * 32767.0f);
   delayWriteIndex++;
   if (delayWriteIndex >= DELAY_BUFFER_SAMPLES) delayWriteIndex = 0;
 
-  return input + (delayed - input) * audioDelayMixAmount;
+  return input + (delayed - input) * wetMix;
 }
 
 float processSynthReverb(float input) {
@@ -282,7 +419,12 @@ float processSynthReverb(float input) {
   if (++reverbIndexC >= REVERB_BUFFER_C_SAMPLES) reverbIndexC = 0;
 
   float reverbWet = (combA + combB + combC) / 3.0f;
-  return input + (reverbWet - input) * audioReverbMixAmount;
+  float wetMix = clampFloat(
+    audioReverbMixAmount + audioModulationValues[MOD_DEST_REVERB_MIX] + audioModulationValues[MOD_DEST_FX_MIX],
+    0.0f,
+    1.0f
+  );
+  return input + (reverbWet - input) * wetMix;
 }
 
 float processDelayAndReverb(float input) {
@@ -295,18 +437,72 @@ float processDelayAndReverb(float input) {
   return processSynthReverb(processSynthDelay(input));
 }
 
-float getSynthEnvelopeLevel() {
-  float level = audioSustainLevel;
+void triggerAudioEnvelopes() {
+  for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
+    audioEnvelopeRuntimes[envelope].stage = AUDIO_ENV_ATTACK;
+    audioEnvelopeRuntimes[envelope].level = 0.0f;
+    audioEnvelopeRuntimes[envelope].releaseStep = 0.0f;
+  }
+}
 
-  if (audioAttackSamples > 0 && synthEnvelopeSample < audioAttackSamples) {
-    level = (float)synthEnvelopeSample / (float)audioAttackSamples;
-  } else if (audioDecaySamples > 0 && synthEnvelopeSample < audioAttackSamples + audioDecaySamples) {
-    float t = (float)(synthEnvelopeSample - audioAttackSamples) / (float)audioDecaySamples;
-    level = 1.0f - (1.0f - audioSustainLevel) * clampFloat(t, 0.0f, 1.0f);
+float renderAudioEnvelope(int envelope, bool gateOpen) {
+  AudioEnvelopeRuntime& runtime = audioEnvelopeRuntimes[envelope];
+  float sustainLevel = audioEnvelopeSustainLevels[envelope];
+
+  if (!gateOpen && runtime.stage != AUDIO_ENV_IDLE && runtime.stage != AUDIO_ENV_RELEASE) {
+    runtime.stage = AUDIO_ENV_RELEASE;
+    uint32_t releaseSamples = audioEnvelopeReleaseSamples[envelope];
+    runtime.releaseStep = releaseSamples > 0 ? runtime.level / (float)releaseSamples : runtime.level;
   }
 
-  synthEnvelopeSample++;
-  return clampFloat(level, 0.0f, 1.0f);
+  switch (runtime.stage) {
+    case AUDIO_ENV_ATTACK:
+      if (!gateOpen) break;
+      if (audioEnvelopeAttackSamples[envelope] == 0) {
+        runtime.level = 1.0f;
+        runtime.stage = AUDIO_ENV_DECAY;
+      } else {
+        runtime.level += 1.0f / (float)audioEnvelopeAttackSamples[envelope];
+        if (runtime.level >= 1.0f) {
+          runtime.level = 1.0f;
+          runtime.stage = AUDIO_ENV_DECAY;
+        }
+      }
+      break;
+
+    case AUDIO_ENV_DECAY:
+      if (!gateOpen) break;
+      if (audioEnvelopeDecaySamples[envelope] == 0) {
+        runtime.level = sustainLevel;
+        runtime.stage = AUDIO_ENV_SUSTAIN;
+      } else {
+        runtime.level -= (1.0f - sustainLevel) / (float)audioEnvelopeDecaySamples[envelope];
+        if (runtime.level <= sustainLevel) {
+          runtime.level = sustainLevel;
+          runtime.stage = AUDIO_ENV_SUSTAIN;
+        }
+      }
+      break;
+
+    case AUDIO_ENV_SUSTAIN:
+      runtime.level = sustainLevel;
+      break;
+
+    case AUDIO_ENV_RELEASE:
+      if (audioEnvelopeReleaseSamples[envelope] == 0 || runtime.level <= runtime.releaseStep) {
+        runtime.level = 0.0f;
+        runtime.stage = AUDIO_ENV_IDLE;
+      } else {
+        runtime.level -= runtime.releaseStep;
+      }
+      break;
+
+    default:
+      runtime.level = 0.0f;
+      break;
+  }
+
+  return clampFloat(runtime.level, 0.0f, 1.0f);
 }
 
 float getDeclickedEnvelopeLevel(float targetLevel) {
@@ -322,6 +518,7 @@ float getDeclickedEnvelopeLevel(float targetLevel) {
 
 void resetSynthVoice() {
   synthEnvelopeSample = 0;
+  triggerAudioEnvelopes();
   synthRetriggerRequested = false;
 }
 
@@ -353,6 +550,7 @@ bool isVoicePreviewActive() {
 }
 
 void triggerKickVoice() {
+  kickTriggerSequence++;
   kickPhase = 0.0f;
   kickSampleAge = 0;
   kickVoiceActive = kickLevel > 0;
@@ -371,7 +569,7 @@ int getSequencerNoteChecksum() {
 
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
     for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
-      checksum = checksum * 31 + sequencerStepNotes[voice][step];
+      checksum = checksum * 31 + sequencerStepPitches[voice][step];
       checksum = checksum * 3 + (sequencerStepEnabled[voice][step] ? 1 : 0);
     }
   }
@@ -436,13 +634,7 @@ float getSequencerGateLevel() {
   if (!isAnySequencerVoiceEnabledAtStep(step)) return 0.0f;
 
   if (sequencerSampleCounter < audioSequencerGateSamples) return 1.0f;
-
-  if (audioReleaseSamples == 0) return 0.0f;
-
-  uint32_t releaseAge = sequencerSampleCounter - audioSequencerGateSamples;
-  if (releaseAge >= audioReleaseSamples) return 0.0f;
-
-  return 1.0f - ((float)releaseAge / (float)audioReleaseSamples);
+  return 0.0f;
 }
 
 float getSequencerStepEdgeFade() {
@@ -491,13 +683,7 @@ float renderKickSample() {
 
 bool isSynthAudioActive() {
   if (!dacI2sStarted) return false;
-  if (audioOutputTransition) return false;
   if (uiMode == MODE_BOOT || uiMode == MODE_ABOUT) return false;
-  if (isBluetoothStreaming()) return false;
-
-  if (ControlSurface::isLegacyWaveformAudioActive()) {
-    return true;
-  }
 
   if (isAudioTestActive()) {
     return true;
@@ -523,19 +709,6 @@ void fillDirectAudioTestBuffer() {
     if (directAudioTestPhase >= 1.0f) directAudioTestPhase -= 1.0f;
     synthAudioBuffer[frame * 2] = sample;
     synthAudioBuffer[frame * 2 + 1] = sample;
-    tickSequencerClock();
-  }
-}
-
-void fillLegacyWaveformAudioBuffer() {
-  for (int i = 0; i < SYNTH_AUDIO_BUFFER_FRAMES; i++) {
-    float sample = ControlSurface::renderLegacyWaveformSample(synthPhase) * 0.28f;
-    synthPhase += 220.0f / (float)SYNTH_AUDIO_SAMPLE_RATE;
-    if (synthPhase >= 1.0f) synthPhase -= 1.0f;
-    int16_t pcm = (int16_t)(clampFloat(sample, -1.0f, 1.0f) * 32767.0f);
-
-    synthAudioBuffer[i * 2] = pcm;
-    synthAudioBuffer[i * 2 + 1] = pcm;
   }
 }
 
@@ -544,14 +717,33 @@ void fillSynthAudioBuffer() {
     tickSequencerClock();
 
     float mixedSample = 0.0f;
-    float gateLevel = getSequencerGateLevel();
-    float targetEnvelope = audioVolume > 0.01f ? getSynthEnvelopeLevel() * gateLevel : 0.0f;
-    float envelope = getDeclickedEnvelopeLevel(targetEnvelope) * getSequencerStepEdgeFade();
+    bool gateOpen = getSequencerGateLevel() > 0.5f;
+    float sourceValues[MOD_SOURCE_COUNT] = {};
+    for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
+      sourceValues[getEnvelopeModSource(envelope)] = renderAudioEnvelope(envelope, gateOpen);
+    }
+
+    if (audioModulationControlCounter == 0) {
+      updateAudioModulationControlValues(sourceValues);
+      // Control-rate destinations do not need to run at audio rate. Updating
+      // every 32 samples still gives ~1.38 kHz control bandwidth at 44.1 kHz.
+      audioModulationControlCounter = 31;
+    } else {
+      audioModulationControlCounter--;
+    }
+
+    float targetAmp = audioVolume > 0.01f ? getModulatedAmpMultiplier(sourceValues, gateOpen) : 0.0f;
+    float envelope = getDeclickedEnvelopeLevel(targetAmp) * getSequencerStepEdgeFade();
 
     if (audioVolume > 0.01f && envelope > 0.0005f) {
       float level = (audioVolume / 100.0f) * SYNTH_OUTPUT_GAIN;
       float waveSample = getAudioWaveMixSample() * envelope * level;
       mixedSample = applySynthFilter(waveSample);
+
+      if (audioModulatedDrive > 0.001f) {
+        float driven = mixedSample * (1.0f + audioModulatedDrive * 9.0f);
+        mixedSample = driven / (1.0f + fabsf(driven));
+      }
     }
 
     mixedSample += renderKickSample();
@@ -563,20 +755,27 @@ void fillSynthAudioBuffer() {
       mixedSample = 0.0f;
     }
 
-    int16_t pcm = (int16_t)(clampFloat(mixedSample, -1.0f, 1.0f) * 32767.0f);
+    float leftGain = audioModulatedPan > 0.0f ? 1.0f - audioModulatedPan : 1.0f;
+    float rightGain = audioModulatedPan < 0.0f ? 1.0f + audioModulatedPan : 1.0f;
+    int16_t leftPcm = (int16_t)(clampFloat(mixedSample * leftGain, -1.0f, 1.0f) * 32767.0f);
+    int16_t rightPcm = (int16_t)(clampFloat(mixedSample * rightGain, -1.0f, 1.0f) * 32767.0f);
 
-    synthAudioBuffer[i * 2] = pcm;
-    synthAudioBuffer[i * 2 + 1] = pcm;
+    synthAudioBuffer[i * 2] = leftPcm;
+    synthAudioBuffer[i * 2 + 1] = rightPcm;
   }
 }
 
 void synthAudioTask(void* parameter) {
   (void)parameter;
 
+  synthAudioCore = xPortGetCoreID();
+  initializeSynthMath();
+  resetSynthDspState(true);
+  startDacI2s();
+
   while (true) {
     bool active = isSynthAudioActive();
     bool directTestActive = active && isAudioTestActive();
-    bool legacyWaveformActive = active && ControlSurface::isLegacyWaveformAudioActive();
 
     if (active && (!synthWasActive || synthRetriggerRequested)) {
       if (!synthWasActive && sequencerEnabled) {
@@ -592,29 +791,31 @@ void synthAudioTask(void* parameter) {
 
     if (active) {
       uint32_t renderStartedUs = micros();
-      updateAudioParametersForBlock();
 
       if (directTestActive) {
         if (!directAudioTestWasActive) {
           directAudioTestPhase = 0.0f;
         }
         fillDirectAudioTestBuffer();
-      } else if (legacyWaveformActive) {
-        fillLegacyWaveformAudioBuffer();
       } else {
+        updateAudioParametersForBlock();
         fillSynthAudioBuffer();
       }
       directAudioTestWasActive = directTestActive;
 
       uint32_t renderElapsedUs = micros() - renderStartedUs;
       uint32_t i2sStartedUs = micros();
-      size_t written = btI2s.write((const uint8_t*)synthAudioBuffer, sizeof(synthAudioBuffer));
+      size_t written = audioI2s.write((const uint8_t*)synthAudioBuffer, sizeof(synthAudioBuffer));
       uint32_t i2sElapsedUs = micros() - i2sStartedUs;
       if (renderElapsedUs > synthAudioMaxRenderUs) synthAudioMaxRenderUs = renderElapsedUs;
       if (i2sElapsedUs > synthAudioMaxI2sUs) synthAudioMaxI2sUs = i2sElapsedUs;
       synthAudioRenderedBuffers = synthAudioRenderedBuffers + 1;
 
       if (written != sizeof(synthAudioBuffer)) {
+        synthAudioShortWrites = synthAudioShortWrites + 1;
+        synthAudioLastWriteError = audioI2s.lastError();
+      }
+      if (isSerialDiagnosticsEnabled() && written != sizeof(synthAudioBuffer)) {
         uint32_t now = millis();
         if (now - synthAudioLastI2sErrorMs >= 1000) {
           synthAudioLastI2sErrorMs = now;
@@ -625,9 +826,13 @@ void synthAudioTask(void* parameter) {
       }
       synthWasActive = true;
     } else {
-      if (synthWasActive && !audioOutputTransition && !btAudioStarted) {
+      if (synthWasActive) {
         memset(synthAudioBuffer, 0, sizeof(synthAudioBuffer));
-        btI2s.write((const uint8_t*)synthAudioBuffer, sizeof(synthAudioBuffer));
+        size_t written = audioI2s.write((const uint8_t*)synthAudioBuffer, sizeof(synthAudioBuffer));
+        if (written != sizeof(synthAudioBuffer)) {
+          synthAudioShortWrites = synthAudioShortWrites + 1;
+          synthAudioLastWriteError = audioI2s.lastError();
+        }
         resetSynthDspState(true);
       }
 
@@ -643,13 +848,10 @@ void synthAudioTask(void* parameter) {
 void startSynthAudio() {
   if (synthAudioTaskHandle != nullptr) return;
 
-  initializeSynthMath();
-  resetSynthDspState(true);
-
   if (xTaskCreatePinnedToCore(synthAudioTask, "lcdSynthAudio", 4096, nullptr, SYNTH_AUDIO_TASK_PRIORITY, &synthAudioTaskHandle, 0) != pdPASS) {
     synthAudioTaskHandle = nullptr;
-    Serial.println("[AUDIO] native render task allocation failed");
-  } else {
+    Serial.println("[ERROR][AUDIO] native render task allocation failed");
+  } else if (isSerialDiagnosticsEnabled()) {
     Serial.println("[AUDIO] native ESP32 render task started");
   }
 }

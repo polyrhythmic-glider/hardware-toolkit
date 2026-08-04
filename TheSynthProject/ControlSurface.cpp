@@ -21,17 +21,14 @@ constexpr uint8_t DISPLAY_COUNT = 4;
 constexpr uint8_t OLED_ADDRESS_PRIMARY = 0x3C;
 constexpr uint8_t OLED_ADDRESS_SECONDARY = 0x3D;
 constexpr uint32_t MAIN_I2C_CLOCK_HZ = 400000;
-constexpr uint32_t ENCODER_I2C_CLOCK_HZ = 100000;
+constexpr uint32_t ENCODER_I2C_CLOCK_HZ = 400000;
 constexpr uint8_t MCP_IODIRA = 0x00;
 constexpr uint8_t MCP_GPPUA = 0x0C;
 constexpr uint8_t MCP_PORTA_DATA_REGISTER = 0x12;
 constexpr uint8_t ENCODER_STEPS_PER_DETENT = 4;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
-constexpr uint32_t DEBUG_TOGGLE_HOLD_MS = 1000;
 // Resta visibile durante il boot del TFT, ma usa solo una checklist testuale.
 constexpr uint32_t STARTUP_SPLASH_MS = 3600;
-constexpr uint32_t BOOT_CHECK_INITIAL_DELAY_MS = 220;
-constexpr uint32_t BOOT_CHECK_STEP_MS = 155;
 constexpr uint32_t DRAW_INTERVAL_MS = 55;
 constexpr uint32_t PONG_STEP_MS = 20;
 constexpr int UI_HEADER_HEIGHT = 16;
@@ -247,17 +244,76 @@ bool menuOpen = false;
 int menuSelection = SYNTH_CONTROL;
 uint8_t synthPage = ControlSurfaceBridge::PAGE_VOICE_1;
 bool redrawRequested = true;
-bool debugEnabled = false;
 uint32_t lastDrawAt = 0;
 uint32_t startupUntil = 0;
-uint32_t startupStartedAt = 0;
-uint32_t debugHoldStartedAt = 0;
-bool debugToggleConsumed = false;
 uint32_t lastMainStateHash = 0;
 uint32_t clickFlashUntil[4] = { 0, 0, 0, 0 };
 uint8_t lastTouchedPage = ControlSurfaceBridge::PAGE_VOICE_1;
 uint8_t lastTouchedEncoder = 0;
 uint32_t lastParameterChangeMs = 0;
+
+const uint8_t VOICE_1_CONTEXT_PAGES[] = {
+  ControlSurfaceBridge::PAGE_VOICE_1,
+  ControlSurfaceBridge::PAGE_TUNING,
+  ControlSurfaceBridge::PAGE_SEQUENCER,
+  ControlSurfaceBridge::PAGE_TRANSPORT
+};
+const uint8_t VOICE_2_CONTEXT_PAGES[] = {
+  ControlSurfaceBridge::PAGE_VOICE_2,
+  ControlSurfaceBridge::PAGE_TUNING,
+  ControlSurfaceBridge::PAGE_SEQUENCER,
+  ControlSurfaceBridge::PAGE_TRANSPORT
+};
+const uint8_t KICK_CONTEXT_PAGES[] = {
+  ControlSurfaceBridge::PAGE_KICK,
+  ControlSurfaceBridge::PAGE_KICK_SHAPE,
+  ControlSurfaceBridge::PAGE_SEQUENCER,
+  ControlSurfaceBridge::PAGE_TRANSPORT
+};
+
+const uint8_t* getContextPages(uint8_t& count) {
+  count = 4;
+  uint8_t trackPage = ControlSurfaceBridge::activeTrackPage();
+  if (trackPage == ControlSurfaceBridge::PAGE_VOICE_2) return VOICE_2_CONTEXT_PAGES;
+  if (trackPage == ControlSurfaceBridge::PAGE_KICK) return KICK_CONTEXT_PAGES;
+  return VOICE_1_CONTEXT_PAGES;
+}
+
+void syncSynthPageToActiveTrack() {
+  uint8_t count = 0;
+  const uint8_t* pages = getContextPages(count);
+  for (uint8_t i = 0; i < count; i++) {
+    if (synthPage == pages[i]) return;
+  }
+
+  synthPage = pages[0];
+  lastTouchedPage = synthPage;
+  lastTouchedEncoder = 0;
+  lastParameterChangeMs = millis();
+  redrawRequested = true;
+}
+
+void stepContextPage(int delta) {
+  if (delta == 0) return;
+
+  uint8_t count = 0;
+  const uint8_t* pages = getContextPages(count);
+  int current = 0;
+  for (uint8_t i = 0; i < count; i++) {
+    if (synthPage == pages[i]) {
+      current = i;
+      break;
+    }
+  }
+
+  current += delta > 0 ? 1 : -1;
+  while (current < 0) current += count;
+  synthPage = pages[current % count];
+  lastTouchedPage = synthPage;
+  lastTouchedEncoder = 0;
+  lastParameterChangeMs = millis();
+  redrawRequested = true;
+}
 
 volatile int legacyWaveform = 0;
 volatile int legacyParameterA = 0;
@@ -360,17 +416,20 @@ void processEncoderPorts(uint16_t ports) {
 
 void encoderPollTask(void* parameter) {
   (void)parameter;
+  TickType_t nextPoll = xTaskGetTickCount();
 
   while (true) {
     uint16_t ports = 0xFFFF;
     if (readMcpPorts(ports)) {
-      encoderReadCount++;
+      encoderReadCount = encoderReadCount + 1;
       processEncoderPorts(ports);
     } else {
-      encoderReadErrors++;
+      encoderReadErrors = encoderReadErrors + 1;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(1));
+    // 500 Hz is ample for mechanical quadrature encoders. At 400 kHz this
+    // keeps the independent MCP bus responsive without monopolising core 1.
+    vTaskDelayUntil(&nextPoll, pdMS_TO_TICKS(2));
   }
 }
 
@@ -696,7 +755,7 @@ bool beginOleds() {
 
   if (!pcaReady) {
     oledBusReady = false;
-    printOledDiagnosticReport();
+    if (isSerialDiagnosticsEnabled()) printOledDiagnosticReport();
     return false;
   }
 
@@ -716,7 +775,7 @@ bool beginOleds() {
 
   selectPcaChannel(0);
   oledBusReady = oledReadyMask != 0;
-  printOledDiagnosticReport();
+  if (isSerialDiagnosticsEnabled()) printOledDiagnosticReport();
   return oledBusReady;
 }
 
@@ -797,15 +856,6 @@ void drawSynthParameterCard(const char* page, const char* label, const char* val
   drawCenteredText(value, valueY, valueSize, SSD1306_WHITE);
 }
 
-bool isBootCheckVisible(uint8_t row) {
-  if (startupStartedAt == 0) return false;
-
-  uint32_t elapsed = millis() - startupStartedAt;
-  uint8_t checkIndex = activeDisplay * 4 + row;
-  uint32_t checkAt = BOOT_CHECK_INITIAL_DELAY_MS + (uint32_t)checkIndex * BOOT_CHECK_STEP_MS;
-  return elapsed >= checkAt;
-}
-
 void drawBootCheck(const char* label, uint8_t row, bool checked) {
   constexpr int statusX = 115;
   int y = 15 + row * 12;
@@ -831,28 +881,28 @@ void drawSplashPanel() {
 
   if (activeDisplay == 0) {
     oled.println("> BOOT / CORE");
-    drawBootCheck("CPU ONLINE", 0, isBootCheckVisible(0));
-    drawBootCheck("RTOS ACTIVE", 1, isBootCheckVisible(1));
-    drawBootCheck("MEMORY READY", 2, isBootCheckVisible(2));
-    drawBootCheck("FW LOADED", 3, isBootCheckVisible(3));
+    drawBootCheck("CPU ONLINE", 0, true);
+    drawBootCheck("RTOS ACTIVE", 1, true);
+    drawBootCheck("MEMORY READY", 2, true);
+    drawBootCheck("FW LOADED", 3, true);
   } else if (activeDisplay == 1) {
     oled.println("> BOOT / DISPLAYS");
-    drawBootCheck("TFT ONLINE", 0, isBootCheckVisible(0));
-    drawBootCheck("I2C LINES", 1, isBootCheckVisible(1));
-    drawBootCheck("PCA MUX", 2, isBootCheckVisible(2));
-    drawBootCheck("OLED BANK", 3, isBootCheckVisible(3));
+    drawBootCheck("TFT ONLINE", 0, true);
+    drawBootCheck("I2C LINES", 1, mainSdaHigh && mainSclHigh);
+    drawBootCheck("PCA MUX", 2, pcaReady);
+    drawBootCheck("OLED BANK", 3, oledReadyMask != 0);
   } else if (activeDisplay == 2) {
     oled.println("> BOOT / CONTROLS");
-    drawBootCheck("INPUT BUS", 0, isBootCheckVisible(0));
-    drawBootCheck("MCP23017", 1, isBootCheckVisible(1));
-    drawBootCheck("ENCODER TASK", 2, isBootCheckVisible(2));
-    drawBootCheck("GPIO MAP", 3, isBootCheckVisible(3));
+    drawBootCheck("INPUT BUS", 0, encoderExpanderReady);
+    drawBootCheck("MCP23017", 1, encoderExpanderReady);
+    drawBootCheck("ENCODER TASK", 2, encoderTaskHandle != nullptr);
+    drawBootCheck("GPIO MAP", 3, true);
   } else {
     oled.println("> PRELAUNCH");
-    drawBootCheck("UI MODEL", 0, isBootCheckVisible(0));
-    drawBootCheck("PARAM MAP", 1, isBootCheckVisible(1));
-    drawBootCheck("OLED SURFACE", 2, isBootCheckVisible(2));
-    drawBootCheck("SURFACE READY", 3, isBootCheckVisible(3));
+    drawBootCheck("UI MODEL", 0, true);
+    drawBootCheck("PARAM MAP", 1, true);
+    drawBootCheck("OLED SURFACE", 2, oledBusReady);
+    drawBootCheck("SURFACE READY", 3, oledBusReady && encoderExpanderReady);
   }
 }
 
@@ -870,7 +920,7 @@ void drawMenuPanel() {
     oled.println("4 OLED + 4 ENCODER");
     oled.println("integrated with LCD");
     oled.println();
-    oled.println("E4 selects mode");
+    oled.println("shared synth state");
     return;
   }
 
@@ -887,10 +937,10 @@ void drawMenuPanel() {
   if (activeDisplay == 2) {
     drawStatusFrame("CONTROLS");
     oled.setCursor(0, 20);
-    oled.println("TURN E4: SELECT");
-    oled.println("PUSH E4: ENTER");
-    oled.println("E1+E4: DEBUG");
-    oled.println("LCD menu also works");
+    oled.println("ENCODERS: 4");
+    oled.println("BUTTONS: 4");
+    oled.println("NEOKEY: 16");
+    oled.println("LCD LINK: READY");
     return;
   }
 
@@ -952,7 +1002,7 @@ void drawEncoderDial(long value, bool flash) {
 }
 
 void drawEncoderPanel() {
-  char title[10];
+  char title[16];
   snprintf(title, sizeof(title), "ENCODER %d", activeDisplay + 1);
   drawStatusFrame(title);
   long value = getEncoderValue(activeDisplay);
@@ -1094,7 +1144,7 @@ void drawWaveformPanel() {
     oled.print(legacyParameterLabelA(legacyWaveform)); oled.print(": "); oled.println(legacyParameterA);
     oled.print(legacyParameterLabelB(legacyWaveform)); oled.print(": "); oled.println(legacyParameterB);
     oled.print("TYPE: "); oled.println(legacyWaveformName(legacyWaveform));
-    oled.println("AUDIO: PCM5102");
+    oled.println("OUTPUT: VISUAL ONLY");
   } else if (activeDisplay == 2) {
     drawStatusFrame("INPUTS");
     oled.setCursor(0, 21);
@@ -1108,7 +1158,7 @@ void drawWaveformPanel() {
     oled.print("E1 "); oled.println(getEncoderValue(0));
     oled.print("E2 "); oled.println(getEncoderValue(1));
     oled.println("E4 PUSH: MENU");
-    oled.println("220 Hz legacy out");
+    oled.println("NO AUDIO OUTPUT");
   }
 }
 
@@ -1237,25 +1287,46 @@ void drawPongPanel() {
 void drawSynthControlPanel() {
   if (activeDisplay == 3) {
     drawStatusFrame("PAGE MENU");
-    int previousPage = (synthPage + ControlSurfaceBridge::PAGE_COUNT - 1) % ControlSurfaceBridge::PAGE_COUNT;
-    int nextPage = (synthPage + 1) % ControlSurfaceBridge::PAGE_COUNT;
 
+    uint8_t count = 0;
+    const uint8_t* pages = getContextPages(count);
+    for (uint8_t i = 0; i < count; i++) {
+      int y = 18 + i * 12;
+      bool selected = synthPage == pages[i];
+      if (selected) {
+        oled.fillRect(0, y - 1, SCREEN_WIDTH, 11, SSD1306_WHITE);
+        oled.setTextColor(SSD1306_BLACK);
+      } else {
+        oled.setTextColor(SSD1306_WHITE);
+      }
+      oled.setCursor(4, y + 1);
+      oled.print(ControlSurfaceBridge::pageName(pages[i]));
+    }
     oled.setTextColor(SSD1306_WHITE);
-    oled.setCursor(4, 20);
-    oled.print("< ");
-    oled.println(ControlSurfaceBridge::pageName(previousPage));
-    oled.fillRect(0, 31, SCREEN_WIDTH, 13, SSD1306_WHITE);
-    oled.setTextColor(SSD1306_BLACK);
-    oled.setCursor(4, 34);
-    oled.print("> ");
-    oled.print(ControlSurfaceBridge::pageName(synthPage));
+    return;
+  }
+
+  if (ControlSurfaceBridge::isOscillatorSummaryPage(synthPage)) {
+    char title[24];
+    ControlSurfaceBridge::formatOscillatorSummaryTitle(title, sizeof(title));
+    drawStatusFrame(title);
+
+    for (uint8_t line = 0; line < 6; line++) {
+      int y = 17 + line * 8;
+      bool editableRow = line == activeDisplay + 1;
+      if (editableRow) {
+        oled.fillRect(0, y - 1, SCREEN_WIDTH, 8, SSD1306_WHITE);
+        oled.setTextColor(SSD1306_BLACK);
+      } else {
+        oled.setTextColor(SSD1306_WHITE);
+      }
+
+      char summaryLine[24];
+      ControlSurfaceBridge::formatOscillatorSummaryLine(line, summaryLine, sizeof(summaryLine));
+      oled.setCursor(2, y);
+      oled.print(summaryLine);
+    }
     oled.setTextColor(SSD1306_WHITE);
-    oled.setCursor(4, 47);
-    oled.print("> ");
-    oled.println(ControlSurfaceBridge::pageName(nextPage));
-    oled.setCursor(4, 56);
-    oled.print(ControlSurfaceBridge::isTransportRunning() ? "PLAY" : "STOP");
-    oled.print("  TURN E4");
     return;
   }
 
@@ -1297,15 +1368,15 @@ void drawDiagnosticsPanel() {
     oled.setCursor(0, 20);
     oled.print("E1 "); oled.print(getEncoderValue(0)); oled.print("  E2 "); oled.println(getEncoderValue(1));
     oled.print("E3 "); oled.print(getEncoderValue(2)); oled.print("  E4 "); oled.println(getEncoderValue(3));
-    oled.print("Debug: "); oled.println(debugEnabled ? "ON" : "OFF");
-    oled.println("E1+E4 hold 1 sec");
+    oled.print("Serial: "); oled.println(isSerialDiagnosticsEnabled() ? "ON" : "OFF");
+    oled.println("Utility > Serial");
   } else {
     drawStatusFrame("QUICK TEST");
     oled.setCursor(0, 20);
     oled.println("TURN ALL ENCODERS");
     oled.println("PUSH E1/E2/E3");
     oled.println("PUSH E4: MENU");
-    oled.println("See Serial 115200");
+    oled.println("Utility diagnostics");
   }
 }
 
@@ -1341,28 +1412,6 @@ void preparePongTracking(const InputFrame* input = nullptr) {
   pongLastUpdateAt = millis();
 }
 
-bool handleDebugCombo(InputFrame& input) {
-  bool held = input.pressed[0] && input.pressed[3];
-  if (!held) {
-    debugHoldStartedAt = 0;
-    debugToggleConsumed = false;
-    return false;
-  }
-
-  input.click[0] = false;
-  input.click[3] = false;
-
-  if (debugHoldStartedAt == 0) debugHoldStartedAt = millis();
-  if (!debugToggleConsumed && millis() - debugHoldStartedAt >= DEBUG_TOGGLE_HOLD_MS) {
-    debugToggleConsumed = true;
-    debugEnabled = !debugEnabled;
-    redrawRequested = true;
-    serialDebugEvent("CONTROL", debugEnabled ? "surface debug ON" : "surface debug OFF");
-  }
-
-  return true;
-}
-
 void handleMenuInput(const InputFrame& input) {
   if (input.delta[3] != 0) {
     menuSelection += input.delta[3];
@@ -1389,18 +1438,19 @@ void handleSynthControlInput(const InputFrame& input) {
   }
 
   if (input.delta[3] != 0) {
-    int nextPage = (int)synthPage + (input.delta[3] > 0 ? 1 : -1);
-    while (nextPage < 0) nextPage += ControlSurfaceBridge::PAGE_COUNT;
-    synthPage = nextPage % ControlSurfaceBridge::PAGE_COUNT;
-    lastTouchedPage = synthPage;
-    lastTouchedEncoder = 0;
-    lastParameterChangeMs = millis();
-    redrawRequested = true;
+    stepContextPage(input.delta[3]);
   }
 
   if (input.click[2]) {
     ControlSurfaceBridge::activatePageAction(synthPage);
     clickFlashUntil[2] = millis() + 180;
+    redrawRequested = true;
+  }
+
+  if (input.click[3]) {
+    menuSelection = currentMode;
+    menuOpen = true;
+    clickFlashUntil[3] = millis() + 180;
     redrawRequested = true;
   }
 }
@@ -1468,15 +1518,15 @@ void begin() {
   bool mcpStarted = beginEncoderExpander();
   encoderExpanderReady = mcpStarted;
   snapshotEncoderBus();
-  printMcpDiagnosticReport();
+  if (isSerialDiagnosticsEnabled()) printMcpDiagnosticReport();
   beginOleds();
   resetPongGame();
   synthPage = ControlSurfaceBridge::PAGE_VOICE_1;
+  syncSynthPageToActiveTrack();
   currentMode = SYNTH_CONTROL;
   menuSelection = SYNTH_CONTROL;
   menuOpen = false;
   startupUntil = millis() + STARTUP_SPLASH_MS;
-  startupStartedAt = millis();
   redrawRequested = true;
 
   if (oledBusReady) {
@@ -1489,14 +1539,16 @@ void begin() {
     menuOpen = savedMenuOpen;
   }
 
-  serialDebugBegin("CONTROL SURFACE STATUS");
-  Serial.print("Control surface PCA: ");
-  Serial.print(pcaReady ? "OK" : "MISSING");
-  Serial.print(", OLED mask: 0x");
-  Serial.print(oledReadyMask, HEX);
-  Serial.print(", MCP23017: ");
-  Serial.println(encoderExpanderReady ? "OK" : "MISSING");
-  serialDebugEnd("CONTROL SURFACE STATUS");
+  if (isSerialDiagnosticsEnabled()) {
+    serialDebugBegin("CONTROL SURFACE STATUS");
+    Serial.print("Control surface PCA: ");
+    Serial.print(pcaReady ? "OK" : "MISSING");
+    Serial.print(", OLED mask: 0x");
+    Serial.print(oledReadyMask, HEX);
+    Serial.print(", MCP23017: ");
+    Serial.println(encoderExpanderReady ? "OK" : "MISSING");
+    serialDebugEnd("CONTROL SURFACE STATUS");
+  }
 }
 
 void tick() {
@@ -1512,36 +1564,35 @@ void tick() {
   }
 
   if (startupUntil != 0) {
-    if (now - lastDrawAt >= BOOT_CHECK_STEP_MS) redrawRequested = true;
-    if (redrawRequested && now - lastDrawAt >= DRAW_INTERVAL_MS) drawAllDisplays();
+    // The four complete 1 KiB framebuffers are already shown by begin().
+    // Keep the splash static instead of retransmitting them throughout boot.
     return;
   }
 
-  bool debugComboHeld = handleDebugCombo(input);
-  if (!debugComboHeld) {
-    if (menuOpen) {
-      handleMenuInput(input);
-    } else if (currentMode == SYNTH_CONTROL) {
-      handleSynthControlInput(input);
-    } else {
-      bool pongResetClick = currentMode == PONG && pongGameOver && input.click[3];
-      if (input.click[3] && !pongResetClick) {
-        menuSelection = currentMode;
-        menuOpen = true;
-        clickFlashUntil[3] = now + 180;
-        redrawRequested = true;
-      } else if (currentMode == ENCODER_VIEW) {
-        handleEncoderViewInput(input);
-      } else if (currentMode == WAVEFORM) {
-        handleWaveformInput(input);
-      } else if (currentMode == PONG) {
-        handlePongInput(input);
-      } else if (currentMode == DIAGNOSTICS) {
-        for (uint8_t i = 0; i < 3; i++) {
-          if (input.click[i]) clickFlashUntil[i] = now + 180;
-        }
-        if (now - lastDrawAt >= 500) redrawRequested = true;
+  syncSynthPageToActiveTrack();
+
+  if (menuOpen) {
+    handleMenuInput(input);
+  } else if (currentMode == SYNTH_CONTROL) {
+    handleSynthControlInput(input);
+  } else {
+    bool pongResetClick = currentMode == PONG && pongGameOver && input.click[3];
+    if (input.click[3] && !pongResetClick) {
+      menuSelection = currentMode;
+      menuOpen = true;
+      clickFlashUntil[3] = now + 180;
+      redrawRequested = true;
+    } else if (currentMode == ENCODER_VIEW) {
+      handleEncoderViewInput(input);
+    } else if (currentMode == WAVEFORM) {
+      handleWaveformInput(input);
+    } else if (currentMode == PONG) {
+      handlePongInput(input);
+    } else if (currentMode == DIAGNOSTICS) {
+      for (uint8_t i = 0; i < 3; i++) {
+        if (input.click[i]) clickFlashUntil[i] = now + 180;
       }
+      if (now - lastDrawAt >= 500) redrawRequested = true;
     }
   }
 
@@ -1574,6 +1625,7 @@ bool isEncoderExpanderReady() {
 
 void runOledDiagnostics() {
   beginOleds();
+  if (!isSerialDiagnosticsEnabled()) printOledDiagnosticReport();
   redrawRequested = true;
 }
 
@@ -1672,7 +1724,7 @@ Mode getMode() {
 }
 
 void setMode(Mode mode) {
-  if ((int)mode < 0 || mode >= MODE_COUNT) mode = SYNTH_CONTROL;
+  if (mode >= MODE_COUNT) mode = SYNTH_CONTROL;
   currentMode = mode;
   menuSelection = mode;
   menuOpen = false;
@@ -1710,61 +1762,35 @@ const char* getModeName(Mode mode) {
 }
 
 uint8_t getSynthPage() {
+  syncSynthPageToActiveTrack();
   return synthPage;
 }
 
 const char* getSynthPageName() {
+  syncSynthPageToActiveTrack();
   return ControlSurfaceBridge::pageName(synthPage);
 }
 
 const char* getLastParameterLabel() {
+  syncSynthPageToActiveTrack();
+  if (lastTouchedPage != synthPage) {
+    lastTouchedPage = synthPage;
+    lastTouchedEncoder = 0;
+  }
   return ControlSurfaceBridge::parameterLabel(lastTouchedPage, lastTouchedEncoder);
 }
 
 void formatLastParameterValue(char* output, size_t outputSize) {
+  syncSynthPageToActiveTrack();
+  if (lastTouchedPage != synthPage) {
+    lastTouchedPage = synthPage;
+    lastTouchedEncoder = 0;
+  }
   ControlSurfaceBridge::formatParameterValue(lastTouchedPage, lastTouchedEncoder, output, outputSize);
 }
 
 uint32_t getLastParameterChangeMs() {
   return lastParameterChangeMs;
-}
-
-bool isLegacyWaveformAudioActive() {
-  // La vecchia demo a 220 Hz resta visualizzabile ma non puo piu prendere il
-  // controllo dell'I2S e interrompere synth o sequencer.
-  return false;
-}
-
-float renderLegacyWaveformSample(float phase) {
-  int waveform = legacyWaveform;
-  int parameterA = legacyParameterA;
-  int parameterB = legacyParameterB;
-  phase -= floorf(phase);
-
-  if (waveform == 0) {
-    float drive = mapFloat(parameterA, -50, 50, 0.55f, 3.20f);
-    float warp = mapFloat(parameterB, -50, 50, -1.25f, 1.25f);
-    float angle = phase * TWO_PI;
-    float sample = sinf(angle + sinf(angle * 2.0f) * warp);
-    return parameterA >= 0 ? tanhf(sample * drive) : sample * drive;
-  }
-
-  if (waveform == 1) {
-    float skew = mapFloat(parameterA, -50, 50, 0.12f, 0.88f);
-    float curve = mapFloat(parameterB, -50, 50, 0.35f, 2.80f);
-    if (phase < skew) return -1.0f + applyCurve(phase / skew, curve) * 2.0f;
-    return 1.0f - applyCurve((phase - skew) / (1.0f - skew), curve) * 2.0f;
-  }
-
-  if (waveform == 2) {
-    float duty = mapFloat(parameterA, -50, 50, 0.05f, 0.95f);
-    float edge = mapFloat(parameterB, -50, 50, 0.001f, 0.18f);
-    return parameterB <= -45 ? (phase < duty ? 1.0f : -1.0f) : smoothedPulse(phase, duty, edge);
-  }
-
-  float level = mapFloat(parameterA, -50, 50, -0.85f, 0.85f);
-  float ripple = mapFloat(abs(parameterB), 0, 50, 0.0f, 0.45f);
-  return constrainFloat(level + sinf(phase * TWO_PI) * ripple * (parameterB < 0 ? -1.0f : 1.0f), -1.0f, 1.0f);
 }
 
 void markDirty() {

@@ -4,6 +4,11 @@
 #include <string.h>
 
 const uint8_t SERIAL_DEBUG_INNER_WIDTH = 60;
+extern volatile bool serialDiagnosticsEnabled;
+
+inline bool isSerialDiagnosticsEnabled() {
+  return serialDiagnosticsEnabled;
+}
 
 inline void serialDebugBoxLine(const char* prefix, const char* title) {
   char content[SERIAL_DEBUG_INNER_WIDTH + 1];
@@ -33,6 +38,7 @@ inline void serialDebugEnd(const char* title) {
 }
 
 inline void serialDebugEvent(const char* source, const char* message) {
+  if (!isSerialDiagnosticsEnabled()) return;
   Serial.print("[EVENT][");
   Serial.print(source);
   Serial.print("] ");

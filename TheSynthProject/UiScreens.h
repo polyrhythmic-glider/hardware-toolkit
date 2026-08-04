@@ -48,6 +48,8 @@ void drawBootScreen() {
 }
 
 void drawPreMenuBase() {
+  if (TYPE_COUNT <= VISIBLE_TYPE_ROWS) topType = 0;
+
   drawStageBackdrop();
 
   drawHeader("SELECT AREA");
@@ -82,8 +84,17 @@ void drawTypeRow(int row, int typeIndex) {
 }
 
 void drawVisibleTypeRows() {
+  bool allAreasVisible = TYPE_COUNT <= VISIBLE_TYPE_ROWS;
+
   for (int row = 0; row < VISIBLE_TYPE_ROWS; row++) {
-    drawTypeRow(row, wrapIndex(topType + row, TYPE_COUNT));
+    if (row >= TYPE_COUNT) {
+      tft.fillRect(0, 21 + row * 18, SCREEN_W, 18, COL_BG);
+    } else {
+      // A complete list is indexed directly by row. It must never inherit a
+      // circular scroll offset from a previous selection at the list edge.
+      int typeIndex = allAreasVisible ? row : wrapIndex(topType + row, TYPE_COUNT);
+      drawTypeRow(row, typeIndex);
+    }
   }
 
   lastSelectedType = selectedType;
@@ -91,6 +102,9 @@ void drawVisibleTypeRows() {
 }
 
 void updatePreMenuFast() {
+  bool allAreasVisible = TYPE_COUNT <= VISIBLE_TYPE_ROWS;
+  if (allAreasVisible) topType = 0;
+
   if (fullRedraw || lastDrawnMode != MODE_PREMENU) {
     drawPreMenuBase();
 
@@ -107,8 +121,8 @@ void updatePreMenuFast() {
   }
 
   if (selectedType != lastSelectedType) {
-    int oldRow = wrapIndex(lastSelectedType - topType, TYPE_COUNT);
-    int newRow = wrapIndex(selectedType - topType, TYPE_COUNT);
+    int oldRow = allAreasVisible ? lastSelectedType : wrapIndex(lastSelectedType - topType, TYPE_COUNT);
+    int newRow = allAreasVisible ? selectedType : wrapIndex(selectedType - topType, TYPE_COUNT);
     if (oldRow < VISIBLE_TYPE_ROWS) drawTypeRow(oldRow, lastSelectedType);
     if (newRow < VISIBLE_TYPE_ROWS) drawTypeRow(newRow, selectedType);
     lastSelectedType = selectedType;
@@ -270,7 +284,26 @@ void drawEditBase() {
   valueDirty = true;
 }
 
+bool actionShowsSequencerPlayhead(MenuAction action) {
+  switch (action) {
+    case ACTION_SYNTH_VIEW:
+    case ACTION_SEQ_START:
+    case ACTION_SEQ_STOP:
+    case ACTION_SEQ_POWER:
+    case ACTION_SEQ_BPM:
+    case ACTION_SEQ_STEP:
+    case ACTION_SEQ_NOTE:
+    case ACTION_SEQ_LENGTH:
+    case ACTION_SEQ_STEP_ENABLE:
+      return true;
+
+    default:
+      return false;
+  }
+}
+
 bool editValueChanged() {
+  MenuAction action = getSelectedAction();
   if (waveform != lastWaveform) return true;
   if (frequency != lastFrequency) return true;
   if (volume != lastVolume) return true;
@@ -291,7 +324,7 @@ bool editValueChanged() {
   if (presetSlot != lastPresetSlot) return true;
   if ((int)ControlSurface::getMode() != lastSurfaceMode) return true;
   if ((int)ControlSurface::getSynthPage() != lastSurfacePage) return true;
-  if (getSelectedAction() == ACTION_MCP_DEBUG) {
+  if (action == ACTION_MCP_DEBUG) {
     if (ControlSurface::getMcpRawPorts() != lastMcpRawPorts) return true;
     for (uint8_t i = 0; i < 4; i++) {
       if (ControlSurface::getEncoderCount(i) != lastMcpEncoderCount[i]) return true;
@@ -305,7 +338,10 @@ bool editValueChanged() {
   if (activeSequencerVoice != lastSequencerVoice) return true;
   if (activeSequencerTrack != lastSequencerTrack) return true;
   if (sequencerSelectedStep != lastSequencerSelectedStep) return true;
-  if (sequencerCurrentStep != lastSequencerCurrentStep) return true;
+  // Ordinary synth, ADSR, FX and utility pages do not display the playhead.
+  // Avoid clearing and repainting them on every sixteenth note.
+  if (actionShowsSequencerPlayhead(action) &&
+      sequencerCurrentStep != lastSequencerCurrentStep) return true;
   if (getSequencerNoteChecksum() != lastSequencerNoteChecksum) return true;
   if (getLevelChecksum(waveVoiceLevels, WAVE_VOICE_COUNT) != lastWaveVoiceChecksum) return true;
   if (kickLevel != lastKickLevel) return true;
@@ -355,37 +391,17 @@ void saveLastValues() {
 }
 
 void drawEditValue() {
+  static uint32_t lastInputsDrawMs = 0;
   MenuAction action = getSelectedAction();
   bool clearBody = valueDirty;
-  bool dynamicBluetoothView =
-    action == ACTION_BT_RECEIVER ||
-    action == ACTION_BT_OUTPUT;
-  bool dynamicSequencerView =
-    action == ACTION_SEQ_START ||
-    action == ACTION_SEQ_STOP ||
-    action == ACTION_SEQ_POWER ||
-    action == ACTION_SYNTH_VIEW ||
-    action == ACTION_SEQ_BPM ||
-    action == ACTION_SEQ_VOICE ||
-    action == ACTION_SEQ_STEP ||
-    action == ACTION_SEQ_NOTE ||
-    action == ACTION_SEQ_LENGTH ||
-    action == ACTION_SEQ_STEP_ENABLE;
-  dynamicSequencerView = dynamicSequencerView || action == ACTION_SURFACE_MODE;
-  bool dynamicView = dynamicBluetoothView || dynamicSequencerView;
-  bool bluetoothStreaming = dynamicBluetoothView ? isBluetoothStreaming() : false;
-
-  if (dynamicView && !valueDirty && !editValueChanged()) {
+  if (action == ACTION_INPUTS) {
+    // The input monitor is live, but an uncapped repaint saturates the TFT bus.
+    // Ten frames per second is responsive and leaves ample time for controls.
     uint32_t now = millis();
-    bool stateChanged = bluetoothStreaming != lastBtStreaming;
-
-    if (!stateChanged && now - lastBtUiRefreshMs < BT_UI_REFRESH_MS) {
-      return;
-    }
-  }
-
-  if (!dynamicView && action != ACTION_INPUTS && !valueDirty && !editValueChanged()) {
-    return;
+    if (!valueDirty && now - lastInputsDrawMs < 100) return;
+    lastInputsDrawMs = now;
+  } else {
+    if (!valueDirty && !editValueChanged()) return;
   }
 
   int itemIndex = getMenuItemIndex(selectedItem);
@@ -393,16 +409,6 @@ void drawEditValue() {
 
   valueDirty = false;
   saveLastValues();
-
-  if (dynamicBluetoothView) {
-    lastBtStreaming = bluetoothStreaming;
-    lastBtPacketDrawn = btPacketCount;
-    lastBtUiRefreshMs = millis();
-  }
-
-  if (dynamicSequencerView) {
-    lastBtUiRefreshMs = millis();
-  }
 
   if (clearBody) {
     tft.fillRect(0, 53, SCREEN_W, SCREEN_H - 53, COL_BG);
@@ -469,6 +475,11 @@ void drawEditValue() {
       drawReleaseEdit(accent);
       break;
 
+    case ACTION_MOD_ROUTE_ENABLED:
+    case ACTION_MOD_ROUTE_AMOUNT:
+      drawModulationRouteEdit(accent);
+      break;
+
     case ACTION_SCOPE:
       drawScopeEdit(accent);
       break;
@@ -490,7 +501,7 @@ void drawEditValue() {
       break;
 
     case ACTION_SYNTH_VIEW:
-      drawSynthView(accent, clearBody);
+      drawSynthView(accent, clearBody, false);
       break;
 
     case ACTION_SEQ_BPM:
@@ -560,26 +571,6 @@ void drawEditValue() {
       drawPresetEdit(action, accent);
       break;
 
-    case ACTION_BT_RECEIVER:
-      drawBluetoothReceiverEdit(accent);
-      break;
-
-    case ACTION_BT_DEVICE:
-      drawBluetoothDeviceEdit(accent);
-      break;
-
-    case ACTION_BT_I2S:
-      drawBluetoothI2SEdit(accent);
-      break;
-
-    case ACTION_BT_OUTPUT:
-      drawBluetoothOutputEdit(accent);
-      break;
-
-    case ACTION_BT_POWER:
-      drawBluetoothPowerEdit(accent);
-      break;
-
     case ACTION_INPUTS:
       drawInputsEdit(accent);
       break;
@@ -604,12 +595,34 @@ void drawEditValue() {
       drawNeoKeyDebugEdit(accent);
       break;
 
+    case ACTION_SERIAL_DEBUG:
+      drawSerialDebugEdit(accent);
+      break;
+
     default:
       break;
   }
 }
 
 void updateEditFast() {
+  if (getSelectedAction() == ACTION_CONNECTION_STATUS) {
+    static uint32_t lastConnectionDrawMs = 0;
+    static uint32_t lastConnectionHash = 0xFFFFFFFFUL;
+    uint32_t now = millis();
+    uint32_t statusHash = getConnectionStatusHash();
+
+    if (fullRedraw || lastDrawnMode != MODE_EDIT || valueDirty ||
+        statusHash != lastConnectionHash || now - lastConnectionDrawMs >= 500) {
+      drawConnectionStatusScreen(false, 0);
+      lastConnectionDrawMs = now;
+      lastConnectionHash = statusHash;
+      valueDirty = false;
+      fullRedraw = false;
+      lastDrawnMode = MODE_EDIT;
+    }
+    return;
+  }
+
   if (getSelectedAction() == ACTION_SYNTH_VIEW) {
     bool clearView = fullRedraw || lastDrawnMode != MODE_EDIT || valueDirty;
 
@@ -619,13 +632,24 @@ void updateEditFast() {
 
     int itemIndex = getMenuItemIndex(selectedItem);
     uint16_t accent = getAccentColor(itemIndex);
+    bool staticViewChanged =
+      (int)transportRunning != lastTransportRunning ||
+      (int)sequencerEnabled != lastSequencerEnabled ||
+      sequencerBpm != lastSequencerBpm ||
+      sequencerLength != lastSequencerLength ||
+      activeSequencerTrack != lastSequencerTrack ||
+      sequencerSelectedStep != lastSequencerSelectedStep ||
+      getWaveVoiceParamChecksum() != lastWaveVoiceParamChecksum ||
+      getLevelChecksum(waveVoiceLevels, WAVE_VOICE_COUNT) != lastWaveVoiceChecksum ||
+      kickLevel != lastKickLevel;
+    bool playheadOnly = !clearView && !staticViewChanged &&
+                        sequencerCurrentStep != lastSequencerCurrentStep;
 
     valueDirty = false;
     fullRedraw = false;
     lastDrawnMode = MODE_EDIT;
-    lastBtUiRefreshMs = millis();
     saveLastValues();
-    drawSynthView(accent, clearView);
+    drawSynthView(accent, clearView, playheadOnly);
     return;
   }
 
@@ -701,7 +725,4 @@ void drawUi() {
     }
   }
 
-  if (!(uiMode == MODE_EDIT && getSelectedAction() == ACTION_SYNTH_VIEW)) {
-    drawBluetoothHeaderField(false);
-  }
 }

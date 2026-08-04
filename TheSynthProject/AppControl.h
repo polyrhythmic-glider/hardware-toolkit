@@ -1,7 +1,12 @@
 #pragma once
 
 extern uint16_t neokeyLastRawKeys;
+extern uint16_t neokeyStableKeys;
 extern uint16_t neokeyLastPrintedRawKeys;
+extern uint8_t neokeyLastBoardRawKeys[];
+extern uint8_t neokeyBoardFailureCount[];
+extern bool neokeyBoardReady[];
+extern bool neokeyAnyReady;
 
 // =======================
 // UTILITY
@@ -25,6 +30,43 @@ const int DISCRETE_EDIT_STEP_THRESHOLD = 1;
 int discreteEditAccumulator = 0;
 int lastDiscreteEditAction = -1;
 
+void initializeSequencerPitchDefaults() {
+  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+      sequencerStepPitches[voice][step] = SEQUENCER_DEFAULT_PITCH;
+    }
+  }
+}
+
+void initializeDefaultModulationRouting() {
+  for (int source = 0; source < MOD_SOURCE_COUNT; source++) {
+    for (int destination = 0; destination < MOD_DESTINATION_COUNT; destination++) {
+      modulationRoutes[source][destination].enabled = false;
+      modulationRoutes[source][destination].amountPercent = 0;
+    }
+  }
+
+  // Preserve the former hard-wired amplitude envelope as the initial patch.
+  modulationRoutes[MOD_SOURCE_ENV1][MOD_DEST_AMP_LEVEL].enabled = true;
+  modulationRoutes[MOD_SOURCE_ENV1][MOD_DEST_AMP_LEVEL].amountPercent = 100;
+}
+
+AdsrParameters& getActiveEnvelopeParameters() {
+  activeEnvelopeIndex = clampInt(activeEnvelopeIndex, 0, ENVELOPE_COUNT - 1);
+  return envelopeParameters[activeEnvelopeIndex];
+}
+
+ModRouteSettings& getActiveModulationRoute() {
+  activeEnvelopeIndex = clampInt(activeEnvelopeIndex, 0, ENVELOPE_COUNT - 1);
+  activeModDestinationIndex = clampInt(activeModDestinationIndex, 0, MOD_DESTINATION_COUNT - 1);
+  return modulationRoutes[getEnvelopeModSource(activeEnvelopeIndex)][activeModDestinationIndex];
+}
+
+int getModulationDestinationForMenuItem(int itemIndex) {
+  int destination = itemIndex - ITEM_MOD_DEST_AMP_LEVEL;
+  return clampInt(destination, 0, MOD_DESTINATION_COUNT - 1);
+}
+
 const char* getResetReasonText(esp_reset_reason_t reason) {
   switch (reason) {
     case ESP_RST_POWERON: return "power-on";
@@ -39,6 +81,7 @@ const char* getResetReasonText(esp_reset_reason_t reason) {
 }
 
 void logAudioMemory(const char* stage) {
+  if (!isSerialDiagnosticsEnabled()) return;
   Serial.print("[AUDIO][MEM] ");
   Serial.print(stage);
   Serial.print(" free/min/largest=");
@@ -57,7 +100,7 @@ bool isDiscreteEditAction(MenuAction action) {
     case ACTION_VOICE_TUNE:
     case ACTION_FILTER_POWER:
     case ACTION_FILTER_TYPE:
-    case ACTION_BT_POWER:
+    case ACTION_MOD_ROUTE_ENABLED:
     case ACTION_AUDIO_TEST:
     case ACTION_SEQ_START:
     case ACTION_SEQ_STOP:
@@ -70,6 +113,8 @@ bool isDiscreteEditAction(MenuAction action) {
     case ACTION_SURFACE_MODE:
     case ACTION_OLED_DEBUG:
     case ACTION_MCP_DEBUG:
+    case ACTION_SERIAL_DEBUG:
+    case ACTION_CONNECTION_STATUS:
       return true;
 
     default:
@@ -104,167 +149,28 @@ int getEditDeltaForAction(MenuAction action, int delta) {
   return 0;
 }
 
-void btAudioDataReceived() {
-  btLastAudioMs = millis();
-  btPacketCount++;
-}
-
-void btRssiReceived(esp_bt_gap_cb_param_t::read_rssi_delta_param& rssi) {
-  btRssiDelta = rssi.rssi_delta;
-  btRssiValid = true;
-}
-
-void applyBluetoothStartVolume(bool force) {
-  if (!bluetoothEnabled || !btAudioStarted) return;
-
-  bool connected = a2dpSink.is_connected();
-  uint32_t now = millis();
-
-  if (!connected) {
-    lastBtConnected = false;
-    btStartVolumeApplied = false;
-    btStartVolumeApplyCount = 0;
-    return;
-  }
-
-  // Quando Linux si collega puo partire con un volume ricordato molto basso.
-  // Lo forziamo alla connessione e una sola seconda volta poco dopo,
-  // cosi poi non combattiamo il volume scelto dall'utente.
-  bool justConnected = !lastBtConnected;
-  bool retryDue =
-    btStartVolumeApplyCount == 1 &&
-    now - lastBtStartVolumeMs >= BT_START_VOLUME_RETRY_MS;
-
-  if (force || justConnected || !btStartVolumeApplied || retryDue) {
-    a2dpSink.set_volume(BT_START_VOLUME);
-    btStartVolumeApplied = true;
-    lastBtStartVolumeMs = now;
-
-    if (btStartVolumeApplyCount < 2) {
-      btStartVolumeApplyCount++;
-    }
-  }
-
-  lastBtConnected = true;
-}
-
 void startDacI2s() {
   if (dacI2sStarted) return;
 
-  auto cfg = btI2s.defaultConfig(TX_MODE);
-  cfg.sample_rate = SYNTH_AUDIO_SAMPLE_RATE;
-  cfg.channels = 2;
-  cfg.bits_per_sample = 16;
-  cfg.pin_bck = PCM5102_BCK;
-  cfg.pin_ws = PCM5102_LCK;
-  cfg.pin_data = PCM5102_DIN;
-  cfg.buffer_count = SYNTH_I2S_DMA_BUFFER_COUNT;
-  cfg.buffer_size = SYNTH_I2S_DMA_BUFFER_SIZE;
-
   logAudioMemory("before I2S");
-  dacI2sStarted = btI2s.begin(cfg);
+  audioI2s.setPins(PCM5102_BCK, PCM5102_LCK, PCM5102_DIN);
+  dacI2sStarted = audioI2s.begin(
+    I2S_MODE_STD,
+    SYNTH_AUDIO_SAMPLE_RATE,
+    I2S_DATA_BIT_WIDTH_16BIT,
+    I2S_SLOT_MODE_STEREO,
+    I2S_STD_SLOT_BOTH
+  );
 
-  Serial.print("[AUDIO][I2S] begin=");
-  Serial.print(dacI2sStarted ? "ok" : "failed");
-  Serial.print(" rate/ch/bits dma=");
-  Serial.print(cfg.sample_rate);
-  Serial.print("/");
-  Serial.print(cfg.channels);
-  Serial.print("/");
-  Serial.print(cfg.bits_per_sample);
-  Serial.print(" ");
-  Serial.print(cfg.buffer_count);
-  Serial.print("x");
-  Serial.println(cfg.buffer_size);
+  if (isSerialDiagnosticsEnabled()) {
+    Serial.print("[AUDIO][I2S] begin=");
+    Serial.print(dacI2sStarted ? "ok" : "failed");
+    Serial.print(" rate/ch/bits/core=");
+    Serial.print(SYNTH_AUDIO_SAMPLE_RATE);
+    Serial.print("/2/16/");
+    Serial.println(xPortGetCoreID());
+  }
   logAudioMemory("after I2S");
-}
-
-void startBluetoothAudio() {
-  if (!bluetoothEnabled || btAudioStarted) return;
-
-  audioOutputTransition = true;
-  vTaskDelay(pdMS_TO_TICKS(4));
-  startDacI2s();
-  if (!dacI2sStarted) {
-    Serial.println("[AUDIO][BT] I2S unavailable");
-    audioOutputTransition = false;
-    return;
-  }
-
-  a2dpSink.set_on_data_received(btAudioDataReceived);
-  a2dpSink.set_rssi_active(true);
-  a2dpSink.set_rssi_callback(btRssiReceived);
-  a2dpSink.start(BT_AUDIO_NAME);
-
-  btAudioStarted = true;
-  btStartedAtMs = millis();
-  audioOutputTransition = false;
-
-  // Default locale del sink; verra ribadito anche appena il PC si collega.
-  a2dpSink.set_volume(BT_START_VOLUME);
-}
-
-void stopBluetoothAudio() {
-  if (!btAudioStarted) return;
-
-  audioOutputTransition = true;
-  a2dpSink.end();
-  // BluetoothA2DPSink::end() closes the AudioTools output as well.
-  dacI2sStarted = false;
-
-  btAudioStarted = false;
-  btLastAudioMs = 0;
-  lastBtConnected = false;
-  btStartVolumeApplied = false;
-  btStartVolumeApplyCount = 0;
-  btRssiValid = false;
-  startDacI2s();
-  audioOutputTransition = false;
-}
-
-bool isBluetoothStreaming() {
-  if (!bluetoothEnabled || !btAudioStarted) return false;
-  if (a2dpSink.is_output_active()) return true;
-  if (btLastAudioMs == 0) return false;
-
-  return millis() - btLastAudioMs < BT_STREAM_TIMEOUT_MS;
-}
-
-const char* getBluetoothStatusText() {
-  if (!bluetoothEnabled) return "OFF";
-  if (!btAudioStarted) return "OFF";
-  if (isBluetoothStreaming()) return "PLAY";
-  if (a2dpSink.is_connected()) return "CONN";
-  return "PAIR";
-}
-
-void updateBluetoothRssi() {
-  if (!bluetoothEnabled || !btAudioStarted || !a2dpSink.is_connected()) {
-    btRssiValid = false;
-    return;
-  }
-
-  uint32_t now = millis();
-
-  if (now - lastBtRssiRequestMs >= BT_RSSI_REFRESH_MS) {
-    a2dpSink.update_rssi();
-    lastBtRssiRequestMs = now;
-  }
-}
-
-int getBluetoothSignalBars() {
-  if (!bluetoothEnabled || !btAudioStarted || !a2dpSink.is_connected()) return 0;
-
-  if (!btRssiValid) {
-    return isBluetoothStreaming() ? 3 : 2;
-  }
-
-  int delta = abs((int)btRssiDelta);
-
-  if (delta <= 5) return 4;
-  if (delta <= 15) return 3;
-  if (delta <= 30) return 2;
-  return 1;
 }
 
 bool isWaveVoicePage(MenuPage page) {
@@ -298,7 +204,11 @@ bool isMenuSubmenuAction(MenuAction action) {
   return action == ACTION_VOICE_1_MENU ||
          action == ACTION_VOICE_2_MENU ||
          action == ACTION_FILTER_MENU ||
-         action == ACTION_TRANSPORT_MENU;
+         action == ACTION_TRANSPORT_MENU ||
+         action == ACTION_ENV_1_MENU ||
+         action == ACTION_ENV_2_MENU ||
+         action == ACTION_ENV_DESTINATIONS_MENU ||
+         action == ACTION_MOD_DESTINATION_MENU;
 }
 
 bool isImmediateMenuAction(MenuAction action) {
@@ -307,7 +217,8 @@ bool isImmediateMenuAction(MenuAction action) {
          action == ACTION_PRESET_LOAD ||
          action == ACTION_PRESET_SAVE ||
          action == ACTION_OLED_DEBUG ||
-         action == ACTION_MCP_DEBUG;
+         action == ACTION_MCP_DEBUG ||
+         action == ACTION_CONNECTION_STATUS;
 }
 
 void startTransport() {
@@ -316,12 +227,16 @@ void startTransport() {
   resetSequencerClock();
   synthRetriggerRequested = true;
 
-  Serial.print("[SEQ] start bpm/length/step=");
-  Serial.print(sequencerBpm);
-  Serial.print("/");
-  Serial.print(getSequencerLength());
-  Serial.print("/");
-  Serial.println(sequencerCurrentStep + 1);
+  if (isSerialDiagnosticsEnabled()) {
+    Serial.print("[SEQ][TRANSPORT] start bpm=");
+    Serial.print(sequencerBpm);
+    Serial.print(" length=");
+    Serial.print(getSequencerLength());
+    Serial.print(" step=");
+    Serial.print(sequencerCurrentStep + 1);
+    Serial.print(" track=");
+    Serial.println(getSequencerTrackLabel(getActiveSequencerTrack()));
+  }
 
   if (kickLevel > 0 && isKickStepEnabled(sequencerCurrentStep)) {
     triggerKickVoice();
@@ -335,6 +250,16 @@ void stopTransport() {
   sequencerSampleCounter = 0;
   synthEnvelopeSample = 0;
   synthEnvelopeSmoothed = 0.0f;
+}
+
+void toggleSerialDiagnostics() {
+  serialDiagnosticsEnabled = !serialDiagnosticsEnabled;
+  if (serialDiagnosticsEnabled) {
+    printSerialDiagnosticsSnapshot();
+    printConnectionDiagnosticsSnapshot();
+  } else {
+    Serial.println("[DIAG] Serial diagnostics disabled");
+  }
 }
 
 void executeImmediateMenuAction(MenuAction action) {
@@ -352,6 +277,10 @@ void executeImmediateMenuAction(MenuAction action) {
     ControlSurface::runOledDiagnostics();
   } else if (action == ACTION_MCP_DEBUG) {
     ControlSurface::runMcpDiagnostics();
+  } else if (action == ACTION_SERIAL_DEBUG) {
+    toggleSerialDiagnostics();
+  } else if (action == ACTION_CONNECTION_STATUS) {
+    printConnectionDiagnosticsSnapshot();
   }
 
   valueDirty = true;
@@ -372,6 +301,18 @@ MenuPage getSubmenuPageForAction(MenuAction action) {
     case ACTION_TRANSPORT_MENU:
       return MENU_PAGE_TRANSPORT;
 
+    case ACTION_ENV_1_MENU:
+      return MENU_PAGE_ENV_1;
+
+    case ACTION_ENV_2_MENU:
+      return MENU_PAGE_ENV_2;
+
+    case ACTION_ENV_DESTINATIONS_MENU:
+      return MENU_PAGE_ENV_DESTINATIONS;
+
+    case ACTION_MOD_DESTINATION_MENU:
+      return MENU_PAGE_MOD_DESTINATION;
+
     default:
       return MENU_PAGE_ROOT;
   }
@@ -388,7 +329,15 @@ void resetMenuSelection() {
   lastTopItem = -1;
 }
 
+int getMenuItemIndex(int visibleIndex);
+
 void enterSubmenu(MenuAction action) {
+  if (action == ACTION_ENV_1_MENU) activeEnvelopeIndex = ENVELOPE_ENV1;
+  if (action == ACTION_ENV_2_MENU) activeEnvelopeIndex = ENVELOPE_ENV2;
+  if (action == ACTION_MOD_DESTINATION_MENU) {
+    activeModDestinationIndex = getModulationDestinationForMenuItem(getMenuItemIndex(selectedItem));
+  }
+
   MenuPage page = getSubmenuPageForAction(action);
   if (page == MENU_PAGE_ROOT) return;
 
@@ -404,13 +353,34 @@ void enterSubmenu(MenuAction action) {
 }
 
 void leaveSubmenu() {
-  currentMenuPage = MENU_PAGE_ROOT;
+  if (currentMenuPage == MENU_PAGE_MOD_DESTINATION) {
+    currentMenuPage = MENU_PAGE_ENV_DESTINATIONS;
+  } else if (currentMenuPage == MENU_PAGE_ENV_DESTINATIONS) {
+    currentMenuPage = activeEnvelopeIndex == ENVELOPE_ENV2 ? MENU_PAGE_ENV_2 : MENU_PAGE_ENV_1;
+  } else {
+    currentMenuPage = MENU_PAGE_ROOT;
+  }
   resetMenuSelection();
   fullRedraw = true;
   valueDirty = true;
 }
 
 const uint8_t* getCurrentMenuItems(int* count) {
+  if (currentMenuPage == MENU_PAGE_ENV_1 || currentMenuPage == MENU_PAGE_ENV_2) {
+    *count = sizeof(MENU_ENV_SOURCE_ITEMS) / sizeof(MENU_ENV_SOURCE_ITEMS[0]);
+    return MENU_ENV_SOURCE_ITEMS;
+  }
+
+  if (currentMenuPage == MENU_PAGE_ENV_DESTINATIONS) {
+    *count = sizeof(MENU_MOD_DESTINATION_ITEMS) / sizeof(MENU_MOD_DESTINATION_ITEMS[0]);
+    return MENU_MOD_DESTINATION_ITEMS;
+  }
+
+  if (currentMenuPage == MENU_PAGE_MOD_DESTINATION) {
+    *count = sizeof(MENU_MOD_ROUTE_ITEMS) / sizeof(MENU_MOD_ROUTE_ITEMS[0]);
+    return MENU_MOD_ROUTE_ITEMS;
+  }
+
   if (currentMenuPage == MENU_PAGE_FILTER) {
     *count = sizeof(MENU_FILTER_ITEMS) / sizeof(MENU_FILTER_ITEMS[0]);
     return MENU_FILTER_ITEMS;
@@ -444,6 +414,15 @@ const char* getCurrentMenuTitle() {
   }
   else if (currentMenuPage == MENU_PAGE_TRANSPORT) {
     source = "TRANSPORT";
+  }
+  else if (currentMenuPage == MENU_PAGE_ENV_1 || currentMenuPage == MENU_PAGE_ENV_2) {
+    source = activeEnvelopeIndex == ENVELOPE_ENV2 ? "ENV2" : "ENV1";
+  }
+  else if (currentMenuPage == MENU_PAGE_ENV_DESTINATIONS) {
+    source = activeEnvelopeIndex == ENVELOPE_ENV2 ? "ENV2 DESTINATIONS" : "ENV1 DESTINATIONS";
+  }
+  else if (currentMenuPage == MENU_PAGE_MOD_DESTINATION) {
+    source = MOD_DESTINATIONS[activeModDestinationIndex].label;
   }
 
   size_t i = 0;
@@ -482,6 +461,12 @@ bool isSynthAction(MenuAction action) {
          action == ACTION_VOICE_2_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_TRANSPORT_MENU ||
+         action == ACTION_ENV_1_MENU ||
+         action == ACTION_ENV_2_MENU ||
+         action == ACTION_ENV_DESTINATIONS_MENU ||
+         action == ACTION_MOD_DESTINATION_MENU ||
+         action == ACTION_MOD_ROUTE_ENABLED ||
+         action == ACTION_MOD_ROUTE_AMOUNT ||
          action == ACTION_VOICE_WAVE ||
          action == ACTION_VOICE_TUNE ||
          action == ACTION_VOICE_FOLD ||
@@ -551,6 +536,17 @@ void wrapSelectedMenu() {
 }
 
 void wrapSelectedType() {
+  if (TYPE_COUNT <= 0) return;
+
+  // When every area fits on screen there is no scrolling window: keeping a
+  // circular top offset would redraw the same list starting from Utility when
+  // selection wraps backward from Wave Engine.
+  if (TYPE_COUNT <= VISIBLE_TYPE_ROWS) {
+    selectedType = wrapIndex(selectedType, TYPE_COUNT);
+    topType = 0;
+    return;
+  }
+
   if (selectedType < 0) {
     selectedType = TYPE_COUNT - 1;
     topType = selectedType;
@@ -636,10 +632,35 @@ const char* getSequencerTrackLabel(int track) {
   }
 }
 
-int getSequencerStepNote(int voiceIndex, int stepIndex) {
+int getSequencerStepPitch(int voiceIndex, int stepIndex) {
   voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
   stepIndex = clampInt(stepIndex, 0, SEQUENCER_STEP_COUNT - 1);
-  return sequencerStepNotes[voiceIndex][stepIndex];
+  return clampMidiPitch(sequencerStepPitches[voiceIndex][stepIndex]);
+}
+
+float getSequencerResultPitch(int voiceIndex, int stepIndex) {
+  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  return clampFloat(
+    getSequencerStepPitch(voiceIndex, stepIndex) +
+      waveVoiceTune[voiceIndex] + waveVoiceDetune[voiceIndex] / 100.0f,
+    (float)SEQUENCER_MIN_PITCH,
+    (float)SEQUENCER_MAX_PITCH
+  );
+}
+
+float getSequencerResultFrequency(int voiceIndex, int stepIndex) {
+  return midiPitchToFrequency(getSequencerResultPitch(voiceIndex, stepIndex));
+}
+
+void formatSequencerResultPitch(int voiceIndex, int stepIndex, char* output, size_t outputSize) {
+  if (output == nullptr || outputSize == 0) return;
+  voiceIndex = clampInt(voiceIndex, 0, WAVE_VOICE_COUNT - 1);
+  int coarsePitch = clampMidiPitch(
+    getSequencerStepPitch(voiceIndex, stepIndex) + waveVoiceTune[voiceIndex]
+  );
+  char note[8];
+  formatMidiPitch(coarsePitch, note, sizeof(note));
+  snprintf(output, outputSize, "%s %+d ct", note, waveVoiceDetune[voiceIndex]);
 }
 
 bool isSequencerStepEnabled(int voiceIndex, int stepIndex) {
@@ -682,8 +703,8 @@ void setSequencerStepEnabled(int voiceIndex, int stepIndex, bool enabled) {
   sequencerStepEnabled[voiceIndex][stepIndex] = enabled;
 }
 
-int getSelectedSequencerStepNote() {
-  return getSequencerStepNote(getActiveSequencerTrackVoice(), sequencerSelectedStep);
+int getSelectedSequencerStepPitch() {
+  return getSequencerStepPitch(getActiveSequencerTrackVoice(), sequencerSelectedStep);
 }
 
 bool isSelectedSequencerStepEnabled() {
@@ -696,6 +717,197 @@ bool isKickStepEnabled(int stepIndex) {
   return kickStepEnabled[stepIndex];
 }
 
+void printSerialDiagnosticsSnapshot() {
+  serialDebugBegin("SYSTEM / SYNTH / SEQUENCER");
+
+  Serial.print("Uptime ms: ");
+  Serial.println(millis());
+  Serial.print("Reset reason: ");
+  Serial.print((int)esp_reset_reason());
+  Serial.print(" (");
+  Serial.print(getResetReasonText(esp_reset_reason()));
+  Serial.println(")");
+  Serial.print("CPU MHz: ");
+  Serial.println(ESP.getCpuFreqMHz());
+  Serial.print("Heap free/min/largest: ");
+  Serial.print(heap_caps_get_free_size(MALLOC_CAP_8BIT));
+  Serial.print("/");
+  Serial.print(heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+  Serial.print("/");
+  Serial.println(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
+#if SYNTH_AUDIO_BACKEND_DAISY
+  Serial.println("Audio backend: DAISY SEED (UART details follow in connection summary)");
+#else
+  Serial.print("Audio backend: ESP32 + PCM5102");
+  Serial.print("  I2S ready: ");
+  Serial.print(dacI2sStarted ? "YES" : "NO");
+  Serial.print("  rendered buffers: ");
+  Serial.print((uint32_t)synthAudioRenderedBuffers);
+  Serial.print("  short writes: ");
+  Serial.print((uint32_t)synthAudioShortWrites);
+  Serial.print("  DSP recoveries: ");
+  Serial.println((uint32_t)synthAudioDspRecoveries);
+  Serial.print("Audio core/last I2S error: ");
+  Serial.print((int)synthAudioCore);
+  Serial.print("/");
+  Serial.println((int)synthAudioLastWriteError);
+  Serial.print("Audio max render/I2S us: ");
+  Serial.print((uint32_t)synthAudioMaxRenderUs);
+  Serial.print("/");
+  Serial.println((uint32_t)synthAudioMaxI2sUs);
+#endif
+
+  Serial.print("Transport: ");
+  Serial.print(transportRunning ? "RUN" : "STOP");
+  Serial.print("  sequencer: ");
+  Serial.print(sequencerEnabled ? "ON" : "OFF");
+  Serial.print("  BPM: ");
+  Serial.print(sequencerBpm);
+  Serial.print("  length: ");
+  Serial.println(getSequencerLength());
+  Serial.print("Track/current/selected: ");
+  Serial.print(getSequencerTrackLabel(getActiveSequencerTrack()));
+  Serial.print("/");
+  Serial.print((int)sequencerCurrentStep + 1);
+  Serial.print("/");
+  Serial.println(sequencerSelectedStep + 1);
+#if SYNTH_AUDIO_BACKEND_DAISY
+  Serial.println("Clock owner: DAISY (playhead received over UART)");
+#else
+  Serial.print("Clock sample/step/gate: ");
+  Serial.print((uint32_t)sequencerSampleCounter);
+  Serial.print("/");
+  Serial.print(getSequencerStepSamples());
+  Serial.print("/");
+  Serial.println(getSequencerGateSamples());
+#endif
+
+  Serial.print("Mixer master/V1/V2/kick: ");
+  Serial.print(volume);
+  Serial.print("/");
+  Serial.print(waveVoiceLevels[0]);
+  Serial.print("/");
+  Serial.print(waveVoiceLevels[1]);
+  Serial.print("/");
+  Serial.println(kickLevel);
+  Serial.print("V1 shape/tune/fold/detune: ");
+  Serial.print(waveVoiceShape[0]);
+  Serial.print("/");
+  Serial.print(waveVoiceTune[0]);
+  Serial.print("/");
+  Serial.print(waveVoiceFold[0]);
+  Serial.print("/");
+  Serial.println(waveVoiceDetune[0]);
+  Serial.print("V2 shape/tune/fold/detune: ");
+  Serial.print(waveVoiceShape[1]);
+  Serial.print("/");
+  Serial.print(waveVoiceTune[1]);
+  Serial.print("/");
+  Serial.print(waveVoiceFold[1]);
+  Serial.print("/");
+  Serial.println(waveVoiceDetune[1]);
+  Serial.print("Kick pitch/decay/sweep/click/drive: ");
+  Serial.print(kickPitch);
+  Serial.print("/");
+  Serial.print(kickDecay);
+  Serial.print("/");
+  Serial.print(kickSweep);
+  Serial.print("/");
+  Serial.print(kickClick);
+  Serial.print("/");
+  Serial.println(kickDrive);
+  for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
+    const AdsrParameters& parameters = envelopeParameters[envelope];
+    Serial.print("ENV");
+    Serial.print(envelope + 1);
+    Serial.print(" attack/decay/sustain/release ms: ");
+    Serial.print(parameters.attackMs);
+    Serial.print("/");
+    Serial.print(parameters.decayMs);
+    Serial.print("/");
+    Serial.print(parameters.sustainPercent);
+    Serial.print("/");
+    Serial.println(parameters.releaseMs);
+
+    ModSourceId source = getEnvelopeModSource(envelope);
+    Serial.print("ENV");
+    Serial.print(envelope + 1);
+    Serial.print(" routes:");
+    bool anyRoute = false;
+    for (int destination = 0; destination < MOD_DESTINATION_COUNT; destination++) {
+      const ModRouteSettings& route = modulationRoutes[source][destination];
+      if (!route.enabled) continue;
+      Serial.print(" ");
+      Serial.print(MOD_DESTINATIONS[destination].tag);
+      Serial.print("=");
+      if (route.amountPercent >= 0) Serial.print("+");
+      Serial.print((int)route.amountPercent);
+      Serial.print("%");
+      anyRoute = true;
+    }
+    if (!anyRoute) Serial.print(" none");
+    Serial.println();
+  }
+  Serial.print("Filter enabled/type/cutoff Hz: ");
+  Serial.print(filterEnabled ? "ON" : "OFF");
+  Serial.print("/");
+  Serial.print(filterType);
+  Serial.print("/");
+  Serial.println(filterCutoff);
+  Serial.print("Delay mix/time/feedback: ");
+  Serial.print(delayMix);
+  Serial.print("/");
+  Serial.print(delayTimeMs);
+  Serial.print("/");
+  Serial.println(delayFeedback);
+  Serial.print("Reverb mix/room  preset slot: ");
+  Serial.print(reverbMix);
+  Serial.print("/");
+  Serial.print(reverbRoom);
+  Serial.print("  ");
+  Serial.println(presetSlot);
+
+  Serial.println("Pattern: step | V1 enabled note | V2 enabled note | kick");
+  for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+    if (step + 1 < 10) Serial.print('0');
+    Serial.print(step + 1);
+    Serial.print(" | ");
+    Serial.print(sequencerStepEnabled[0][step] ? "ON  " : "OFF ");
+    char voice1Pitch[8];
+    formatMidiPitch(getSequencerStepPitch(0, step), voice1Pitch, sizeof(voice1Pitch));
+    Serial.print(voice1Pitch);
+    Serial.print(" | ");
+    Serial.print(sequencerStepEnabled[1][step] ? "ON  " : "OFF ");
+    char voice2Pitch[8];
+    formatMidiPitch(getSequencerStepPitch(1, step), voice2Pitch, sizeof(voice2Pitch));
+    Serial.print(voice2Pitch);
+    Serial.print(" | ");
+    Serial.println(kickStepEnabled[step] ? "HIT" : "REST");
+  }
+
+  Serial.print("NeoKey raw/stable: 0x");
+  Serial.print(neokeyLastRawKeys, HEX);
+  Serial.print("/0x");
+  Serial.println(neokeyStableKeys, HEX);
+  Serial.print("NeoKey any ready: ");
+  Serial.println(neokeyAnyReady ? "YES" : "NO");
+  for (uint8_t board = 0; board < 4; board++) {
+    Serial.print("NeoKey 0x");
+    Serial.print(0x30 + board, HEX);
+    Serial.print(" ready/raw/failures: ");
+    Serial.print(neokeyBoardReady[board] ? "YES" : "NO");
+    Serial.print("/0x");
+    Serial.print(neokeyLastBoardRawKeys[board], HEX);
+    Serial.print("/");
+    Serial.println(neokeyBoardFailureCount[board]);
+  }
+  serialDebugEnd("SYSTEM / SYNTH / SEQUENCER");
+
+  ControlSurface::runOledDiagnostics();
+  ControlSurface::runMcpDiagnostics();
+}
+
 const char* getValueText(int itemIndex) {
   static char buffer[24];
   MenuAction action = menuItems[itemIndex].action;
@@ -705,7 +917,27 @@ const char* getValueText(int itemIndex) {
     case ACTION_VOICE_2_MENU:
     case ACTION_FILTER_MENU:
     case ACTION_TRANSPORT_MENU:
+    case ACTION_ENV_1_MENU:
+    case ACTION_ENV_2_MENU:
+    case ACTION_ENV_DESTINATIONS_MENU:
       snprintf(buffer, sizeof(buffer), "OPEN");
+      break;
+
+    case ACTION_MOD_DESTINATION_MENU:
+    {
+      int destination = getModulationDestinationForMenuItem(itemIndex);
+      ModRouteSettings& route = modulationRoutes[getEnvelopeModSource(activeEnvelopeIndex)][destination];
+      if (!route.enabled) snprintf(buffer, sizeof(buffer), "OFF");
+      else snprintf(buffer, sizeof(buffer), "%+d%%", (int)route.amountPercent);
+      break;
+    }
+
+    case ACTION_MOD_ROUTE_ENABLED:
+      snprintf(buffer, sizeof(buffer), "%s", getActiveModulationRoute().enabled ? "ON" : "OFF");
+      break;
+
+    case ACTION_MOD_ROUTE_AMOUNT:
+      snprintf(buffer, sizeof(buffer), "%+d%%", (int)getActiveModulationRoute().amountPercent);
       break;
 
     case ACTION_VOICE_WAVE:
@@ -753,43 +985,23 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_ATTACK:
-      snprintf(buffer, sizeof(buffer), "%dms", attack);
+      snprintf(buffer, sizeof(buffer), "%dms", getActiveEnvelopeParameters().attackMs);
       break;
 
     case ACTION_DECAY:
-      snprintf(buffer, sizeof(buffer), "%dms", decay);
+      snprintf(buffer, sizeof(buffer), "%dms", getActiveEnvelopeParameters().decayMs);
       break;
 
     case ACTION_SUSTAIN:
-      snprintf(buffer, sizeof(buffer), "S%d%%", sustain);
+      snprintf(buffer, sizeof(buffer), "S%d%%", getActiveEnvelopeParameters().sustainPercent);
       break;
 
     case ACTION_RELEASE:
-      snprintf(buffer, sizeof(buffer), "%dms", releaseMs);
+      snprintf(buffer, sizeof(buffer), "%dms", getActiveEnvelopeParameters().releaseMs);
       break;
 
     case ACTION_SCOPE:
       snprintf(buffer, sizeof(buffer), "Live");
-      break;
-
-    case ACTION_BT_RECEIVER:
-      snprintf(buffer, sizeof(buffer), "%s", getBluetoothStatusText());
-      break;
-
-    case ACTION_BT_DEVICE:
-      snprintf(buffer, sizeof(buffer), "NAME");
-      break;
-
-    case ACTION_BT_I2S:
-      snprintf(buffer, sizeof(buffer), "%d/%d/%d", PCM5102_BCK, PCM5102_LCK, PCM5102_DIN);
-      break;
-
-    case ACTION_BT_OUTPUT:
-      snprintf(buffer, sizeof(buffer), "I2S");
-      break;
-
-    case ACTION_BT_POWER:
-      snprintf(buffer, sizeof(buffer), "%s", bluetoothEnabled ? "ON" : "OFF");
       break;
 
     case ACTION_AUDIO_TEST:
@@ -828,7 +1040,7 @@ const char* getValueText(int itemIndex) {
       if (isActiveSequencerTrackKick()) {
         snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "HIT" : "REST");
       } else {
-        snprintf(buffer, sizeof(buffer), "%+dst", getSelectedSequencerStepNote());
+        formatMidiPitch(getSelectedSequencerStepPitch(), buffer, sizeof(buffer));
       }
       break;
 
@@ -928,6 +1140,18 @@ const char* getValueText(int itemIndex) {
     case ACTION_NEOKEY_DEBUG:
       snprintf(buffer, sizeof(buffer), "RAW %04X", neokeyLastRawKeys);
       break;
+
+    case ACTION_SERIAL_DEBUG:
+      snprintf(buffer, sizeof(buffer), "%s", isSerialDiagnosticsEnabled() ? "ON" : "OFF");
+      break;
+
+    case ACTION_CONNECTION_STATUS:
+    {
+      uint8_t problems = getConnectionProblemCount();
+      if (problems == 0) snprintf(buffer, sizeof(buffer), "ALL OK");
+      else snprintf(buffer, sizeof(buffer), "CHECK %u", problems);
+      break;
+    }
 
     case ACTION_ABOUT:
       snprintf(buffer, sizeof(buffer), "ABOUT");
@@ -1032,38 +1256,35 @@ void changeCurrentValue(int delta) {
       break;
 
     case ACTION_ATTACK:
-      attack += delta;
-      attack = clampInt(attack, 0, 500);
+      getActiveEnvelopeParameters().attackMs += delta;
+      getActiveEnvelopeParameters().attackMs = clampInt(getActiveEnvelopeParameters().attackMs, 0, 500);
       break;
 
     case ACTION_DECAY:
-      decay += delta;
-      decay = clampInt(decay, 0, 2000);
+      getActiveEnvelopeParameters().decayMs += delta;
+      getActiveEnvelopeParameters().decayMs = clampInt(getActiveEnvelopeParameters().decayMs, 0, 2000);
       break;
 
     case ACTION_SUSTAIN:
-      sustain += delta;
-      sustain = clampInt(sustain, 0, 100);
+      getActiveEnvelopeParameters().sustainPercent += delta;
+      getActiveEnvelopeParameters().sustainPercent = clampInt(getActiveEnvelopeParameters().sustainPercent, 0, 100);
       break;
 
     case ACTION_RELEASE:
-      releaseMs += delta * 20;
-      releaseMs = clampInt(releaseMs, 0, 3000);
+      getActiveEnvelopeParameters().releaseMs += delta * 20;
+      getActiveEnvelopeParameters().releaseMs = clampInt(getActiveEnvelopeParameters().releaseMs, 0, 3000);
       break;
 
-    case ACTION_BT_POWER:
-      if (delta != 0) {
-        bluetoothEnabled = !bluetoothEnabled;
-
-        if (bluetoothEnabled) {
-          startBluetoothAudio();
-        } else {
-          stopBluetoothAudio();
-        }
-
-        lastBtHeaderRefreshMs = 0;
-      }
+    case ACTION_MOD_ROUTE_ENABLED:
+      getActiveModulationRoute().enabled = !getActiveModulationRoute().enabled;
       break;
+
+    case ACTION_MOD_ROUTE_AMOUNT:
+    {
+      int amount = (int)getActiveModulationRoute().amountPercent + delta;
+      getActiveModulationRoute().amountPercent = (int8_t)clampModulationAmount(amount);
+      break;
+    }
 
     case ACTION_AUDIO_TEST:
       return;
@@ -1092,7 +1313,14 @@ void changeCurrentValue(int delta) {
       break;
 
     case ACTION_SYNTH_VIEW:
-      return;
+      activeSequencerTrack = wrapIndex(activeSequencerTrack + delta, SEQUENCER_TRACK_COUNT);
+      if (activeSequencerTrack < WAVE_VOICE_COUNT) {
+        activeSequencerVoice = activeSequencerTrack;
+        activeWaveVoiceIndex = activeSequencerTrack;
+      }
+      synthRetriggerRequested = true;
+      ControlSurface::markDirty();
+      break;
 
     case ACTION_SEQ_BPM:
       sequencerBpm += delta * 2;
@@ -1124,8 +1352,9 @@ void changeCurrentValue(int delta) {
         if (kickStepEnabled[sequencerSelectedStep]) triggerKickVoice();
       } else {
         int voice = getActiveSequencerTrackVoice();
-        sequencerStepNotes[voice][sequencerSelectedStep] += delta;
-        sequencerStepNotes[voice][sequencerSelectedStep] = clampInt(sequencerStepNotes[voice][sequencerSelectedStep], SEQUENCER_MIN_NOTE, SEQUENCER_MAX_NOTE);
+        sequencerStepPitches[voice][sequencerSelectedStep] = clampMidiPitch(
+          sequencerStepPitches[voice][sequencerSelectedStep] + delta
+        );
         sequencerStepEnabled[voice][sequencerSelectedStep] = true;
         synthRetriggerRequested = true;
       }
@@ -1239,6 +1468,16 @@ void changeCurrentValue(int delta) {
       neokeyLastPrintedRawKeys = 0xFFFF;
       break;
 
+    case ACTION_SERIAL_DEBUG:
+      toggleSerialDiagnostics();
+      break;
+
+    case ACTION_CONNECTION_STATUS:
+      ControlSurface::runOledDiagnostics();
+      ControlSurface::runMcpDiagnostics();
+      printConnectionDiagnosticsSnapshot();
+      break;
+
     default:
       break;
   }
@@ -1255,12 +1494,12 @@ void setMode(UiMode newMode) {
     currentMenuPage = MENU_PAGE_ROOT;
     activeWaveVoiceIndex = 0;
     resetMenuSelection();
+    wrapSelectedType();
   }
 
   uiMode = newMode;
   fullRedraw = true;
   valueDirty = true;
-  lastBtHeaderRefreshMs = 0;
   lastMenuMoveMs = 0;
 }
 
@@ -1341,7 +1580,21 @@ void updateUiLogic() {
     }
 
     else if (uiMode == MODE_EDIT) {
-      setMode(MODE_MENU);
+      if (getSelectedAction() == ACTION_SYNTH_VIEW) {
+        if (transportRunning && sequencerEnabled) {
+          stopTransport();
+        } else {
+          startTransport();
+        }
+        valueDirty = true;
+        fullRedraw = false;
+      } else if (getSelectedAction() == ACTION_SERIAL_DEBUG) {
+        toggleSerialDiagnostics();
+        valueDirty = true;
+        fullRedraw = false;
+      } else {
+        setMode(MODE_MENU);
+      }
     }
 
     else if (uiMode == MODE_ABOUT) {

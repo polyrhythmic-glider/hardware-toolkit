@@ -59,12 +59,6 @@ const char* getLastParameterLabel();
 void formatLastParameterValue(char* output, size_t outputSize);
 uint32_t getLastParameterChangeMs();
 
-// The original four-OLED waveform editor keeps its own four oscillator
-// algorithms. The main audio task calls these two functions so that only one
-// I2S owner exists in the combined firmware.
-bool isLegacyWaveformAudioActive();
-float renderLegacyWaveformSample(float phase);
-
 void markDirty();
 
 }  // namespace ControlSurface

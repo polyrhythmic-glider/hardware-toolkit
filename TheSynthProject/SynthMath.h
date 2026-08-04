@@ -98,8 +98,9 @@ inline float getNoiseSampleForPhase(float phase) {
   return ((hash & 0xFFFF) / 32767.5f) - 1.0f;
 }
 
-inline float getOscillatorSampleForParams(float phase, int shape, float foldAmount, float phaseDegrees) {
+inline float getOscillatorSampleForModParams(float phase, int shape, float foldAmount, float phaseDegrees, float pulseWidth) {
   phase = normalizePhase(phase + (phaseDegrees / 360.0f));
+  pulseWidth = clampFloat(pulseWidth, 0.05f, 0.95f);
   float sample = 0.0f;
 
   switch (shape) {
@@ -108,7 +109,7 @@ inline float getOscillatorSampleForParams(float phase, int shape, float foldAmou
       break;
 
     case 1:
-      sample = phase < 0.5f ? 1.0f : -1.0f;
+      sample = phase < pulseWidth ? 1.0f : -1.0f;
       break;
 
     case 2:
@@ -124,7 +125,7 @@ inline float getOscillatorSampleForParams(float phase, int shape, float foldAmou
       break;
 
     case 5:
-      sample = phase < 0.25f ? 1.0f : -1.0f;
+      sample = phase < clampFloat(pulseWidth * 0.5f, 0.05f, 0.45f) ? 1.0f : -1.0f;
       break;
 
     case 6:
@@ -148,7 +149,7 @@ inline float getOscillatorSampleForParams(float phase, int shape, float foldAmou
       break;
 
     case 11:
-      sample = phase < 0.35f ? 1.0f : -1.0f;
+      sample = phase < pulseWidth ? 1.0f : -1.0f;
       break;
 
     case 12:
@@ -177,4 +178,8 @@ inline float getOscillatorSampleForParams(float phase, int shape, float foldAmou
   }
 
   return applyWaveFoldAmount(sample, foldAmount);
+}
+
+inline float getOscillatorSampleForParams(float phase, int shape, float foldAmount, float phaseDegrees) {
+  return getOscillatorSampleForModParams(phase, shape, foldAmount, phaseDegrees, 0.5f);
 }

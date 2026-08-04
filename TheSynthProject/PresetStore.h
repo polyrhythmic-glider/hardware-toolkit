@@ -1,16 +1,60 @@
 #pragma once
 
 #include <Preferences.h>
+#include <stddef.h>
 
 const uint32_t PRESET_MAGIC = 0x50474C44;
-// Versione 4: pattern a 16 step; il pattern kick usa campi riservati v4.
-const uint16_t PRESET_VERSION = 4;
-const uint16_t LEGACY_PRESET_VERSION = 3;
+// Versione 6: pitch MIDI assoluto indipendente per ogni step e voce.
+const uint16_t PRESET_VERSION = 6;
+const uint16_t LEGACY_PRESET_VERSION_5 = 5;
+const uint16_t LEGACY_PRESET_VERSION = 4;
+const uint16_t LEGACY_PRESET_VERSION_3 = 3;
 const int PRESET_KICK_PATTERN_MAGIC = 0x4B49434B;
 const int LEGACY_SEQUENCER_STEP_COUNT = 8;
 const int PRESET_SLOT_COUNT = 8;
 
 struct SynthPreset {
+  uint32_t magic;
+  uint16_t version;
+  int frequency;
+  int volume;
+  int attack;
+  int decay;
+  int sustain;
+  int releaseMs;
+  bool filterEnabled;
+  int filterType;
+  int filterCutoff;
+  int waveVoiceLevels[WAVE_VOICE_COUNT];
+  int waveVoiceShape[WAVE_VOICE_COUNT];
+  int waveVoiceTune[WAVE_VOICE_COUNT];
+  int waveVoiceFold[WAVE_VOICE_COUNT];
+  int waveVoiceDetune[WAVE_VOICE_COUNT];
+  int kickLevel;
+  int kickPitch;
+  int kickDecay;
+  int kickSweep;
+  int kickClick;
+  int kickDrive;
+  int sequencerBpm;
+  int sequencerLength;
+  int reservedSequencerA;
+  int reservedSequencerB;
+  int reservedSequencerC;
+  int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int reservedStepData[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int delayMix;
+  int delayTimeMs;
+  int delayFeedback;
+  int reverbMix;
+  int reverbRoom;
+  AdsrParameters envelopeParameters[ENVELOPE_COUNT];
+  ModRouteSettings modulationRoutes[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT];
+};
+
+// Layout v4 precedente all'introduzione della modulation matrix.
+struct LegacySynthPresetV4 {
   uint32_t magic;
   uint16_t version;
   int frequency;
@@ -47,6 +91,9 @@ struct SynthPreset {
   int reverbMix;
   int reverbRoom;
 };
+
+static_assert(offsetof(SynthPreset, envelopeParameters) == sizeof(LegacySynthPresetV4),
+              "Preset v5 must retain the complete v4 prefix");
 
 // Layout usato dalla versione 3, mantenuto per migrare i preset a 8 step.
 struct LegacySynthPresetV3 {
@@ -103,6 +150,35 @@ void resetDefaultKickPattern() {
   }
 }
 
+void getLegacyPitchMigration(int frequencyHz, int oldFineCents, int& basePitch, int& migratedFineCents) {
+  float exactMidiPitch = frequencyToMidiPitch((float)frequencyHz);
+  basePitch = (int)roundf(exactMidiPitch);
+  migratedFineCents = oldFineCents + (int)roundf((exactMidiPitch - basePitch) * 100.0f);
+
+  while (migratedFineCents > 50) {
+    migratedFineCents -= 100;
+    basePitch++;
+  }
+  while (migratedFineCents < -50) {
+    migratedFineCents += 100;
+    basePitch--;
+  }
+}
+
+void convertLegacyStepOffsetsToPitches(SynthPreset& preset) {
+  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    int basePitch = SEQUENCER_DEFAULT_PITCH;
+    int migratedFine = preset.waveVoiceDetune[voice];
+    getLegacyPitchMigration(preset.frequency, preset.waveVoiceDetune[voice], basePitch, migratedFine);
+    preset.waveVoiceDetune[voice] = clampPresetInt(migratedFine, -50, 50);
+
+    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+      int oldOffset = preset.sequencerStepPitches[voice][step];
+      preset.sequencerStepPitches[voice][step] = clampMidiPitch(basePitch + oldOffset);
+    }
+  }
+}
+
 void capturePreset(SynthPreset& preset) {
   preset.magic = PRESET_MAGIC;
   preset.version = PRESET_VERSION;
@@ -133,7 +209,7 @@ void capturePreset(SynthPreset& preset) {
   preset.reservedSequencerA = 0;
   preset.reservedSequencerB = 70;
   preset.reservedSequencerC = PRESET_KICK_PATTERN_MAGIC;
-  memcpy(preset.sequencerStepNotes, sequencerStepNotes, sizeof(sequencerStepNotes));
+  memcpy(preset.sequencerStepPitches, sequencerStepPitches, sizeof(sequencerStepPitches));
   memcpy(preset.sequencerStepEnabled, sequencerStepEnabled, sizeof(sequencerStepEnabled));
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
     for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
@@ -145,6 +221,8 @@ void capturePreset(SynthPreset& preset) {
   preset.delayFeedback = delayFeedback;
   preset.reverbMix = reverbMix;
   preset.reverbRoom = reverbRoom;
+  memcpy(preset.envelopeParameters, envelopeParameters, sizeof(envelopeParameters));
+  memcpy(preset.modulationRoutes, modulationRoutes, sizeof(modulationRoutes));
 }
 
 void applyPreset(const SynthPreset& preset) {
@@ -173,7 +251,12 @@ void applyPreset(const SynthPreset& preset) {
   kickDrive = preset.kickDrive;
   sequencerBpm = preset.sequencerBpm;
   sequencerLength = preset.sequencerLength;
-  memcpy(sequencerStepNotes, preset.sequencerStepNotes, sizeof(sequencerStepNotes));
+  memcpy(sequencerStepPitches, preset.sequencerStepPitches, sizeof(sequencerStepPitches));
+  for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
+      sequencerStepPitches[voice][step] = clampMidiPitch(sequencerStepPitches[voice][step]);
+    }
+  }
   memcpy(sequencerStepEnabled, preset.sequencerStepEnabled, sizeof(sequencerStepEnabled));
   if (preset.reservedSequencerC == PRESET_KICK_PATTERN_MAGIC) {
     for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
@@ -187,12 +270,41 @@ void applyPreset(const SynthPreset& preset) {
   delayFeedback = preset.delayFeedback;
   reverbMix = preset.reverbMix;
   reverbRoom = preset.reverbRoom;
+  memcpy(envelopeParameters, preset.envelopeParameters, sizeof(envelopeParameters));
+  memcpy(modulationRoutes, preset.modulationRoutes, sizeof(modulationRoutes));
+  for (int envelope = 0; envelope < ENVELOPE_COUNT; envelope++) {
+    envelopeParameters[envelope].attackMs = clampPresetInt(envelopeParameters[envelope].attackMs, 0, 500);
+    envelopeParameters[envelope].decayMs = clampPresetInt(envelopeParameters[envelope].decayMs, 0, 2000);
+    envelopeParameters[envelope].sustainPercent = clampPresetInt(envelopeParameters[envelope].sustainPercent, 0, 100);
+    envelopeParameters[envelope].releaseMs = clampPresetInt(envelopeParameters[envelope].releaseMs, 0, 3000);
+  }
+  for (int source = 0; source < MOD_SOURCE_COUNT; source++) {
+    for (int destination = 0; destination < MOD_DESTINATION_COUNT; destination++) {
+      modulationRoutes[source][destination].amountPercent = (int8_t)clampModulationAmount(
+        (int)modulationRoutes[source][destination].amountPercent
+      );
+    }
+  }
   clampSequencerIndexes();
   resetSequencerClock();
   synthRetriggerRequested = true;
 }
 
-void applyLegacyPreset(const LegacySynthPresetV3& preset) {
+void applyLegacyPresetV4(const LegacySynthPresetV4& preset) {
+  SynthPreset migrated = {};
+  memcpy(&migrated, &preset, sizeof(preset));
+  migrated.version = PRESET_VERSION;
+  migrated.envelopeParameters[ENVELOPE_ENV1] = {
+    preset.attack, preset.decay, preset.sustain, preset.releaseMs
+  };
+  migrated.envelopeParameters[ENVELOPE_ENV2] = { 10, 80, 68, 320 };
+  initializeDefaultModulationRouting();
+  memcpy(migrated.modulationRoutes, modulationRoutes, sizeof(modulationRoutes));
+  convertLegacyStepOffsetsToPitches(migrated);
+  applyPreset(migrated);
+}
+
+void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
   frequency = preset.frequency;
   volume = preset.volume;
   attack = preset.attack;
@@ -221,12 +333,16 @@ void applyLegacyPreset(const LegacySynthPresetV3& preset) {
   if (sequencerLength < 1) sequencerLength = 1;
   if (sequencerLength > LEGACY_SEQUENCER_STEP_COUNT) sequencerLength = LEGACY_SEQUENCER_STEP_COUNT;
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
+    int basePitch = SEQUENCER_DEFAULT_PITCH;
+    int migratedFine = preset.waveVoiceDetune[voice];
+    getLegacyPitchMigration(preset.frequency, preset.waveVoiceDetune[voice], basePitch, migratedFine);
+    waveVoiceDetune[voice] = clampPresetInt(migratedFine, -50, 50);
     for (int step = 0; step < SEQUENCER_STEP_COUNT; step++) {
       if (step < LEGACY_SEQUENCER_STEP_COUNT) {
-        sequencerStepNotes[voice][step] = preset.sequencerStepNotes[voice][step];
+        sequencerStepPitches[voice][step] = clampMidiPitch(basePitch + preset.sequencerStepNotes[voice][step]);
         sequencerStepEnabled[voice][step] = preset.sequencerStepEnabled[voice][step];
       } else {
-        sequencerStepNotes[voice][step] = 0;
+        sequencerStepPitches[voice][step] = clampMidiPitch(basePitch);
         sequencerStepEnabled[voice][step] = false;
       }
     }
@@ -238,6 +354,8 @@ void applyLegacyPreset(const LegacySynthPresetV3& preset) {
   delayFeedback = preset.delayFeedback;
   reverbMix = preset.reverbMix;
   reverbRoom = preset.reverbRoom;
+  envelopeParameters[ENVELOPE_ENV2] = { 10, 80, 68, 320 };
+  initializeDefaultModulationRouting();
   clampSequencerIndexes();
   resetSequencerClock();
   synthRetriggerRequested = true;
@@ -266,8 +384,23 @@ bool loadCurrentPreset() {
     SynthPreset preset;
     size_t read = preferences.getBytes(key, &preset, sizeof(preset));
     preferences.end();
-    if (read != sizeof(preset) || preset.magic != PRESET_MAGIC || preset.version != PRESET_VERSION) return false;
+    if (read != sizeof(preset) || preset.magic != PRESET_MAGIC) return false;
+    if (preset.version == LEGACY_PRESET_VERSION_5) {
+      convertLegacyStepOffsetsToPitches(preset);
+      preset.version = PRESET_VERSION;
+    } else if (preset.version != PRESET_VERSION) {
+      return false;
+    }
     applyPreset(preset);
+    return true;
+  }
+
+  if (storedSize == sizeof(LegacySynthPresetV4)) {
+    LegacySynthPresetV4 preset;
+    size_t read = preferences.getBytes(key, &preset, sizeof(preset));
+    preferences.end();
+    if (read != sizeof(preset) || preset.magic != PRESET_MAGIC || preset.version != LEGACY_PRESET_VERSION) return false;
+    applyLegacyPresetV4(preset);
     return true;
   }
 
@@ -275,8 +408,8 @@ bool loadCurrentPreset() {
     LegacySynthPresetV3 preset;
     size_t read = preferences.getBytes(key, &preset, sizeof(preset));
     preferences.end();
-    if (read != sizeof(preset) || preset.magic != PRESET_MAGIC || preset.version != LEGACY_PRESET_VERSION) return false;
-    applyLegacyPreset(preset);
+    if (read != sizeof(preset) || preset.magic != PRESET_MAGIC || preset.version != LEGACY_PRESET_VERSION_3) return false;
+    applyLegacyPresetV3(preset);
     return true;
   }
 

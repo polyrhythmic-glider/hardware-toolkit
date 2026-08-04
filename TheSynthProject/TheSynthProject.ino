@@ -2,8 +2,7 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
-#include "AudioTools.h"
-#include "BluetoothA2DPSink.h"
+#include <ESP_I2S.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_heap_caps.h>
@@ -12,19 +11,21 @@
 #include <string.h>
 #include "AudioConfig.h"
 #include "HardwarePins.h"
+#include "ModulationModel.h"
 #include "MenuModel.h"
 #include "MixerModel.h"
 #include "SequencerModel.h"
 #include "SynthMath.h"
 #include "ControlSurface.h"
+#include "SerialDebug.h"
 
 // =======================
 // DISPLAY
 // =======================
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-I2SStream btI2s;
-BluetoothA2DPSink a2dpSink(btI2s);
+I2SClass audioI2s;
+volatile bool serialDiagnosticsEnabled = true;
 
 const int SCREEN_W = 160;
 const int SCREEN_H = 128;
@@ -99,10 +100,17 @@ const int WAVE_SHAPE_COUNT = sizeof(waveformNames) / sizeof(waveformNames[0]);
 int waveform = 0;
 int frequency = 220;
 int volume = 80;
-int attack = 10;
-int decay = 80;
-int sustain = 68;
-int releaseMs = 320;
+AdsrParameters envelopeParameters[ENVELOPE_COUNT] = {
+  { 10, 80, 68, 320 },
+  { 10, 80, 68, 320 }
+};
+ModRouteSettings modulationRoutes[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT] = {};
+// Compatibility aliases keep the existing control-surface page focused on
+// ENV1 while the TFT menu can select either independent envelope.
+int& attack = envelopeParameters[ENVELOPE_ENV1].attackMs;
+int& decay = envelopeParameters[ENVELOPE_ENV1].decayMs;
+int& sustain = envelopeParameters[ENVELOPE_ENV1].sustainPercent;
+int& releaseMs = envelopeParameters[ENVELOPE_ENV1].releaseMs;
 int waveFold = 0;
 int wavePhase = 0;
 bool filterEnabled = false;
@@ -116,24 +124,20 @@ int reverbRoom = 65;
 int presetSlot = 1;
 bool presetOperationOk = true;
 const char* presetOperationText = "SELECT";
-bool dacI2sStarted = false;
-volatile bool audioOutputTransition = false;
-bool bluetoothEnabled = false;
-bool btAudioStarted = false;
-uint32_t btStartedAtMs = 0;
-volatile uint32_t btLastAudioMs = 0;
-volatile uint32_t btPacketCount = 0;
+volatile bool dacI2sStarted = false;
 TaskHandle_t synthAudioTaskHandle = nullptr;
 int16_t synthAudioBuffer[SYNTH_AUDIO_BUFFER_FRAMES * 2];
 volatile uint32_t synthAudioRenderedBuffers = 0;
 volatile uint32_t synthAudioMaxRenderUs = 0;
 volatile uint32_t synthAudioMaxI2sUs = 0;
 volatile uint32_t synthAudioDspRecoveries = 0;
+volatile uint32_t synthAudioShortWrites = 0;
+volatile int synthAudioLastWriteError = 0;
+volatile int synthAudioCore = -1;
 uint32_t synthAudioLastI2sErrorMs = 0;
 float directAudioTestPhase = 0.0f;
 bool directAudioTestWasActive = false;
 volatile bool synthRetriggerRequested = true;
-float synthPhase = 0.0f;
 float synthVoicePhases[WAVE_VOICE_COUNT] = { 0.0f, 0.0f };
 int synthRenderedVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
 int synthPreviousVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
@@ -150,7 +154,7 @@ int activeSequencerTrack = SEQUENCER_TRACK_VOICE_1;
 int sequencerSelectedStep = 0;
 volatile int sequencerCurrentStep = 0;
 uint32_t sequencerSampleCounter = 0;
-int sequencerStepNotes[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
+int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool kickStepEnabled[SEQUENCER_STEP_COUNT] = {
   false, false, false, false,
@@ -158,6 +162,7 @@ bool kickStepEnabled[SEQUENCER_STEP_COUNT] = {
   false, false, false, false,
   false, false, false, false
 };
+uint16_t kickTriggerSequence = 0;
 int waveVoiceLevels[WAVE_VOICE_COUNT] = { 100, 100 };
 int waveVoiceShape[WAVE_VOICE_COUNT] = { 0, 1 };
 int waveVoiceTune[WAVE_VOICE_COUNT] = { 0, 0 };
@@ -204,17 +209,23 @@ uint16_t reverbIndexC = 0;
 MenuAction getSelectedAction();
 bool isSynthAction(MenuAction action);
 void startDacI2s();
-void startBluetoothAudio();
-void stopBluetoothAudio();
 void startSynthAudio();
 bool isSynthAudioActive();
 void resetSequencerClock();
 void triggerKickVoice();
 int getSequencerLength();
+int getActiveSequencerTrack();
+const char* getSequencerTrackLabel(int track);
 void clampSequencerIndexes();
 bool isMixerLayerEnabled();
 bool isMixerLayerAudible();
 bool isKickStepEnabled(int stepIndex);
+int getSequencerStepSamples();
+int getSequencerGateSamples();
+void printSerialDiagnosticsSnapshot();
+void printConnectionDiagnosticsSnapshot();
+uint8_t getConnectionProblemCount();
+void initializeDefaultModulationRouting();
 
 int selectedType = 0;
 int activeType = 0;
@@ -229,6 +240,8 @@ int topItem = 0;
 int lastTopItem = -1;
 MenuPage currentMenuPage = MENU_PAGE_ROOT;
 int activeWaveVoiceIndex = 0;
+int activeEnvelopeIndex = ENVELOPE_ENV1;
+int activeModDestinationIndex = MOD_DEST_AMP_LEVEL;
 
 const int VISIBLE_ROWS = 5;
 const int VISIBLE_TYPE_ROWS = 6;
@@ -273,21 +286,6 @@ int lastWaveVoiceChecksum = -1;
 int lastWaveVoiceParamChecksum = -1;
 int lastKickLevel = -1;
 int lastKickParamChecksum = -1;
-bool lastBtStreaming = false;
-uint32_t lastBtPacketDrawn = 0;
-uint32_t lastBtUiRefreshMs = 0;
-
-bool lastBtConnected = false;
-bool btStartVolumeApplied = false;
-uint8_t btStartVolumeApplyCount = 0;
-uint32_t lastBtStartVolumeMs = 0;
-
-uint32_t lastBtHeaderRefreshMs = 0;
-uint32_t lastBtRssiRequestMs = 0;
-int8_t btRssiDelta = 0;
-bool btRssiValid = false;
-bool lastBtHeaderConnected = false;
-int lastBtHeaderBars = -1;
 
 const uint32_t bootDurationMs = 3600;
 const uint32_t bootCompleteHoldMs = 240;
@@ -305,6 +303,12 @@ int lastBootProgress = -1;
 #include "DisplayCore.h"
 
 #include "AudioEngine.h"
+
+#if SYNTH_AUDIO_BACKEND_DAISY
+#include "DaisyBridge.h"
+#endif
+
+#include "ConnectionDiagnostics.h"
 
 #include "SignalAnalysis.h"
 

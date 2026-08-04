@@ -15,7 +15,8 @@ Firmware principale per una ESP32 DevKit V1 / ESP32-WROOM-32. Riunisce:
 - 4 encoder su MCP23017, sul bus I2C indipendente D19/D15;
 - 4 NeoKey 1x4 agli indirizzi `0x30`-`0x33`, per una pagina fisica da 16 step;
 - Daisy Seed via UART come unico backend audio;
-- synth a due voci, kick, due ADSR indipendenti, filtro, delay, riverbero, preset e sequencer;
+- control surface a due track su motore Daisy polifonico a quattro voci, kick,
+  filtro, delay, riverbero, preset e sequencer;
 - schermate hardware e tono audio diretto a 440 Hz;
 - modalità storiche Encoder View, Waveform, Pong, Diagnostics e Splash.
 
@@ -30,17 +31,16 @@ dell'encoder sottostante.
 
 - Pressione E3: azione contestuale; vedi `CONTROL_SURFACE_ACTIONS.md`.
 - Pressione E4: menu principale della control surface.
-- Rotazione E4: cambia pagina tra i quattro gruppi compatibili con la traccia TFT attiva.
+- Rotazione E4: scorre la banca globale di 13 pagine performative.
 
-Il TFT seleziona la traccia V1, V2 o kick. Il `PAGE MENU` degli OLED mostra solo
-i quattro gruppi compatibili con quella traccia; le prime tre rotelle modificano
-i parametri visualizzati. Nella pagina `OSCILLATOR 1/2`, E1 imposta la nota
-assoluta dello step selezionato, E2 Tune ed E3 Fine; Wave, nota risultante e
-frequenza sono mostrate nello stesso riepilogo. Ogni step di V1 e V2 conserva
-la propria nota indipendente e può essere selezionato direttamente dai NeoKey.
+Gli OLED non seguono più la traccia del sequencer e non mostrano transport o
+step. Le pagine sono OSC1-3, ENV1-3, LFO1-2, Performance, Filter, Delay+Reverb
+e le due pagine 909. E1-E3 modificano sempre i tre parametri visibili; il click
+E3 abilita/disabilita il blocco corrente oppure triggera il kick. Il quarto OLED
+mostra una finestra scorrevole di quattro pagine.
 
-Entrando in `Sequencer` si apre direttamente la Synth View; il tasto back mostra
-il menu raggruppato in `Transport`, `Pattern` e `Settings`. Start/Stop sono
+Finito il boot, il TFT apre direttamente la Synth View; il tasto back mostra il
+menu raggruppato in `Transport`, `Pattern` e `Settings`. Start/Stop sono
 l'unico controllo di accensione del sequencer: il precedente `Sequencer Power`,
 ridondante, è stato rimosso. La lunghezza si sceglie tra 16, 32, 48 e 64 step,
 organizzati in quattro pagine fisiche da 16. Quattro indicatori a pallino sono
@@ -53,6 +53,11 @@ zero. I NeoKey aggiornano subito ogni pressione stabile e soltanto i LED
 realmente cambiati. Mostrano esclusivamente la pagina e la traccia selezionate:
 V1 è rossa, V2 blu e il kick verde, senza sovrapposizione o somma dei colori. La
 schermata `Seq Track` mantiene le tre lane separate.
+
+Nella griglia TFT la cella suonata conserva numero e bordo luminosi anche se
+contiene una nota. Inserire o rimuovere uno step ridisegna soltanto le regioni
+interessate: non viene più eseguito un `fillScreen()` ad ogni pressione, quindi
+playhead e auto-scroll possono continuare a seguire la telemetria Daisy.
 
 La traccia kick pilota il modello `SyntheticBassDrum` di DaisySP, scelto per il
 carattere 909. Sui mini OLED la pagina `909 MAIN` assegna E1-E3 a Level, Tune e
@@ -91,18 +96,26 @@ non semplici indicatori configurati a priori.
 
 ## Inviluppi e modulazione
 
-L'area `Envelope` espone `ENV1` e `ENV2`, ciascuno con Attack, Decay, Sustain,
-Release e un sottomenu `Destinations`. Ogni destinazione ha `Enabled` e un
-amount bipolare da `-100%` a `+100%`; più route possono essere attive nello
-stesso momento. ENV1 è assegnato di default ad `Amp Level` al `+100%`, mentre
-ENV2 parte libero.
+`Wave Engine` espone OSC1, OSC2 e OSC3. L'area `Envelope` espone ENV1, ENV2 ed
+ENV3, ciascuno con Attack, Decay, Sustain, Release e un sottomenu
+`Destinations`. Ogni destinazione ha `Enabled` e un amount bipolare da `-100%`
+a `+100%`; più route possono essere attive nello stesso momento. Le
+destinazioni corrispondono al DSP moderno: Amp, filtro, pitch/level/PWM/fold di
+ognuno dei tre oscillatori, all-osc pitch, noise, pan, delay e reverb.
 
-La configurazione è memorizzata come tabella generica `source x destination`,
-separata sia dai menu sia dai processor DSP. Per aggiungere in futuro LFO,
-Velocity, Mod Wheel o Aftertouch non occorre cambiare le route esistenti: va
-aggiunto soltanto il producer della nuova sorgente. I preset v7 salvano 64 note,
-pagina, auto-scroll, entrambi gli ADSR e tutte le route; i preset v3/v4/v5/v6
-vengono migrati mantenendo il risultato sonoro precedente e ENV1 sul livello amp.
+ENV1 è assegnato di default ad Amp al `+100%`; ENV2 ed ENV3 partono disabilitati
+e senza route. LFO1 e LFO2 partono disabilitati e si regolano dagli OLED con
+Rate, Depth e Destination. La configurazione è memorizzata nella tabella
+generica `source x destination`, salvata nei preset v8 e trasmessa con UART v4.
+I preset v3-v7 vengono migrati con OSC3, ENV3 e LFO inizializzati in modo
+neutro. Vedi [`PRESET_FORMAT.md`](PRESET_FORMAT.md).
+
+Ogni sottomenu OSC del TFT contiene Power, Wave, Level, Octave, Tune, Detune,
+Phase, Pulse Width, Fold, Pan, Key Tracking, Mod Input e Scope. Le 16 forme
+visibili sono tutte renderizzate dalla Daisy, incluse `EVEN`, `ODD` e `FORMNT`.
+Se i tre OSC sono `ON` e hanno Level maggiore di zero, uno step melodico li
+suona contemporaneamente nella stessa voce. V1 e V2 rimangono corsie di
+evento/pitch; OSC3 segue la nota melodica di riferimento.
 
 `Utility > Serial Diagnostics` e' disattivato per default. All'avvio il Monitor
 Seriale stampa una sola mappa ASCII con TFT, OLED, NeoKey, MCP23017 e le due
@@ -145,7 +158,7 @@ Verificato con:
 - Adafruit SSD1306 `2.5.17`;
 - Adafruit seesaw `1.7.9`.
 
-La build ESP32 usa 419.344 byte su 1.310.720 (31%) e 26.836 byte di RAM globale
+La build ESP32 usa 423.116 byte su 1.310.720 (32%) e 27.156 byte di RAM globale
 su 327.680 (8%).
 
 Cablaggio e collaudo: [`WIRING_INTEGRATED.md`](WIRING_INTEGRATED.md).

@@ -15,6 +15,24 @@ udibile la voce.
 Il controllo `Utility > Output Volume` della ESP32 viene applicato alla fine
 della catena stereo e regola insieme voci, kick, effetti e test audio.
 
+Il synth interno e' ora organizzato come quattro `Voice` indipendenti. Ogni
+voce contiene tre oscillatori, noise, filtro multimode, VCA, tre ADSR, due LFO
+e una modulation matrix fixed-size. UART v4 riceve il patch moderno completo;
+il compatibility layer conserva le due track melodiche e il kick del
+sequencer, mentre OSC3 segue la nota di riferimento della voce corrente.
+I preset sono gestiti dalla ESP32 nel formato v8 con migrazione da v3-v7.
+
+Le 16 forme mostrate dalla UI sono tutte implementate nel DSP. Quando OSC1,
+OSC2 e OSC3 sono abilitati e hanno livello maggiore di zero, ogni evento
+melodico del sequencer li apre insieme dentro la stessa voce; le due lane V1/V2
+restano lane di evento/pitch e non interruttori esclusivi dei rispettivi OSC.
+
+Architettura, routing, allocazione, limiti e validazione realtime:
+[`DSP_ARCHITECTURE.md`](DSP_ARCHITECTURE.md).
+
+Versioni preset e default di compatibilita':
+[`../TheSynthProject/PRESET_FORMAT.md`](../TheSynthProject/PRESET_FORMAT.md).
+
 Istruzioni complete, pinout e sequenza di collaudo:
 [`../TheSynthProject/DAISY_MIGRATION.md`](../TheSynthProject/DAISY_MIGRATION.md).
 

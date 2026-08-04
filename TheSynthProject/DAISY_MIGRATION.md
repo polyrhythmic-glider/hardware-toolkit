@@ -117,16 +117,34 @@ baudrate/firmware non corrispondenti.
 
 ## Funzioni migrate in questa fase
 
-- due oscillatori;
-- forme Sine, Square, Triangle, Saw, Ramp e Pulse;
-- level, tune, fine tune e wavefold per voce;
-- ENV1 come inviluppo di ampiezza;
-- filtro LP/HP/BP;
+- motore polifonico a quattro `Voice`, con allocazione first-inactive e stealing
+  della voce attiva piu' vecchia;
+- tre oscillatori, noise, filtro multimode e VCA per ogni voce;
+- tre ADSR, due LFO e 16 modulation route fixed-size per ogni voce;
+- 16 forme audio: Sine, Square, Triangle, Saw, Ramp, Pulse, Sub, Organ, Even,
+  Odd, Super, PWM, Stair, Clip, Noise e Formant;
+- level, octave, tune, fine tune, phase, pulse width, wavefold, pan e key
+  tracking indipendenti per oscillatore;
+- ENV1 assegnato di default al VCA, con ENV2 ed ENV3 liberi nella matrix;
+- LFO Sine, Triangle, Saw, Ramp, Square e Sample and Hold;
+- filtro LP/HP/BP per voce;
 - sequencer fino a 64 step, in quattro pagine da 16, e kick;
 - delay, riverbero e test diretto a 440 Hz;
 - watchdog: la Daisy sfuma a silenzio se non riceve più l'ESP32;
 - trigger kick one-shot inviati dall'interfaccia e recupero automatico UART.
 
-Le forme 7-16 usano per ora Sine come fallback. ENV2, modulation matrix e la
-modalità storica `WAVEFORM` non sono ancora processate dal DSP Daisy. La pagina
-`WAVEFORM` resta quindi un visualizzatore senza uscita audio.
+Il protocollo UART è ora **v4** e invia, oltre al prefisso sequencer compatibile,
+il patch con tre oscillatori, tre ENV, due LFO e fino a 16 route abilitate. Le
+due track correnti restano V1 e V2; OSC3 non crea una terza corsia ma segue la
+nota di riferimento della compatibility voice. Ogni evento melodico apre tutti
+gli oscillatori abilitati della voce: V1/V2 forniscono evento e pitch, non sono
+gate esclusivi di OSC1/OSC2. ESP32 e Daisy devono quindi essere aggiornate
+insieme. Tutte le 16 forme hanno ora un renderer audio; la modalità storica
+`WAVEFORM` resta un visualizzatore senza uscita audio.
+
+Il formato preset ESP32 è **v8** e conserva le migrazioni da v3-v7. Sul TFT,
+`Wave Engine` espone OSC1-3 ed `Envelope` espone ENV1-3. Gli OLED sono una
+banca performativa globale per OSC, ENV, LFO, filtro, effetti e kick; sequencer
+e transport sono mostrati soltanto sul TFT. Dettagli:
+[`../DaisySynth/DSP_ARCHITECTURE.md`](../DaisySynth/DSP_ARCHITECTURE.md) e
+[`PRESET_FORMAT.md`](PRESET_FORMAT.md).

@@ -2,11 +2,11 @@
 
 ## Structure Rules
 
-- `Wave Engine` owns the two synth voices, global pitch, and filter access.
-- Each voice opens a submenu where the base wave can be selected and then shaped with tune, fold, detune, and scope.
+- `Wave Engine` owns the three oscillators, global pitch, and filter access.
+- Each oscillator opens a submenu with all of its independent base parameters and scope.
 - `Mixer` owns per-voice volume, delay, and reverb.
 - `Kick Voice` owns kick level, kick tone design, and the dedicated kick pattern lane.
-- `Envelope` contiene due ADSR indipendenti; ogni sorgente può pilotare più destinazioni.
+- `Envelope` contiene tre ADSR indipendenti; ogni sorgente può pilotare più destinazioni.
 - Il routing usa una tabella sorgente/destinazione condivisa con il DSP, predisposta per nuove sorgenti.
 - `Sequencer` apre direttamente la Synth View e raggruppa transport, pattern e impostazioni.
 - `Utility` includes global output volume, diagnostics, and hardware tests,
@@ -34,17 +34,47 @@
 ## Tree
 
 - Wave Engine
-  - Voice 1
+  - Oscillator 1
+    - Oscillator Power
     - Wave Type
+    - Oscillator Level
+    - Octave
     - Voice Tune
-    - Voice Fold
     - Voice Detune
+    - Phase Offset
+    - Pulse Width
+    - Voice Fold
+    - Oscillator Pan
+    - Key Tracking
+    - Mod Input
     - Voice Scope
-  - Voice 2
+  - Oscillator 2
+    - Oscillator Power
     - Wave Type
+    - Oscillator Level
+    - Octave
     - Voice Tune
-    - Voice Fold
     - Voice Detune
+    - Phase Offset
+    - Pulse Width
+    - Voice Fold
+    - Oscillator Pan
+    - Key Tracking
+    - Mod Input
+    - Voice Scope
+  - Oscillator 3
+    - Oscillator Power
+    - Wave Type
+    - Oscillator Level
+    - Octave
+    - Voice Tune
+    - Voice Detune
+    - Phase Offset
+    - Pulse Width
+    - Voice Fold
+    - Oscillator Pan
+    - Key Tracking
+    - Mod Input
     - Voice Scope
   - Pitch
   - Filter
@@ -81,6 +111,12 @@
     - Sustain
     - Release
     - Destinations
+  - ENV3
+    - Attack
+    - Decay
+    - Sustain
+    - Release
+    - Destinations
 
 Ogni menu `Destinations` contiene le stesse route:
 
@@ -89,23 +125,26 @@ Ogni menu `Destinations` contiene le stesse route:
 - Filter Resonance
 - Oscillator 1 Pitch
 - Oscillator 2 Pitch
-- Oscillator Mix
-- PWM
-- FM Amount
-- Wavefold Amount
-- Drive
+- Oscillator 3 Pitch
+- All Osc Pitch
+- Oscillator 1 Level
+- Oscillator 2 Level
+- Oscillator 3 Level
+- Noise Level
+- Oscillator 1 PWM
+- Oscillator 2 PWM
+- Oscillator 3 PWM
+- Oscillator 1 Fold
+- Oscillator 2 Fold
+- Oscillator 3 Fold
 - Pan
-- LFO1 Rate
-- LFO1 Depth
-- LFO2 Rate
-- LFO2 Depth
-- FX Mix
-- Delay Feedback
+- Delay Mix
 - Reverb Mix
 
 Aprendo una destinazione sono disponibili `Enabled` (`On/Off`) e `Amount`
 (`-100%..+100%`). ENV1 parte assegnato ad `Amp Level` al `+100%`, per
-conservare il comportamento del synth precedente; ENV2 parte senza route.
+conservare il comportamento del synth precedente; ENV2 ed ENV3 partono senza
+route.
 
 - Sequencer
   - Synth View (visuale principale)

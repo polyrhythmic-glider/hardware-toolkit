@@ -22,8 +22,11 @@
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 // Keep link diagnostics available from the first boot frame. Pairing failures
-// happen before the user can reach Utility > Serial Diagnostics.
+// happen before the user can reach Utility > Serial Diagnostics. Once the
+// handshake is stable this is switched off by AppLifecycle; Utility can then
+// enable it explicitly for a live monitor.
 volatile bool serialDiagnosticsEnabled = true;
+bool serialDiagnosticsAutoMuteArmed = true;
 
 const int SCREEN_W = 160;
 const int SCREEN_H = 128;

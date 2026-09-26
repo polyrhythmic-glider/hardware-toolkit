@@ -51,6 +51,7 @@ void runAppFrame() {
   static int lastReportedSequencerStep = -1;
   static bool lastAudioTestActive = false;
   static bool startupConnectionReportPrinted = false;
+  static uint32_t daisyStableSinceMs = 0;
 
   updateButtons();
   ControlSurface::tick();
@@ -64,6 +65,23 @@ void runAppFrame() {
   if (!startupConnectionReportPrinted && now - bootStartMs >= 1500) {
     startupConnectionReportPrinted = true;
     printStartupConnectionMap();
+  }
+
+  // Boot diagnostics are useful while the two boards negotiate their first
+  // link. Once three acknowledged snapshots have remained stable for a short
+  // period, stop all recurring USB-serial output. Manual diagnostics from
+  // Utility stay enabled until the user turns them off.
+  if (serialDiagnosticsAutoMuteArmed) {
+    if (DaisyBridge::isConnected()) {
+      if (daisyStableSinceMs == 0) daisyStableSinceMs = now;
+      if (now - daisyStableSinceMs >= 2500) {
+        Serial.println("[DIAG] Daisy stable; live monitor paused (Utility > Serial Diagnostics)");
+        serialDiagnosticsEnabled = false;
+        serialDiagnosticsAutoMuteArmed = false;
+      }
+    } else {
+      daisyStableSinceMs = 0;
+    }
   }
 
   int currentStep = sequencerCurrentStep;

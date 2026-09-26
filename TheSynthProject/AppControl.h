@@ -235,6 +235,9 @@ void stopTransport() {
 }
 
 void toggleSerialDiagnostics() {
+  // A choice from Utility is deliberate: do not let the boot-only auto mute
+  // disable a live debugging session selected by the user.
+  serialDiagnosticsAutoMuteArmed = false;
   serialDiagnosticsEnabled = !serialDiagnosticsEnabled;
   if (serialDiagnosticsEnabled) {
     printSerialDiagnosticsSnapshot();

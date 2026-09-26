@@ -12,6 +12,11 @@
 #include "HardwarePins.h"
 #include "SerialDebug.h"
 
+// These live in the main application, which owns the Daisy bridge. Keeping
+// this tiny interface avoids making the OLED driver depend on UART details.
+bool isDaisyPairingReady();
+bool isDaisyBootBypassed();
+
 namespace ControlSurface {
 namespace {
 
@@ -29,6 +34,10 @@ constexpr uint8_t ENCODER_STEPS_PER_DETENT = 4;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
 // Resta visibile durante il boot del TFT, ma usa solo una checklist testuale.
 constexpr uint32_t STARTUP_SPLASH_MS = 3600;
+// Let the four checklist rows follow the TFT progress bar instead of showing
+// every checkmark in the first frame. The final prelaunch item remains tied
+// to the real Daisy handshake.
+constexpr uint32_t STARTUP_CHECK_INTERVAL_MS = 550;
 constexpr uint32_t DRAW_INTERVAL_MS = 55;
 constexpr uint32_t PONG_STEP_MS = 20;
 constexpr int UI_HEADER_HEIGHT = 16;
@@ -246,6 +255,9 @@ uint8_t synthPage = ControlSurfaceBridge::PAGE_VOICE_1;
 bool redrawRequested = true;
 uint32_t lastDrawAt = 0;
 uint32_t startupUntil = 0;
+uint32_t startupStartedAt = 0;
+bool lastPrelaunchDaisyReady = false;
+uint8_t lastSplashChecklistStage = 0;
 uint32_t lastMainStateHash = 0;
 uint32_t clickFlashUntil[4] = { 0, 0, 0, 0 };
 uint8_t lastTouchedPage = ControlSurfaceBridge::PAGE_VOICE_1;
@@ -867,6 +879,16 @@ void drawBootCheck(const char* label, uint8_t row, bool checked) {
   }
 }
 
+uint8_t splashChecklistStage() {
+  uint32_t elapsed = millis() - startupStartedAt;
+  uint8_t stage = elapsed / STARTUP_CHECK_INTERVAL_MS;
+  return stage > 4 ? 4 : stage;
+}
+
+bool splashCheckReady(uint8_t row, bool hardwareReady) {
+  return hardwareReady && splashChecklistStage() > row;
+}
+
 void drawSplashPanel() {
   oled.clearDisplay();
   oled.setTextSize(1);
@@ -875,28 +897,29 @@ void drawSplashPanel() {
 
   if (activeDisplay == 0) {
     oled.println("> BOOT / CORE");
-    drawBootCheck("CPU ONLINE", 0, true);
-    drawBootCheck("RTOS ACTIVE", 1, true);
-    drawBootCheck("MEMORY READY", 2, true);
-    drawBootCheck("FW LOADED", 3, true);
+    drawBootCheck("CPU ONLINE", 0, splashCheckReady(0, true));
+    drawBootCheck("RTOS ACTIVE", 1, splashCheckReady(1, true));
+    drawBootCheck("MEMORY READY", 2, splashCheckReady(2, true));
+    drawBootCheck("FW LOADED", 3, splashCheckReady(3, true));
   } else if (activeDisplay == 1) {
     oled.println("> BOOT / DISPLAYS");
-    drawBootCheck("TFT ONLINE", 0, true);
-    drawBootCheck("I2C LINES", 1, mainSdaHigh && mainSclHigh);
-    drawBootCheck("PCA MUX", 2, pcaReady);
-    drawBootCheck("OLED BANK", 3, oledReadyMask != 0);
+    drawBootCheck("TFT ONLINE", 0, splashCheckReady(0, true));
+    drawBootCheck("I2C LINES", 1, splashCheckReady(1, mainSdaHigh && mainSclHigh));
+    drawBootCheck("PCA MUX", 2, splashCheckReady(2, pcaReady));
+    drawBootCheck("OLED BANK", 3, splashCheckReady(3, oledReadyMask != 0));
   } else if (activeDisplay == 2) {
     oled.println("> BOOT / CONTROLS");
-    drawBootCheck("INPUT BUS", 0, encoderExpanderReady);
-    drawBootCheck("MCP23017", 1, encoderExpanderReady);
-    drawBootCheck("ENCODER TASK", 2, encoderTaskHandle != nullptr);
-    drawBootCheck("GPIO MAP", 3, true);
+    drawBootCheck("INPUT BUS", 0, splashCheckReady(0, encoderExpanderReady));
+    drawBootCheck("MCP23017", 1, splashCheckReady(1, encoderExpanderReady));
+    drawBootCheck("ENCODER TASK", 2, splashCheckReady(2, encoderTaskHandle != nullptr));
+    drawBootCheck("GPIO MAP", 3, splashCheckReady(3, true));
   } else {
     oled.println("> PRELAUNCH");
-    drawBootCheck("UI MODEL", 0, true);
-    drawBootCheck("PARAM MAP", 1, true);
-    drawBootCheck("OLED SURFACE", 2, oledBusReady);
-    drawBootCheck("SURFACE READY", 3, oledBusReady && encoderExpanderReady);
+    drawBootCheck("UI MODEL", 0, splashCheckReady(0, true));
+    drawBootCheck("PARAM MAP", 1, splashCheckReady(1, true));
+    drawBootCheck("OLED SURFACE", 2, splashCheckReady(2, oledBusReady));
+    drawBootCheck("DAISY PAIRING", 3,
+                  splashCheckReady(3, isDaisyPairingReady()));
   }
 }
 
@@ -1535,7 +1558,10 @@ void begin() {
   currentMode = SYNTH_CONTROL;
   menuSelection = SYNTH_CONTROL;
   menuOpen = false;
-  startupUntil = millis() + STARTUP_SPLASH_MS;
+  startupStartedAt = millis();
+  startupUntil = startupStartedAt + STARTUP_SPLASH_MS;
+  lastPrelaunchDaisyReady = isDaisyPairingReady();
+  lastSplashChecklistStage = 0;
   redrawRequested = true;
 
   if (oledBusReady) {
@@ -1567,14 +1593,24 @@ void tick() {
 
   bool skipStartup = false;
   for (uint8_t i = 0; i < 4; i++) skipStartup = skipStartup || input.click[i];
-  if (startupUntil != 0 && (skipStartup || now >= startupUntil)) {
+  bool daisyReady = isDaisyPairingReady();
+  if (startupUntil != 0 &&
+      (isDaisyBootBypassed() || (daisyReady && (skipStartup || now >= startupUntil)))) {
     startupUntil = 0;
     redrawRequested = true;
   }
 
   if (startupUntil != 0) {
-    // The four complete 1 KiB framebuffers are already shown by begin().
-    // Keep the splash static instead of retransmitting them throughout boot.
+    uint8_t splashStage = splashChecklistStage();
+    if (splashStage != lastSplashChecklistStage) {
+      lastSplashChecklistStage = splashStage;
+      redrawRequested = true;
+    }
+    if (daisyReady != lastPrelaunchDaisyReady) {
+      lastPrelaunchDaisyReady = daisyReady;
+      redrawRequested = true;
+    }
+    if (redrawRequested && now - lastDrawAt >= DRAW_INTERVAL_MS) drawAllDisplays();
     return;
   }
 
@@ -1726,6 +1762,11 @@ bool getEncoderPinHigh(uint8_t encoderIndex, uint8_t signalIndex) {
 
 long getEncoderCount(uint8_t encoderIndex) {
   return getEncoderValue(encoderIndex);
+}
+
+bool isEncoderPressed(uint8_t encoderIndex) {
+  if (encoderIndex >= 4 || !encoderRawPortsValid) return false;
+  return encoders[encoderIndex].stableButton == LOW;
 }
 
 Mode getMode() {

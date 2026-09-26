@@ -21,7 +21,9 @@
 // =======================
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-volatile bool serialDiagnosticsEnabled = false;
+// Keep link diagnostics available from the first boot frame. Pairing failures
+// happen before the user can reach Utility > Serial Diagnostics.
+volatile bool serialDiagnosticsEnabled = true;
 
 const int SCREEN_W = 160;
 const int SCREEN_H = 128;
@@ -71,6 +73,11 @@ void setMode(UiMode newMode);
 
 UiMode uiMode = MODE_BOOT;
 UiMode lastDrawnMode = MODE_ABOUT;
+namespace DaisyBridge { bool isConnected(); }
+bool daisyBootBypassed = false;
+bool isDaisyPairingReady() { return DaisyBridge::isConnected(); }
+bool isDaisyBootBypassed() { return daisyBootBypassed; }
+
 
 const char* waveformNames[] = {
   "SINE",
@@ -134,7 +141,9 @@ int sequencerBpm = 120;
 int sequencerLength = SEQUENCER_DEFAULT_LENGTH;
 int activeSequencerVoice = 0;
 int activeSequencerTrack = SEQUENCER_TRACK_VOICE_1;
-int sequencerSelectedStep = 0;
+// Editing selection is optional. Playback has its own playhead and adding a
+// note must not leave a second, apparently frozen cursor on that step.
+int sequencerSelectedStep = -1;
 volatile int sequencerCurrentStep = 0;
 int sequencerPage = 0;
 bool sequencerAutoScroll = true;
@@ -235,6 +244,8 @@ int lastSequencerVoice = -1;
 int lastSequencerTrack = -1;
 int lastSequencerSelectedStep = -1;
 int lastSequencerCurrentStep = -1;
+int lastDaisyCursorSynchronized = -1;
+int lastDaisyConnected = -1;
 int lastSequencerPage = -1;
 int lastSequencerAutoScroll = -1;
 int lastSequencerNoteChecksum = -1;

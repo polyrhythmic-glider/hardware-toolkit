@@ -91,5 +91,7 @@ int getKickParamChecksum() {
 
 void resetSequencerClock() {
   clampSequencerIndexes();
-  sequencerCurrentStep = sequencerSelectedStep;
+  // Playback always starts from step 1. Editing selection is deliberately
+  // independent and can never move or stop the playhead.
+  sequencerCurrentStep = 0;
 }

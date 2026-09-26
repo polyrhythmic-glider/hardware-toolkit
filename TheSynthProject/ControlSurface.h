@@ -46,6 +46,7 @@ bool isMcpRawPortsValid();
 uint16_t getMcpRawPorts();
 bool getEncoderPinHigh(uint8_t encoderIndex, uint8_t signalIndex);
 long getEncoderCount(uint8_t encoderIndex);
+bool isEncoderPressed(uint8_t encoderIndex);
 
 Mode getMode();
 void setMode(Mode mode);

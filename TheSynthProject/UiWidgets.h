@@ -1038,6 +1038,7 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
   int track = getActiveSequencerTrack();
   int length = getSequencerLength();
   int pageStart = getSequencerPageStart();
+  bool running = transportRunning && sequencerEnabled;
   int rowHeight = height / rows;
   uint16_t trackColor = getSequencerTrackColor(track);
   uint16_t disabledColor = rgb565(38, 43, 56);
@@ -1051,7 +1052,7 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
     int cellWidth = right - left;
     int drawX = x + left;
     int drawY = y + row * rowHeight;
-    bool playing = transportRunning && sequencerEnabled && step == sequencerCurrentStep;
+    bool playing = running && step == sequencerCurrentStep;
     bool inLength = step < length;
     bool enabled = isSequencerTrackStepEnabled(track, step);
     bool activeHit = playing && inLength && enabled;
@@ -1066,13 +1067,14 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
     }
 
     if (playing) {
-      tft.fillRect(drawX + 2, drawY + 1, max(1, cellWidth - 4), activeHit ? 3 : 2,
-                   activeHit ? COL_INK : COL_GOLD);
-      tft.drawRect(drawX + 1,
-                   drawY + 1,
-                   max(1, cellWidth - 2),
-                   max(1, rowHeight - 2),
-                   activeHit ? COL_INK : COL_GOLD);
+      // Gold is reserved for the Daisy beat cursor. Keep it inside the cell
+      // so a simultaneous violet selection remains independently visible.
+      tft.fillRect(drawX + 3, drawY + 2, max(1, cellWidth - 6), 3, COL_GOLD);
+      tft.drawRect(drawX + 2,
+                   drawY + 2,
+                   max(1, cellWidth - 4),
+                   max(1, rowHeight - 4),
+                   COL_GOLD);
     }
 
     if (enabled && inLength) {
@@ -1080,9 +1082,10 @@ void drawSequencerGrid(int x, int y, int width, int height, uint16_t accent) {
                    activeHit ? COL_INK : trackColor);
     }
 
+    // Violet is reserved for editing selection. The outer frame never changes
+    // to the playhead color, including when selection and beat coincide.
     if (selected && inLength) {
-      tft.drawRect(drawX + 1, drawY + 1, max(1, cellWidth - 2), max(1, rowHeight - 2),
-                   playing ? (activeHit ? COL_INK : COL_GOLD) : trackColor);
+      tft.drawRect(drawX, drawY, max(1, cellWidth), max(1, rowHeight), COL_VIOLET);
     }
 
     char stepLabel[4];
@@ -1136,9 +1139,10 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
   uint16_t trackColor = getSequencerTrackColor(track);
   int shownStep = running
     ? clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1)
-    : clampInt(sequencerSelectedStep, 0, getSequencerLength() - 1);
+    : sequencerSelectedStep >= 0
+      ? clampInt(sequencerSelectedStep, 0, getSequencerLength() - 1)
+      : clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1);
   bool stepEnabled = isSequencerTrackStepEnabled(track, shownStep);
-  int previewShape = waveVoiceShape[voice];
 
   // During playback only the playhead, note and resulting frequency change.
   // Updating those small regions avoids flashing three broad black bands on
@@ -1168,11 +1172,19 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
       tft.print("REST");
     }
 
-    tft.fillRect(118, 49, 42, 10, COL_BG);
-    tft.setTextColor(COL_INK);
-    tft.setCursor(121, 51);
-    tft.print(kickTrack ? kickPitch : (int)(getSequencerResultFrequency(voice, shownStep) + 0.5f));
-    tft.print("Hz");
+    // A melodic track drives the complete three-oscillator patch. Showing one
+    // waveform and one frequency here would describe only OSC1 and is
+    // therefore misleading. Keep its track area intentionally empty.
+    tft.fillRect(91, 49, 69, 11, COL_BG);
+    if (kickTrack) {
+      tft.setTextColor(COL_SKY);
+      tft.setCursor(91, 51);
+      tft.print("KICK");
+      tft.setTextColor(COL_INK);
+      tft.setCursor(121, 51);
+      tft.print(kickPitch);
+      tft.print("Hz");
+    }
 
     drawSequencerGrid(4, 62, 152, 31, trackColor);
     drawSequencerPageDots(97);
@@ -1226,13 +1238,17 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
   } else {
     tft.print("REST");
   }
-  tft.setTextColor(COL_SKY);
-  tft.setCursor(91, 51);
-  tft.print(kickTrack ? "KICK" : getWaveformShortName(previewShape));
-  tft.setTextColor(COL_INK);
-  tft.setCursor(121, 51);
-  tft.print(kickTrack ? kickPitch : (int)(getSequencerResultFrequency(voice, shownStep) + 0.5f));
-  tft.print("Hz");
+  // Do not summarize a three-oscillator patch with OSC1's waveform/frequency.
+  // The dedicated oscillator pages already expose all three accurately.
+  if (kickTrack) {
+    tft.setTextColor(COL_SKY);
+    tft.setCursor(91, 51);
+    tft.print("KICK");
+    tft.setTextColor(COL_INK);
+    tft.setCursor(121, 51);
+    tft.print(kickPitch);
+    tft.print("Hz");
+  }
 
   drawSequencerGrid(4, 62, 152, 31, trackColor);
   drawSequencerPageDots(97);
@@ -1253,13 +1269,13 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
   printRight(trackValueText, 156, 106, 1, trackLevel > 0 ? trackColor : COL_MUTED);
 
   tft.setCursor(4, 118);
-  char liveControlValue[16];
-  ControlSurface::formatLastParameterValue(liveControlValue, sizeof(liveControlValue));
-  tft.setTextColor(accent);
-  tft.print(ControlSurface::getLastParameterLabel());
-  tft.print(" ");
-  tft.setTextColor(COL_INK);
-  tft.print(liveControlValue);
+    char liveControlValue[16];
+    ControlSurface::formatLastParameterValue(liveControlValue, sizeof(liveControlValue));
+    tft.setTextColor(accent);
+    tft.print(ControlSurface::getLastParameterLabel());
+    tft.print(" ");
+    tft.setTextColor(COL_INK);
+    tft.print(liveControlValue);
 }
 
 void formatSequencerNote(char* buffer, size_t size, int midiPitch) {
@@ -1365,9 +1381,57 @@ void drawSequencerVoiceEdit(uint16_t accent) {
   drawSequencerEditFooter(left, "16 / PAGE", getSequencerTrackColor(track), COL_MUTED);
 }
 
+// A single page keeps the selected step and its note visible while editing.
+void drawPatternEditor(bool clearView, bool detailsChanged) {
+  int track = getActiveSequencerTrack();
+  uint16_t color = getSequencerTrackColor(track);
+  if (clearView) {
+    tft.fillScreen(COL_BG);
+    drawHeader("PATTERN");
+    tft.setTextSize(1);
+    tft.setTextColor(COL_MUTED);
+    tft.setCursor(4, 99);
+    tft.print("KEY:STEP / AGAIN:ON-OFF");
+    tft.setCursor(4, 120);
+    tft.print("BACK:EXIT");
+  }
+  if (detailsChanged) {
+    tft.fillRect(0, 110, SCREEN_W, 8, COL_BG);
+    tft.setTextSize(1);
+    tft.setTextColor(COL_MUTED);
+    tft.setCursor(4, 110);
+    tft.print(isActiveSequencerTrackKick() ? "TURN:HIT   CLICK:TRACK" : "TURN:NOTE  CLICK:TRACK");
+    tft.fillRect(0, 22, SCREEN_W, 40, COL_BG);
+    char label[28];
+    snprintf(label, sizeof(label), "%s  STEP %02d  PAGE %d/%d",
+             getSequencerTrackLabel(track), sequencerSelectedStep + 1,
+             getSequencerPage() + 1, getSequencerPageCount());
+    tft.setTextSize(1);
+    tft.setTextColor(color);
+    tft.setCursor(4, 24);
+    tft.print(label);
+    char note[10];
+    if (isActiveSequencerTrackKick()) snprintf(note, sizeof(note), "HIT");
+    else formatSequencerNote(note, sizeof(note), getSelectedSequencerStepPitch());
+    tft.setTextSize(2);
+    tft.setTextColor(COL_INK);
+    tft.setCursor(4, 40);
+    tft.print(note);
+    tft.setTextSize(1);
+    tft.setTextColor(isSelectedSequencerStepEnabled() ? color : COL_MUTED);
+    tft.setCursor(100, 45);
+    tft.print(isSelectedSequencerStepEnabled() ? "ON" : "REST");
+  }
+  drawSequencerGrid(4, 63, 152, 31, color);
+}
+
 void drawSequencerStepEdit(uint16_t accent) {
   char value[16];
-  snprintf(value, sizeof(value), "S%d", sequencerSelectedStep + 1);
+  if (sequencerSelectedStep >= 0) {
+    snprintf(value, sizeof(value), "S%d", sequencerSelectedStep + 1);
+  } else {
+    snprintf(value, sizeof(value), "--");
+  }
 
   drawSequencerEditBody(value, "STEP", accent);
 
@@ -1375,7 +1439,9 @@ void drawSequencerStepEdit(uint16_t accent) {
   formatSequencerNote(noteText, sizeof(noteText), getSelectedSequencerStepPitch());
 
   char leftText[24];
-  if (isActiveSequencerTrackKick()) {
+  if (sequencerSelectedStep < 0) {
+    snprintf(leftText, sizeof(leftText), "NO SELECTION");
+  } else if (isActiveSequencerTrackKick()) {
     snprintf(leftText, sizeof(leftText), "KICK  S%02d", sequencerSelectedStep + 1);
   } else {
     snprintf(leftText, sizeof(leftText), "%s  %s", getSequencerTrackLabel(getActiveSequencerTrack()), noteText);
@@ -1386,7 +1452,9 @@ void drawSequencerStepEdit(uint16_t accent) {
 
 void drawSequencerNoteEdit(uint16_t accent) {
   char value[10];
-  if (isActiveSequencerTrackKick()) {
+  if (sequencerSelectedStep < 0) {
+    snprintf(value, sizeof(value), "--");
+  } else if (isActiveSequencerTrackKick()) {
     snprintf(value, sizeof(value), "%s", isSelectedSequencerStepEnabled() ? "HIT" : "REST");
   } else {
     formatSequencerNote(value, sizeof(value), getSelectedSequencerStepPitch());
@@ -1394,7 +1462,11 @@ void drawSequencerNoteEdit(uint16_t accent) {
 
   drawSequencerEditBody(value, isActiveSequencerTrackKick() ? "KICK" : "PITCH", accent);
   char stepText[24];
-  snprintf(stepText, sizeof(stepText), "%s  S%02d", getSequencerTrackLabel(getActiveSequencerTrack()), sequencerSelectedStep + 1);
+  if (sequencerSelectedStep >= 0) {
+    snprintf(stepText, sizeof(stepText), "%s  S%02d", getSequencerTrackLabel(getActiveSequencerTrack()), sequencerSelectedStep + 1);
+  } else {
+    snprintf(stepText, sizeof(stepText), "SELECT STEP FIRST");
+  }
   drawSequencerEditFooter(stepText, sequencerEnabled ? "LIVE" : "EDIT",
                           COL_MUTED, sequencerEnabled ? COL_GOLD : COL_MUTED);
 }
@@ -1433,6 +1505,12 @@ void drawSequencerAutoScrollEdit(uint16_t accent) {
 }
 
 void drawSequencerStepEnableEdit(uint16_t accent) {
+  if (sequencerSelectedStep < 0) {
+    drawSequencerUtilityFrame(accent, "--", "STEP", "MUTE");
+    drawSequencerEditFooter("SELECT STEP FIRST", "NONE",
+                            COL_MUTED, COL_MUTED);
+    return;
+  }
   bool enabled = isSelectedSequencerStepEnabled();
   drawSequencerUtilityFrame(accent, enabled ? "ON" : "REST", "STEP", "MUTE");
   char stepText[24];

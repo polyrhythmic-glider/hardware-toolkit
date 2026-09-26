@@ -190,7 +190,6 @@ bool isMenuSubmenuAction(MenuAction action) {
          action == ACTION_VOICE_3_MENU ||
          action == ACTION_FILTER_MENU ||
          action == ACTION_TRANSPORT_MENU ||
-         action == ACTION_SEQ_PATTERN_MENU ||
          action == ACTION_SEQ_SETTINGS_MENU ||
          action == ACTION_ENV_1_MENU ||
          action == ACTION_ENV_2_MENU ||
@@ -478,6 +477,10 @@ MenuAction getSelectedAction() {
   return menuItems[itemIndex].action;
 }
 
+bool isPatternEditor() {
+  return uiMode == MODE_EDIT && getSelectedAction() == ACTION_SEQ_PATTERN_MENU;
+}
+
 bool isSynthAction(MenuAction action) {
   return action == ACTION_VOICE_1_MENU ||
          action == ACTION_VOICE_2_MENU ||
@@ -739,10 +742,12 @@ void setSequencerStepEnabled(int voiceIndex, int stepIndex, bool enabled) {
 }
 
 int getSelectedSequencerStepPitch() {
+  if (sequencerSelectedStep < 0) return SEQUENCER_DEFAULT_PITCH;
   return getSequencerStepPitch(getActiveSequencerTrackVoice(), sequencerSelectedStep);
 }
 
 bool isSelectedSequencerStepEnabled() {
+  if (sequencerSelectedStep < 0) return false;
   if (isActiveSequencerTrackKick()) return kickStepEnabled[clampInt(sequencerSelectedStep, 0, SEQUENCER_STEP_COUNT - 1)];
   return isSequencerStepEnabled(getActiveSequencerTrackVoice(), sequencerSelectedStep);
 }
@@ -786,7 +791,8 @@ void printSerialDiagnosticsSnapshot() {
   Serial.print("/");
   Serial.print((int)sequencerCurrentStep + 1);
   Serial.print("/");
-  Serial.println(sequencerSelectedStep + 1);
+  if (sequencerSelectedStep >= 0) Serial.println(sequencerSelectedStep + 1);
+  else Serial.println("NONE");
   Serial.println("Clock owner: DAISY (playhead received over UART)");
 
   Serial.print("Output/V1/V2/kick: ");
@@ -1072,11 +1078,17 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_SEQ_STEP:
-      snprintf(buffer, sizeof(buffer), "S%d", sequencerSelectedStep + 1);
+      if (sequencerSelectedStep >= 0) {
+        snprintf(buffer, sizeof(buffer), "S%d", sequencerSelectedStep + 1);
+      } else {
+        snprintf(buffer, sizeof(buffer), "--");
+      }
       break;
 
     case ACTION_SEQ_NOTE:
-      if (isActiveSequencerTrackKick()) {
+      if (sequencerSelectedStep < 0) {
+        snprintf(buffer, sizeof(buffer), "--");
+      } else if (isActiveSequencerTrackKick()) {
         snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "HIT" : "REST");
       } else {
         formatMidiPitch(getSelectedSequencerStepPitch(), buffer, sizeof(buffer));
@@ -1096,7 +1108,11 @@ const char* getValueText(int itemIndex) {
       break;
 
     case ACTION_SEQ_STEP_ENABLE:
-      snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "ON" : "REST");
+      if (sequencerSelectedStep >= 0) {
+        snprintf(buffer, sizeof(buffer), "%s", isSelectedSequencerStepEnabled() ? "ON" : "REST");
+      } else {
+        snprintf(buffer, sizeof(buffer), "--");
+      }
       break;
 
     case ACTION_MIX_VOICE_1:
@@ -1239,6 +1255,8 @@ void setSequencerPage(int page, bool moveSelection) {
 
   if (!moveSelection) return;
 
+  if (sequencerSelectedStep < 0) return;
+
   int localStep = sequencerSelectedStep % SEQUENCER_PAGE_SIZE;
   sequencerSelectedStep = min(
     sequencerPage * SEQUENCER_PAGE_SIZE + localStep,
@@ -1279,15 +1297,14 @@ void clampSequencerIndexes() {
     activeSequencerVoice = activeSequencerTrack;
   }
 
-  if (sequencerSelectedStep >= length) {
-    sequencerSelectedStep = length - 1;
+  if (sequencerSelectedStep >= length || sequencerSelectedStep < -1) {
+    sequencerSelectedStep = -1;
   }
 
   if (sequencerCurrentStep >= length) {
     sequencerCurrentStep = 0;
   }
 
-  if (sequencerSelectedStep < 0) sequencerSelectedStep = 0;
   if (sequencerCurrentStep < 0) sequencerCurrentStep = 0;
   sequencerPage = clampInt(sequencerPage, 0,
                            max(0, (length + SEQUENCER_PAGE_SIZE - 1) / SEQUENCER_PAGE_SIZE - 1));
@@ -1498,7 +1515,14 @@ void changeCurrentValue(int delta) {
       break;
 
     case ACTION_SEQ_STEP:
-      sequencerSelectedStep = wrapIndex(sequencerSelectedStep + delta, getSequencerLength());
+      if (sequencerSelectedStep < 0) {
+        sequencerSelectedStep = delta > 0 ? 0 : getSequencerLength() - 1;
+      } else {
+        sequencerSelectedStep = wrapIndex(
+          sequencerSelectedStep + delta,
+          getSequencerLength()
+        );
+      }
       syncSequencerPageToStep(sequencerSelectedStep);
       if (!transportRunning) {
         sequencerCurrentStep = sequencerSelectedStep;
@@ -1506,8 +1530,10 @@ void changeCurrentValue(int delta) {
       }
       break;
 
+    case ACTION_SEQ_PATTERN_MENU:
     case ACTION_SEQ_NOTE:
     {
+      if (sequencerSelectedStep < 0) break;
       if (isActiveSequencerTrackKick()) {
         kickStepEnabled[sequencerSelectedStep] = delta > 0;
         if (kickLevel == 0 && kickStepEnabled[sequencerSelectedStep]) kickLevel = 80;
@@ -1538,7 +1564,7 @@ void changeCurrentValue(int delta) {
       break;
 
     case ACTION_SEQ_STEP_ENABLE:
-      if (delta != 0) {
+      if (delta != 0 && sequencerSelectedStep >= 0) {
         if (isActiveSequencerTrackKick()) {
           kickStepEnabled[sequencerSelectedStep] = !kickStepEnabled[sequencerSelectedStep];
           if (kickLevel == 0 && kickStepEnabled[sequencerSelectedStep]) kickLevel = 80;
@@ -1659,6 +1685,10 @@ void changeCurrentValue(int delta) {
 // =======================
 
 void setMode(UiMode newMode) {
+  if (isPatternEditor() && newMode != MODE_EDIT) {
+    sequencerSelectedStep = -1;
+    if (sequencerAutoScroll && transportRunning) syncSequencerPageToStep(sequencerCurrentStep);
+  }
   if (newMode == MODE_PREMENU) {
     currentMenuPage = MENU_PAGE_ROOT;
     activeWaveVoiceIndex = 0;
@@ -1677,6 +1707,7 @@ void updateUiLogic() {
 
   if (uiMode == MODE_BOOT) {
     bool skipRequested = pushEvent || k0Event;
+    bool bypassRequested = pushEvent && ControlSurface::isEncoderPressed(3);
     pushEvent = false;
     k0Event = false;
 
@@ -1689,8 +1720,13 @@ void updateUiLogic() {
     if (bootReady && millis() - bootCompletedAtMs >= bootCompleteHoldMs) {
       // Synth View is the instrument home screen. Its back button opens the
       // sequencer's TFT-only menu (Transport, Pattern and Settings).
-      applyTypeChoice(SEQUENCER_AREA_INDEX);
-      setMode(MODE_EDIT);
+      // Daisy pairing is deliberately part of boot. E4 + the TFT encoder is
+      // the undocumented emergency escape for using the UI without audio.
+      if (DaisyBridge::isConnected() || bypassRequested) {
+        daisyBootBypassed = bypassRequested;
+        applyTypeChoice(SEQUENCER_AREA_INDEX);
+        setMode(MODE_EDIT);
+      }
     }
 
     return;
@@ -1741,7 +1777,10 @@ void updateUiLogic() {
     else if (uiMode == MODE_MENU) {
       MenuAction action = getSelectedAction();
 
-      if (isMenuSubmenuAction(action)) {
+      if (action == ACTION_SEQ_PATTERN_MENU) {
+        sequencerSelectedStep = getSequencerPageStart();
+        setMode(MODE_EDIT);
+      } else if (isMenuSubmenuAction(action)) {
         enterSubmenu(action);
       } else if (isImmediateMenuAction(action)) {
         executeImmediateMenuAction(action);
@@ -1754,7 +1793,11 @@ void updateUiLogic() {
     }
 
     else if (uiMode == MODE_EDIT) {
-      if (getSelectedAction() == ACTION_SYNTH_VIEW) {
+      if (isPatternEditor()) {
+        activeSequencerTrack = wrapIndex(activeSequencerTrack + 1, SEQUENCER_TRACK_COUNT);
+        if (!isActiveSequencerTrackKick()) activeSequencerVoice = activeSequencerTrack;
+        valueDirty = true;
+      } else if (getSelectedAction() == ACTION_SYNTH_VIEW) {
         if (transportRunning && sequencerEnabled) {
           stopTransport();
         } else {
@@ -1779,7 +1822,11 @@ void updateUiLogic() {
   if (k0Event) {
     k0Event = false;
 
-    if (uiMode == MODE_PREMENU) {
+    if (isPatternEditor()) {
+      setMode(MODE_MENU);
+    }
+
+    else if (uiMode == MODE_PREMENU) {
       applyTypeChoice(0);
       setMode(MODE_MENU);
     }

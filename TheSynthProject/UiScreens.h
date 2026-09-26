@@ -276,6 +276,8 @@ void drawEditBase() {
   lastSequencerTrack = -1;
   lastSequencerSelectedStep = -1;
   lastSequencerCurrentStep = -1;
+  lastDaisyCursorSynchronized = -1;
+  lastDaisyConnected = -1;
   lastSequencerPage = -1;
   lastSequencerAutoScroll = -1;
   lastSequencerNoteChecksum = -1;
@@ -289,6 +291,7 @@ void drawEditBase() {
 bool actionShowsSequencerPlayhead(MenuAction action) {
   switch (action) {
     case ACTION_SYNTH_VIEW:
+    case ACTION_SEQ_PATTERN_MENU:
     case ACTION_SEQ_START:
     case ACTION_SEQ_STOP:
     case ACTION_SEQ_BPM:
@@ -343,6 +346,7 @@ bool editValueChanged() {
   if (sequencerSelectedStep != lastSequencerSelectedStep) return true;
   if (getSequencerPage() != lastSequencerPage) return true;
   if ((int)sequencerAutoScroll != lastSequencerAutoScroll) return true;
+  if ((DaisyBridge::isConnected() ? 1 : 0) != lastDaisyConnected) return true;
   // Ordinary synth, ADSR, FX and utility pages do not display the playhead.
   // Avoid clearing and repainting them on every sixteenth note.
   if (actionShowsSequencerPlayhead(action) &&
@@ -389,6 +393,8 @@ void saveLastValues() {
   lastSequencerTrack = activeSequencerTrack;
   lastSequencerSelectedStep = sequencerSelectedStep;
   lastSequencerCurrentStep = sequencerCurrentStep;
+  lastDaisyCursorSynchronized = DaisyBridge::isCursorSynchronized() ? 1 : 0;
+  lastDaisyConnected = DaisyBridge::isConnected() ? 1 : 0;
   lastSequencerPage = getSequencerPage();
   lastSequencerAutoScroll = (int)sequencerAutoScroll;
   lastSequencerNoteChecksum = getSequencerNoteChecksum();
@@ -645,6 +651,21 @@ void updateEditFast() {
     return;
   }
 
+  if (isPatternEditor()) {
+    bool clearView = fullRedraw || lastDrawnMode != MODE_EDIT;
+    if (!clearView && !valueDirty && !editValueChanged()) return;
+    bool detailsChanged = clearView || valueDirty ||
+      activeSequencerTrack != lastSequencerTrack ||
+      sequencerSelectedStep != lastSequencerSelectedStep ||
+      getSequencerNoteChecksum() != lastSequencerNoteChecksum;
+    drawPatternEditor(clearView, detailsChanged);
+    valueDirty = false;
+    fullRedraw = false;
+    lastDrawnMode = MODE_EDIT;
+    saveLastValues();
+    return;
+  }
+
   if (getSelectedAction() == ACTION_SYNTH_VIEW) {
     bool clearView = fullRedraw || lastDrawnMode != MODE_EDIT;
     bool explicitViewUpdate = valueDirty;
@@ -663,6 +684,8 @@ void updateEditFast() {
       activeSequencerTrack != lastSequencerTrack ||
       sequencerSelectedStep != lastSequencerSelectedStep ||
       getSequencerPage() != lastSequencerPage ||
+      (DaisyBridge::isCursorSynchronized() ? 1 : 0) != lastDaisyCursorSynchronized ||
+      (DaisyBridge::isConnected() ? 1 : 0) != lastDaisyConnected ||
       (int)sequencerAutoScroll != lastSequencerAutoScroll ||
       getSequencerNoteChecksum() != lastSequencerNoteChecksum ||
       getWaveVoiceParamChecksum() != lastWaveVoiceParamChecksum ||

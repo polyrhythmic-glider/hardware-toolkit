@@ -42,9 +42,7 @@ uint8_t neokeyBoardFailureCount[NEOKEY_BOARD_COUNT] = { 0 };
 bool neokeyButtonLastRaw[NEOKEY_TOTAL_KEYS] = { false };
 bool neokeyButtonStable[NEOKEY_TOTAL_KEYS] = { false };
 uint32_t neokeyButtonChangedAtMs[NEOKEY_TOTAL_KEYS] = { 0 };
-int neokeyLastVoice = -1;
 int neokeyLastTrack = -1;
-int neokeyLastStep = -1;
 int neokeyLastPlayStep = -1;
 int neokeyLastPage = -1;
 uint64_t neokeyLastPatternSignature = 0xFFFFFFFFFFFFFFFFULL;
@@ -102,6 +100,7 @@ void neokeyRecomputeReadyState() {
 }
 
 bool neokeySequencerControlActive() {
+  if (!DaisyBridge::isConnected()) return false;
   if (uiMode == MODE_EDIT && getSelectedAction() == ACTION_NEOKEY_DEBUG) return false;
   return uiMode != MODE_BOOT && uiMode != MODE_PREMENU && uiMode != MODE_ABOUT;
 }
@@ -123,14 +122,9 @@ uint32_t neokeyStepColor(int track, bool active, bool playhead) {
     else if (track == SEQUENCER_TRACK_VOICE_2) b = 180;
     else g = 150;
   }
-  if (playhead && active) {
-    // Brighten only the selected lane: never mix another track color into it.
-    return neokeyColor(r != 0 ? 255 : 0,
-                       g != 0 ? 255 : 0,
-                       b != 0 ? 255 : 0);
-  }
-
-  if (playhead) return neokeyColor(28, 28, 28);
+  // The NeoKey line has only two states: stored note and moving playhead.
+  // Selection belongs to the editor and is never drawn on these LEDs.
+  if (playhead) return neokeyColor(255, 185, 24);
   return neokeyColor(r, g, b);
 }
 
@@ -190,7 +184,6 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
   int track = getActiveSequencerTrack();
   bool kickTrack = track == SEQUENCER_TRACK_KICK;
   int voice = getActiveSequencerTrackVoice();
-  int selectedStep = -1;
 
   if (!kickTrack) {
     activeSequencerVoice = voice;
@@ -201,6 +194,10 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
     if ((pressed & ((uint16_t)1U << localStep)) == 0) continue;
     int step = pageStart + localStep;
     if (step >= getSequencerLength()) continue;
+    if (isPatternEditor() && step != sequencerSelectedStep) {
+      neokeySelectStep(step);
+      continue;
+    }
     if (kickTrack) {
       kickStepEnabled[step] = !kickStepEnabled[step];
       if (kickLevel == 0 && kickStepEnabled[step]) {
@@ -212,16 +209,10 @@ void neokeyTogglePressedSteps(uint16_t pressed) {
     } else {
       sequencerStepEnabled[voice][step] = !sequencerStepEnabled[voice][step];
     }
-    selectedStep = step;
   }
 
-  if (selectedStep < 0) return;
-  sequencerSelectedStep = selectedStep;
-  if (!transportRunning) {
-    sequencerCurrentStep = selectedStep;
-    resetSequencerClock();
-  }
-
+  // In Pattern, a different key selects; pressing the selected key toggles.
+  // Outside the editor, keys retain their immediate performance toggles.
   neokeyMarkSequencerDirty();
 }
 
@@ -314,8 +305,6 @@ void neokeyMaintainConnections(uint32_t now) {
   neokeyRecomputeReadyState();
 
   if (stateChanged) {
-    neokeyLastVoice = -1;
-    neokeyLastStep = -1;
     neokeyLastPlayStep = -1;
     neokeyLastPage = -1;
     neokeyLastPatternSignature = 0xFFFFFFFFFFFFFFFFULL;
@@ -406,18 +395,14 @@ void refreshNeoKeySequencerPanel() {
 
   uint32_t now = millis();
   int track = getActiveSequencerTrack();
-  int voice = getActiveSequencerVoice();
-  int step = clampInt(sequencerSelectedStep, 0, SEQUENCER_STEP_COUNT - 1);
   int playStep = clampInt((int)sequencerCurrentStep, 0, getSequencerLength() - 1);
   bool running = neokeySequencerRunning();
   int page = getSequencerPage();
   int pageStart = getSequencerPageStart();
   uint64_t patternSignature = neokeyBuildPatternSignature();
   bool stateChanged =
-    voice != neokeyLastVoice ||
     track != neokeyLastTrack ||
     page != neokeyLastPage ||
-    step != neokeyLastStep ||
     playStep != neokeyLastPlayStep ||
     running != neokeyLastSequencerRunning ||
     patternSignature != neokeyLastPatternSignature;
@@ -457,10 +442,21 @@ void refreshNeoKeySequencerPanel() {
   }
   neokeyRestoreDisplayBusClock();
 
+  if (isSerialDiagnosticsEnabled() && running) {
+    Serial.print("[SEQ][LED] ms=");
+    Serial.print(now);
+    Serial.print(" visual=");
+    Serial.print(playStep + 1);
+    Serial.print(" localLed=");
+    Serial.print(playStep - pageStart + 1);
+    Serial.print(" page=");
+    Serial.print(page + 1);
+    Serial.print(" boards=0x");
+    Serial.println(changedBoards, HEX);
+  }
+
   neokeyLastRefreshMs = now;
-  neokeyLastVoice = voice;
   neokeyLastTrack = track;
-  neokeyLastStep = step;
   neokeyLastPlayStep = playStep;
   neokeyLastPage = page;
   neokeyLastSequencerRunning = running;

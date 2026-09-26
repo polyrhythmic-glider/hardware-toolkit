@@ -54,9 +54,9 @@ void runAppFrame() {
 
   updateButtons();
   ControlSurface::tick();
+  DaisyBridge::tick();
   pollNeoKeySequencerKeys();
   updateUiLogic();
-  DaisyBridge::tick();
   refreshNeoKeySequencerPanel();
   drawUi();
 
@@ -87,7 +87,8 @@ void runAppFrame() {
     Serial.print("/");
     Serial.print(getSequencerLength());
     Serial.print(" selected=");
-    Serial.print(sequencerSelectedStep + 1);
+    if (sequencerSelectedStep >= 0) Serial.print(sequencerSelectedStep + 1);
+    else Serial.print("NONE");
     Serial.print(" track=");
     Serial.print(getSequencerTrackLabel(getActiveSequencerTrack()));
     Serial.print(" bpm=");

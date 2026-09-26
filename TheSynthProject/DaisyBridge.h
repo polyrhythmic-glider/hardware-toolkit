@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DaisyLinkProtocol.h"
+#include "DaisyLinkHealth.h"
 
 namespace DaisyBridge {
 
@@ -9,54 +9,33 @@ using namespace DaisyLinkProtocol;
 constexpr uint32_t SEND_PERIOD_MS = 40;
 constexpr uint32_t STATUS_TIMEOUT_MS = 500;
 constexpr size_t UART_TX_BUFFER_SIZE = 768;
+constexpr size_t UART_RX_BUFFER_SIZE = 2048;
 
 static uint16_t controlSequence = 0;
 static uint32_t lastSendMs = 0;
-static uint32_t lastStatusMs = 0;
 static bool connected = false;
 static bool returnLinkActive = false;
+// The visual playhead is authoritative only after a valid Daisy status frame.
+static bool remoteCursorSynchronized = false;
 static uint32_t sentControlPackets = 0;
 static uint32_t droppedControlPackets = 0;
 static uint32_t receivedStatusPackets = 0;
+static uint32_t receivedStatusBytes = 0;
 static uint32_t rejectedStatusPackets = 0;
 static uint32_t remoteAcceptedPackets = 0;
 static uint32_t remoteRejectedPackets = 0;
 static uint32_t remoteUartRxRestartCount = 0;
 static uint32_t remoteUartRxErrorCount = 0;
 static uint16_t remoteControlSequence = 0;
+static int remoteSequencerStep = -1;
 static bool debugStateInitialized = false;
 static bool lastDebugForwardLink = false;
 static bool lastDebugReturnLink = false;
 static uint32_t lastDebugReportMs = 0;
 
-class StatusPacketParser {
- public:
-  bool push(uint8_t byte, StatusPacket& packet) {
-    if (index_ == 0 && byte != SYNC_0) return false;
-
-    if (index_ == 1 && byte != SYNC_1) {
-      index_ = byte == SYNC_0 ? 1U : 0U;
-      buffer_[0] = SYNC_0;
-      return false;
-    }
-
-    buffer_[index_++] = byte;
-    if (index_ != sizeof(StatusPacket)) return false;
-
-    memcpy(&packet, buffer_, sizeof(packet));
-    index_ = 0;
-    bool valid = isPacketValid<StatusPacket, StatusPayload>(packet, STATUS_PACKET_TYPE);
-    if (valid) receivedStatusPackets++;
-    else rejectedStatusPackets++;
-    return valid;
-  }
-
- private:
-  uint8_t buffer_[sizeof(StatusPacket)] = {};
-  size_t index_ = 0;
-};
-
-static StatusPacketParser statusParser;
+static StreamParser<StatusPacket, StatusPayload, STATUS_PACKET_TYPE> statusParser;
+static LinkHealth health;
+static uint32_t lastStatusByteMs = 0;
 
 uint64_t makeVoiceMask(int voice) {
   uint64_t mask = 0;
@@ -75,7 +54,7 @@ uint64_t makeKickMask() {
 }
 
 bool shouldEnableDaisyOutput() {
-  if (uiMode == MODE_BOOT || uiMode == MODE_ABOUT) return false;
+  if (!connected || uiMode == MODE_BOOT || uiMode == MODE_ABOUT) return false;
   if (isAudioTestActive() || isVoicePreviewActive()) return true;
   return transportRunning && (sequencerEnabled || isKickTrackAudible());
 }
@@ -110,15 +89,17 @@ void fillControlPayload(ControlPayload& payload) {
   memset(&payload, 0, sizeof(payload));
 
   if (shouldEnableDaisyOutput()) payload.flags |= CONTROL_OUTPUT_ENABLED;
-  if (transportRunning) payload.flags |= CONTROL_TRANSPORT_RUNNING;
+  if (connected && transportRunning) payload.flags |= CONTROL_TRANSPORT_RUNNING;
   if (sequencerEnabled) payload.flags |= CONTROL_SEQUENCER_ENABLED;
   if (filterEnabled) payload.flags |= CONTROL_FILTER_ENABLED;
-  if (isVoicePreviewActive()) payload.flags |= CONTROL_PREVIEW_ENABLED;
-  if (isAudioTestActive()) payload.flags |= CONTROL_AUDIO_TEST_ENABLED;
+  if (connected && isVoicePreviewActive()) payload.flags |= CONTROL_PREVIEW_ENABLED;
+  if (connected && isAudioTestActive()) payload.flags |= CONTROL_AUDIO_TEST_ENABLED;
 
   payload.bpm = (uint8_t)clampInt(sequencerBpm, 40, 240);
   payload.sequenceLength = (uint8_t)clampInt(getSequencerLength(), 1, STEP_COUNT);
-  payload.selectedStep = (uint8_t)clampInt(sequencerSelectedStep, 0, STEP_COUNT - 1);
+  // The simple transport always starts from the first step. Editing selection
+  // is UI-only and never changes the Daisy clock position.
+  payload.selectedStep = 0;
   payload.previewVoice = (uint8_t)clampInt(
     getCurrentWaveVoiceIndex(), 0, OSCILLATOR_PARAMETER_COUNT - 1
   );
@@ -259,7 +240,10 @@ void sendControl() {
   }
 
   size_t written = Serial2.write(reinterpret_cast<const uint8_t*>(&packet), sizeof(packet));
-  if (written == sizeof(packet)) sentControlPackets++;
+  if (written == sizeof(packet)) {
+    sentControlPackets++;
+    health.sent(packet.header.sequence, millis());
+  }
   else droppedControlPackets++;
 }
 
@@ -267,9 +251,10 @@ void acceptStatus(const StatusPacket& packet, uint32_t now) {
   StatusPayload payload;
   memcpy(&payload, &packet.payload, sizeof(payload));
 
-  lastStatusMs = now;
-  returnLinkActive = true;
-  connected = (payload.flags & STATUS_LINK_ACTIVE) != 0U;
+  health.status(payload, now);
+  returnLinkActive = health.receiving();
+  connected = health.ready();
+  remoteCursorSynchronized = connected;
   remoteAcceptedPackets = payload.acceptedPackets;
   remoteRejectedPackets = payload.rejectedPackets;
   remoteUartRxRestartCount = payload.uartRxRestartCount;
@@ -277,30 +262,53 @@ void acceptStatus(const StatusPacket& packet, uint32_t now) {
   remoteControlSequence = payload.lastControlSequence;
 
   int length = getSequencerLength();
-  if (length > 0) {
-    sequencerCurrentStep = clampInt(payload.currentStep, 0, length - 1);
-    if (sequencerAutoScroll && transportRunning) {
+  if (connected && length > 0) {
+    int nextRemoteStep = clampInt(payload.currentStep, 0, length - 1);
+    if (isSerialDiagnosticsEnabled() && nextRemoteStep != remoteSequencerStep) {
+      Serial.print("[SEQ][RX] ms=");
+      Serial.print(now);
+      Serial.print(" daisy=");
+      Serial.print((int)nextRemoteStep + 1);
+      Serial.print(" visual=");
+      Serial.print((int)sequencerCurrentStep + 1);
+      Serial.print(" statusSeq=");
+      Serial.print(packet.header.sequence);
+      Serial.print(" controlSeq=");
+      Serial.println(payload.lastControlSequence);
+    }
+    remoteSequencerStep = nextRemoteStep;
+    // Daisy advances currentStep in the audio callback. This is therefore the
+    // only clock used by TFT and NeoKeys; pattern contents never affect it.
+    sequencerCurrentStep = nextRemoteStep;
+    if (sequencerAutoScroll && transportRunning && !isPatternEditor()) {
       syncSequencerPageToStep(sequencerCurrentStep);
     }
   }
 }
 
 void pollStatus(uint32_t now) {
+  if (now - lastStatusByteMs > STATUS_TIMEOUT_MS) statusParser.reset();
   while (Serial2.available() > 0) {
+    lastStatusByteMs = now;
+    ++receivedStatusBytes;
     StatusPacket packet;
     if (statusParser.push((uint8_t)Serial2.read(), packet)) {
+      receivedStatusPackets++;
       acceptStatus(packet, now);
     }
   }
 
-  if (now - lastStatusMs > STATUS_TIMEOUT_MS) {
-    connected = false;
-    returnLinkActive = false;
-  }
+  rejectedStatusPackets = statusParser.rejected;
+  health.tick(now);
+  connected = health.ready();
+  returnLinkActive = health.receiving();
+  remoteCursorSynchronized = connected;
 }
 
 void reportLinkDebug(uint32_t now, bool force = false) {
-  if (!isSerialDiagnosticsEnabled()) return;
+  // Connection faults must remain diagnosable even when the waiting screen
+  // prevents access to Utility > Serial Debug.
+  if (!isSerialDiagnosticsEnabled() && !force) return;
 
   bool stateChanged = !debugStateInitialized ||
                       connected != lastDebugForwardLink ||
@@ -320,6 +328,8 @@ void reportLinkDebug(uint32_t now, bool force = false) {
   Serial.print(receivedStatusPackets);
   Serial.print("/");
   Serial.print(rejectedStatusPackets);
+  Serial.print(" rx-bytes=");
+  Serial.print(receivedStatusBytes);
   Serial.print(" daisy accepted/rejected=");
   Serial.print(remoteAcceptedPackets);
   Serial.print("/");
@@ -328,6 +338,11 @@ void reportLinkDebug(uint32_t now, bool force = false) {
   Serial.print(remoteUartRxRestartCount);
   Serial.print("/");
   Serial.print(remoteUartRxErrorCount);
+  Serial.print(" esp-restarts=");
+  // The ESP UART stays open for the whole session.  Reopening it while Daisy
+  // is booting can cut a status frame in half and prevents the two sides from
+  // ever completing the handshake.
+  Serial.print(0);
   Serial.print(" seq=");
   Serial.print(remoteControlSequence);
   if (returnLinkActive && !connected) {
@@ -345,28 +360,35 @@ void reportLinkDebug(uint32_t now, bool force = false) {
   lastDebugReportMs = now;
 }
 
+void openUart() {
+  Serial2.setTxBufferSize(UART_TX_BUFFER_SIZE);
+  Serial2.setRxBufferSize(UART_RX_BUFFER_SIZE);
+  Serial2.begin(UART_BAUD_RATE, SERIAL_8N1, DAISY_LINK_RX, DAISY_LINK_TX);
+}
+
 void begin() {
   // A 64-step control snapshot is larger than the ESP32 UART FIFO. Enable a
-  // ring buffer before begin() so the complete packet can be queued atomically.
-  Serial2.setTxBufferSize(UART_TX_BUFFER_SIZE);
-  Serial2.begin(
-    UART_BAUD_RATE,
-    SERIAL_8N1,
-    DAISY_LINK_RX,
-    DAISY_LINK_TX
-  );
+  // TX ring buffer before begin() so the complete packet can be queued
+  // atomically. A larger RX ring absorbs TFT/OLED/NeoKey refresh bursts without
+  // dropping Daisy status bytes.
+  openUart();
+  statusParser.reset();
+  health.reset();
+  controlSequence = (uint16_t)esp_random();
   lastSendMs = 0;
-  lastStatusMs = millis();
   connected = false;
   returnLinkActive = false;
+  remoteCursorSynchronized = false;
   sentControlPackets = 0;
   droppedControlPackets = 0;
   receivedStatusPackets = 0;
+  receivedStatusBytes = 0;
   rejectedStatusPackets = 0;
   remoteAcceptedPackets = 0;
   remoteRejectedPackets = 0;
   remoteUartRxRestartCount = 0;
   remoteUartRxErrorCount = 0;
+  remoteSequencerStep = -1;
   debugStateInitialized = false;
   lastDebugReportMs = 0;
 
@@ -393,12 +415,22 @@ void tick() {
   reportLinkDebug(now);
 }
 
+uint32_t getRecoveryCount() { return 0; }
+
 bool isConnected() {
   return connected;
 }
 
 bool isReturnLinkActive() {
   return returnLinkActive;
+}
+
+bool isCursorSynchronized() {
+  return remoteCursorSynchronized;
+}
+
+int getRemoteSequencerStep() {
+  return remoteSequencerStep;
 }
 
 uint32_t getSentControlPacketCount() {

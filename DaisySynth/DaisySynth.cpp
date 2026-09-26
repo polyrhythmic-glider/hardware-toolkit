@@ -5,10 +5,13 @@
 #include <math.h>
 #include <string.h>
 
-#include "../TheSynthProject/DaisyLinkProtocol.h"
+#include "../TheSynthProject/DaisyLinkHealth.h"
 
 #ifndef SYNTH_ENABLE_STARTUP_VALIDATION
 #define SYNTH_ENABLE_STARTUP_VALIDATION 1
+#endif
+#ifndef SYNTH_LINK_DIAGNOSTIC
+#define SYNTH_LINK_DIAGNOSTIC 0
 #endif
 
 using namespace daisy;
@@ -20,9 +23,24 @@ namespace {
 constexpr size_t AUDIO_BLOCK_SIZE = 48;
 constexpr size_t UART_DMA_BUFFER_SIZE = 512;
 constexpr uint32_t LINK_TIMEOUT_MS = 500;
-constexpr uint32_t STATUS_PERIOD_MS = 40;
-constexpr uint32_t UART_RECOVERY_PERIOD_MS = 1000;
+// A Daisy powered before the ESP32 can occasionally leave USART1's circular
+// DMA listener armed before the other side has finished booting.  Rearm only
+// the UART if no valid control frame arrives; this is the software equivalent
+// of the RESET workaround, without restarting the audio engine.
+constexpr uint32_t UART_BOOTSTRAP_REARM_MS = 1500;
+// The ESP32 playhead follows this audio-authoritative status. Twenty
+// milliseconds is fast enough for the LEDs and leaves headroom while the
+// polyphonic DSP is active.
+constexpr uint32_t STATUS_PERIOD_MS = 20;
+// A status frame needs about 3 ms on the wire at 115200 baud. The former 5 ms
+// timeout could expire when audio interrupts preempted the polling transmit,
+// leaving a partial frame that the ESP32 correctly rejected.
+constexpr uint32_t STATUS_TX_TIMEOUT_MS = 25;
 constexpr float OUTPUT_GAIN = 0.30f;
+// A 14 ms gain transition is still audible as a pop on powered speakers.
+// This gives an approximately 200 ms fade at 48 kHz for every logical
+// enable/disable and after the first packet received at boot.
+constexpr float AUDIO_GAIN_RAMP = 0.00025f;
 constexpr size_t MAX_DELAY_SAMPLES = 48000U * 6U / 10U;
 #if SYNTH_ENABLE_STARTUP_VALIDATION
 constexpr size_t DSP_VALIDATION_FRAMES = 1024;
@@ -63,6 +81,7 @@ float masterGain = 0.0f;
 float linkGain = 0.0f;
 float delaySamples = 12000.0f;
 bool kickTriggerPending = false;
+bool synthPatchConfigured = false;
 
 #if SYNTH_ENABLE_STARTUP_VALIDATION
 // Debugger-visible results from the deterministic boot validation. The test
@@ -102,8 +121,13 @@ void publishControl(const ControlPacket& packet) {
   acceptedPackets++;
 }
 
+// UART frames are already delimited by their header. After an invalid control
+// snapshot, discard it completely: scanning its arbitrary payload for another
+// header can lock the receiver onto a coincidental D5/59 byte pair.
 class ControlPacketParser {
  public:
+  void Reset() { index_ = 0; }
+
   void Push(const uint8_t* data, size_t size) {
     for (size_t i = 0; i < size; ++i) PushByte(data[i]);
   }
@@ -111,13 +135,11 @@ class ControlPacketParser {
  private:
   void PushByte(uint8_t byte) {
     if (index_ == 0 && byte != SYNC_0) return;
-
     if (index_ == 1 && byte != SYNC_1) {
       index_ = byte == SYNC_0 ? 1U : 0U;
       buffer_[0] = SYNC_0;
       return;
     }
-
     buffer_[index_++] = byte;
     if (index_ != sizeof(ControlPacket)) return;
 
@@ -126,7 +148,7 @@ class ControlPacketParser {
     if (isPacketValid<ControlPacket, ControlPayload>(packet, CONTROL_PACKET_TYPE)) {
       publishControl(packet);
     } else {
-      rejectedPackets++;
+      ++rejectedPackets;
     }
     index_ = 0;
   }
@@ -169,6 +191,7 @@ bool startUartReceiver(bool recovery) {
     controlUart.DmaListenStop();
   }
 
+  controlParser.Reset();
   UartHandler::Config config = makeUartConfig();
   if (controlUart.Init(config) != UartHandler::Result::OK) {
     uartRxErrorCount++;
@@ -205,6 +228,32 @@ bool anyVoiceEnabledAtCurrentStep() {
 }
 
 bool envelopeGateIsOpen();
+
+bool synthPatchChanged(const ControlPayload& previous,
+                       const ControlPayload& current) {
+  constexpr uint8_t kFilterFlag = CONTROL_FILTER_ENABLED;
+  if (((previous.flags ^ current.flags) & kFilterFlag) != 0U) return true;
+  if (previous.filterType != current.filterType ||
+      previous.filterCutoffHz != current.filterCutoffHz ||
+      previous.filterResonancePercent != current.filterResonancePercent ||
+      previous.noiseLevelPercent != current.noiseLevelPercent ||
+      previous.voicePanPercent != current.voicePanPercent) {
+    return true;
+  }
+
+  return memcmp(previous.oscillators,
+                current.oscillators,
+                sizeof(current.oscillators)) != 0 ||
+         memcmp(previous.envelopes,
+                current.envelopes,
+                sizeof(current.envelopes)) != 0 ||
+         memcmp(previous.lfos,
+                current.lfos,
+                sizeof(current.lfos)) != 0 ||
+         memcmp(previous.modulationRoutes,
+                current.modulationRoutes,
+                sizeof(current.modulationRoutes)) != 0;
+}
 
 void configureSynthEngineFromControl() {
   for (size_t engineVoice = 0; engineVoice < PolyDsp::kMaxVoices; ++engineVoice) {
@@ -525,7 +574,14 @@ void applyControlAtBlockBoundary() {
   );
 
   updateClockSettings();
-  configureSynthEngineFromControl();
+  // Control snapshots arrive every 40 ms even when the patch is unchanged.
+  // Reapplying hundreds of DSP parameters inside the audio callback can miss
+  // its deadline precisely when a sequencer note also activates rendering.
+  // Pattern, clock and transport fields do not require a patch rebuild.
+  if (!synthPatchConfigured || synthPatchChanged(previous, activeControl)) {
+    configureSynthEngineFromControl();
+    synthPatchConfigured = true;
+  }
 
   bool wasRunning = (previous.flags & CONTROL_TRANSPORT_RUNNING) != 0U;
   bool isRunning = hasControlFlag(CONTROL_TRANSPORT_RUNNING);
@@ -587,7 +643,8 @@ void applyControlAtBlockBoundary() {
 
 void advanceSequencer() {
   if (!hasControlFlag(CONTROL_OUTPUT_ENABLED) ||
-      !hasControlFlag(CONTROL_TRANSPORT_RUNNING)) {
+      !hasControlFlag(CONTROL_TRANSPORT_RUNNING) ||
+      !hasControlFlag(CONTROL_SEQUENCER_ENABLED)) {
     return;
   }
 
@@ -815,10 +872,13 @@ void audioCallback(AudioHandle::InterleavingInputBuffer,
   for (size_t i = 0; i < size; i += 2) {
     bool outputEnabled = hasControlFlag(CONTROL_OUTPUT_ENABLED) && linkActive;
     bool audioTest = outputEnabled && hasControlFlag(CONTROL_AUDIO_TEST_ENABLED);
-    float targetLinkGain = linkActive ? 1.0f : 0.0f;
-    linkGain += (targetLinkGain - linkGain) * 0.0015f;
-    float targetMaster = activeControl.masterVolume / 100.0f;
-    masterGain += (targetMaster - masterGain) * 0.0015f;
+    // Keep the physical audio output at zero until a valid control snapshot
+    // has explicitly enabled it. Both directions use the same slow fade, so
+    // boot, soft stop and a lost link cannot introduce a discontinuity.
+    float targetLinkGain = outputEnabled ? 1.0f : 0.0f;
+    linkGain += (targetLinkGain - linkGain) * AUDIO_GAIN_RAMP;
+    float targetMaster = outputEnabled ? activeControl.masterVolume / 100.0f : 0.0f;
+    masterGain += (targetMaster - masterGain) * AUDIO_GAIN_RAMP;
 
     float left = 0.0f;
     float right = 0.0f;
@@ -877,16 +937,20 @@ void sendStatus(uint32_t now) {
     statusSequence++,
     payload
   );
-  controlUart.BlockingTransmit(
+  UartHandler::Result result = controlUart.BlockingTransmit(
     reinterpret_cast<uint8_t*>(&packet),
     sizeof(packet),
-    5
+    STATUS_TX_TIMEOUT_MS
   );
+  // HAL transmit timeouts can also disable receiver error interrupts. A
+  // working RX alone must not prevent recovery of a broken return channel.
+  if (result != UartHandler::Result::OK) uartRxRestartRequested = true;
 }
 
 void initializeDsp() {
   sampleRate = hardware.AudioSampleRate();
   synthEngine.Init(sampleRate);
+  synthPatchConfigured = false;
 
   testOscillator.Init(sampleRate);
   testOscillator.SetWaveform(Oscillator::WAVE_SIN);
@@ -900,6 +964,7 @@ void initializeDsp() {
   // Validation deliberately exercises every processor. Reinitialize the live
   // state so startup sounds and the first UART snapshot see clean DSP state.
   synthEngine.Init(sampleRate);
+  synthPatchConfigured = false;
   initializeGlobalProcessors();
 #endif
 }
@@ -911,27 +976,54 @@ int main(void) {
   hardware.Init();
   hardware.SetAudioBlockSize(AUDIO_BLOCK_SIZE);
 
+#if !SYNTH_LINK_DIAGNOSTIC
   initializeDsp();
-  startUartReceiver(false);
+#endif
+  uartRxRestartRequested = !startUartReceiver(false);
+#if !SYNTH_LINK_DIAGNOSTIC
   hardware.StartAudio(audioCallback);
+#endif
 
   uint32_t lastStatusMs = 0;
   uint32_t lastUartRecoveryMs = System::GetNow();
   while (true) {
     uint32_t now = System::GetNow();
+#if SYNTH_LINK_DIAGNOSTIC
+    // Isolate the physical UART, parser and handshake from DSP/audio IRQ load.
+    // No audio is started; acknowledge snapshots from the main loop instead.
+    {
+      ScopedIrqBlocker block;
+      if (linkActive) {
+        activeControlSequence = controlSlotSequences[publishedControlSlot];
+        activeControl.flags = controlSlots[publishedControlSlot].flags;
+      }
+    }
+#endif
     if (linkActive && now - lastPacketMs > LINK_TIMEOUT_MS) {
       linkActive = false;
       uartRxRestartRequested = true;
     }
 
-    bool periodicRecoveryDue = !linkActive &&
-                               now - lastUartRecoveryMs >= UART_RECOVERY_PERIOD_MS;
-    if (uartRxRestartRequested || periodicRecoveryDue) {
+    // libDaisy does not always route circular-DMA UART errors to our callback.
+    // Poll them and, while no peer has completed a frame, periodically rearm
+    // only USART1. This covers either board starting first without resetting
+    // the audio engine or a healthy established link.
+    if (controlUart.CheckError() != 0) uartRxRestartRequested = true;
+    bool bootstrapRearmDue = !linkActive &&
+                             now - lastUartRecoveryMs >= UART_BOOTSTRAP_REARM_MS;
+    if ((uartRxRestartRequested || bootstrapRearmDue) &&
+        now - lastUartRecoveryMs >= 250) {
       lastUartRecoveryMs = now;
-      uartRxRestartRequested = !startUartReceiver(true);
+      uartRxRestartRequested = false;
+      linkActive = false;
+      if (!startUartReceiver(true)) uartRxRestartRequested = true;
     }
 
+#if SYNTH_LINK_DIAGNOSTIC
+    hardware.SetLed(linkActive || ((now / 250) % 2 != 0));
+#else
     hardware.SetLed(linkActive);
+#endif
     if (now - lastStatusMs >= STATUS_PERIOD_MS) {
       lastStatusMs = now;
       sendStatus(now);

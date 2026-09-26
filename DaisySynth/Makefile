@@ -7,6 +7,8 @@ CPP_SOURCES = DaisySynth.cpp SynthEngine.cpp
 # Set to 0 for release builds that should skip the pre-audio worst-case test.
 SYNTH_ENABLE_STARTUP_VALIDATION ?= 1
 C_DEFS += -DSYNTH_ENABLE_STARTUP_VALIDATION=$(SYNTH_ENABLE_STARTUP_VALIDATION)
+SYNTH_LINK_DIAGNOSTIC ?= 0
+C_DEFS += -DSYNTH_LINK_DIAGNOSTIC=$(SYNTH_LINK_DIAGNOSTIC)
 
 # ReverbSc lives in DaisySP-LGPL and is linked only for this effect block.
 USE_DAISYSP_LGPL = 1
@@ -36,3 +38,19 @@ test-host:
 		-I. -I$(DAISYSP_DIR)/Source -I$(DAISYSP_DIR)/Source/Utility \
 		$(HOST_TEST_SOURCES) -lm -o $(HOST_TEST_BINARY)
 	$(HOST_TEST_BINARY)
+
+.PHONY: test-link-host
+test-link-host:
+	@mkdir -p build
+	$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Werror \
+		../TheSynthProject/tests/DaisyLinkHostTest.cpp -o build/DaisyLinkHostTest
+	build/DaisyLinkHostTest
+
+# Separate output directory prevents a diagnostic binary being flashed by
+# the normal program-dfu command. These targets never replace build/.
+.PHONY: link-diagnostic program-link-diagnostic
+link-diagnostic:
+	$(MAKE) all BUILD_DIR=build-link-diagnostic SYNTH_LINK_DIAGNOSTIC=1
+
+program-link-diagnostic: link-diagnostic
+	$(MAKE) program-dfu BUILD_DIR=build-link-diagnostic SYNTH_LINK_DIAGNOSTIC=1

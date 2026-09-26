@@ -125,8 +125,9 @@ void printStartupConnectionMap() {
   printStartupMapCentered("ESP32 + DAISY STARTUP MAP");
   printStartupMapBorder('=');
 
-  snprintf(bootLine, sizeof(bootLine), "BOOT: %-12s | SERIAL: 115200 | LIVE MONITOR: OFF",
-           getResetReasonText(esp_reset_reason()));
+  snprintf(bootLine, sizeof(bootLine), "BOOT: %-12s | SERIAL: 115200 | LIVE MONITOR: %s",
+           getResetReasonText(esp_reset_reason()),
+           isSerialDiagnosticsEnabled() ? "ON" : "OFF");
   printStartupMapLine(bootLine);
   printStartupMapBorder('-');
 

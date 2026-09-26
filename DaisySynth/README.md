@@ -7,6 +7,22 @@ solo ai confini dei blocchi audio e mantiene sequencer e DSP nel callback
 realtime. Il parsing UART e la telemetria restano fuori dal callback.
 Il ricevitore si riavvia automaticamente dopo errori UART o un power cycle
 della ESP32; i contatori di recupero tornano alla ESP32 nella telemetria.
+Il recupero azzera i frame parziali e limita la frequenza dei tentativi;
+vengono controllati anche gli errori HAL non notificati dal callback DMA.
+La ESP32 attende tre conferme di snapshot applicati prima di aprire la UI e
+mostra `Reconnecting...` se il collegamento si interrompe. Per usare il nuovo
+avvio e il recupero completo aggiornare **sia ESP32 sia Daisy**.
+Test del protocollo e della connessione: `make test-link-host`.
+
+Per isolare la UART dal DSP quando ESP32 non riceve stati validi:
+`make link-diagnostic` prepara un firmware **senza audio**, nella cartella
+separata `build-link-diagnostic`. Mettere Daisy in DFU, poi eseguire
+`make program-link-diagnostic` per caricarlo. Il LED lampeggia se il ciclo
+principale funziona ma non arrivano controlli validi; rimane acceso quando li
+riceve. ESP32 dovrebbe superare l'attesa dopo le conferme UART. Se questa
+versione funziona e quella normale no, il guasto dipende dal percorso
+DSP/audio o dal suo carico, non dalla sola logica di attesa. Per tornare al
+firmware audio, rientrare in DFU ed eseguire `make && make program-dfu`.
 Il kick usa `DaisySP::SyntheticBassDrum`, il modello sintetico 909-style della
 libreria. ESP32 controlla Level, Tune, Attack, Decay, Sweep e Drive. Il percorso
 dry resta a livello pieno: `Drive 0%` e' pulito, mentre valori superiori

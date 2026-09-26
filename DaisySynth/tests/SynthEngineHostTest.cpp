@@ -184,8 +184,59 @@ int main() {
   passed = Expect(engine.ActiveVoiceCount() == 0,
                   "released voices did not become inactive") && passed;
 
+  // Exercise the exact reserved voice path used by the UART sequencer. A
+  // note followed by a rest and a second note must keep producing finite
+  // output and must not leave the compatibility voice stuck inactive.
+  engine.ReserveCompatibilityVoice(true);
+  engine.TriggerCompatibilityVoice(57, 127, false);
+  engine.SetCompatibilityOscillatorNote(0, 57.0f);
+  engine.SetCompatibilityOscillatorGate(0, true);
+  engine.SetCompatibilityOscillatorGate(1, false);
+  engine.SetCompatibilityOscillatorGate(2, false);
+
+  float compatibilityPeak = 0.0f;
+  for (size_t frame = 0; frame < 4096; ++frame) {
+    float left = 0.0f;
+    float right = 0.0f;
+    engine.Process(left, right);
+    passed = Expect(isfinite(left) && isfinite(right),
+                    "compatibility sequencer note produced non-finite output") && passed;
+    compatibilityPeak = fmaxf(
+      compatibilityPeak, fmaxf(fabsf(left), fabsf(right))
+    );
+  }
+  passed = Expect(compatibilityPeak > 0.00001f,
+                  "compatibility sequencer note produced silence") && passed;
+
+  engine.SetCompatibilityGate(false);
+  for (size_t frame = 0; frame < 12000; ++frame) {
+    float left = 0.0f;
+    float right = 0.0f;
+    engine.Process(left, right);
+  }
+  passed = Expect(engine.ActiveVoiceCount() == 0,
+                  "compatibility sequencer rest did not release its voice") && passed;
+
+  engine.TriggerCompatibilityVoice(64, 127, false);
+  engine.SetCompatibilityOscillatorNote(0, 64.0f);
+  engine.SetCompatibilityOscillatorGate(0, true);
+  engine.SetCompatibilityOscillatorGate(1, false);
+  engine.SetCompatibilityOscillatorGate(2, false);
+  float retriggerPeak = 0.0f;
+  for (size_t frame = 0; frame < 4096; ++frame) {
+    float left = 0.0f;
+    float right = 0.0f;
+    engine.Process(left, right);
+    passed = Expect(isfinite(left) && isfinite(right),
+                    "compatibility sequencer retrigger produced non-finite output") && passed;
+    retriggerPeak = fmaxf(retriggerPeak, fmaxf(fabsf(left), fabsf(right)));
+  }
+  passed = Expect(retriggerPeak > 0.00001f,
+                  "compatibility sequencer did not recover after a rest") && passed;
+
   if (!passed) return 1;
-  printf("PASS: 16 waveforms, 4 voices, 12 oscillators, modulation, release and oldest-voice stealing (peak %.4f)\n",
-         peak);
+  printf("PASS: 16 waveforms, polyphony, modulation and sequencer note/rest/retrigger (peaks %.4f/%.4f)\n",
+         peak,
+         retriggerPeak);
   return 0;
 }

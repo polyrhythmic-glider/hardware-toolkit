@@ -45,6 +45,13 @@ void drawBootScreen() {
 
     lastBootProgress = progress;
   }
+  tft.fillRect(0, 119, SCREEN_W, 9, COL_BG);
+  if (!DaisyBridge::isConnected()) {
+    tft.setTextSize(1);
+    tft.setTextColor(COL_CORAL);
+    tft.setCursor(30, 120);
+    tft.print("waiting daisy :)");
+  }
 }
 
 void drawPreMenuBase() {

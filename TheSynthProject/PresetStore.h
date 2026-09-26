@@ -315,7 +315,7 @@ void convertLegacyStepOffsetsToPitches(LegacySynthPresetV6& preset) {
 
 void initializeModernPresetDefaults(SynthPreset& preset) {
   for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; ++oscillator) {
-    preset.oscillatorEnabled[oscillator] = oscillator < WAVE_VOICE_COUNT;
+    preset.oscillatorEnabled[oscillator] = oscillator == 0;
     preset.oscillatorLevels[oscillator] = oscillator < WAVE_VOICE_COUNT ? 100 : 0;
     preset.oscillatorShape[oscillator] = oscillator == 1 ? 1 : 0;
     preset.oscillatorTune[oscillator] = 0;
@@ -752,7 +752,7 @@ void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
   envelopeParameters[ENVELOPE_ENV2] = { 10, 80, 68, 320 };
   envelopeParameters[ENVELOPE_ENV3] = { 10, 80, 68, 320 };
   oscillatorEnabled[0] = true;
-  oscillatorEnabled[1] = true;
+  oscillatorEnabled[1] = false;
   oscillatorEnabled[2] = false;
   waveVoiceLevels[2] = 0;
   waveVoiceShape[2] = 0;

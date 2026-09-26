@@ -39,7 +39,10 @@ e le due pagine 909. E1-E3 modificano sempre i tre parametri visibili; il click
 E3 abilita/disabilita il blocco corrente oppure triggera il kick. Il quarto OLED
 mostra una finestra scorrevole di quattro pagine.
 
-Finito il boot, il TFT apre direttamente la Synth View; il tasto back mostra il
+Durante il loading, la checklist include `DAISY PAIRING`. Se la comunicazione
+non è pronta, il boot resta sulla checklist e mostra `waiting daisy :)` sotto
+la barra di caricamento; la ricerca continua automaticamente. Quando Daisy è
+pronta, il TFT apre la Synth View; il tasto back mostra il
 menu raggruppato in `Transport`, `Pattern` e `Settings`. Start/Stop sono
 l'unico controllo di accensione del sequencer: il precedente `Sequencer Power`,
 ridondante, è stato rimosso. La lunghezza si sceglie tra 16, 32, 48 e 64 step,
@@ -48,11 +51,38 @@ visibili nella Synth View e in tutte le schermate del sequencer. `Page Auto
 Scroll` decide se la pagina segue il playhead o resta bloccata su quella scelta
 manualmente.
 
+La verifica richiede tre conferme di snapshot distinti realmente inviati,
+applicati dalla Daisy e restituiti nella telemetria. Il timeout è di 500 ms
+senza stati validi o senza avanzamento delle conferme. La ESP32 ritenta la UART
+senza stati validi o senza avanzamento delle conferme. La UART ESP resta aperta
+durante tutta la sessione; Daisy riabilita automaticamente il proprio ricevitore
+se non riceve un frame valido al boot o dopo un errore. I parser recuperano anche
+frame troncati. Il protocollo resta v4, ma **questa funzione richiede
+l'aggiornamento di entrambi i firmware** per includere tutte le correzioni.
+
+Test della logica di connessione: `make -C DaisySynth test-link-host` dalla
+radice del repository. Collaudo sulle schede dopo il caricamento:
+
+1. Accendere ESP32 da sola: finito il loading deve restare sulla checklist con
+   `waiting daisy :)`; accendere Daisy dopo almeno 10 secondi e verificare
+   l'ingresso automatico in Synth View.
+2. Ripetere accendendo prima Daisy e successivamente ESP32.
+3. Dopo l'avvio, scollegare e ripristinare Daisy: il link deve ristabilirsi
+   automaticamente senza riavviare ESP32.
+4. Interrompere e ripristinare separatamente ciascuna linea UART: anche la
+   perdita di una sola direzione deve causare attesa e successivo recupero.
+5. Ripetere più cicli, inclusa una disconnessione durante l'editor Pattern,
+   verificando che la selezione dello step venga conservata.
+
 La riproduzione procede sempre in avanti e il clock continua anche con volume a
 zero. I NeoKey aggiornano subito ogni pressione stabile e soltanto i LED
 realmente cambiati. Mostrano esclusivamente la pagina e la traccia selezionate:
 V1 è rossa, V2 blu e il kick verde, senza sovrapposizione o somma dei colori. La
-schermata `Seq Track` mantiene le tre lane separate.
+schermata `Pattern` permette di scegliere lo step con un NeoKey e cambiarne
+la nota ruotando l'encoder master. Ripremere il NeoKey selezionato alterna nota
+e pausa; il click dell'encoder cambia traccia e Back torna al menu. Entrando è
+già selezionato il primo step della pagina. Durante la modifica l'auto-scroll
+è sospeso; la pagina si sceglie in `Settings > Seq Page`.
 
 Nella griglia TFT la cella suonata conserva numero e bordo luminosi anche se
 contiene una nota. Inserire o rimuovere uno step ridisegna soltanto le regioni

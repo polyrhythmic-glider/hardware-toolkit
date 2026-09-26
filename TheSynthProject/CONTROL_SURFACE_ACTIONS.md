@@ -27,17 +27,31 @@ disponibili; tornando a `Synth Control` si ritrova la banca performativa.
 
 ## Sequencer e transport
 
-Il TFT è l'unico display che presenta questi controlli. Dopo il boot mostra
-direttamente `Synth View`:
+Il TFT è l'unico display che presenta questi controlli. Il boot mostra
+`DAISY PAIRING` nella checklist e rimane fermo se Daisy non è pronta. Dopo
+l'avvio, la Synth View presenta direttamente i controlli del sequencer:
 
 - rotazione encoder master: seleziona `V1`, `V2` o `KICK`;
 - click encoder master: play/stop;
 - tasto back: apre il menu `Sequencer`;
 - `Transport`: Start, Stop e BPM;
-- `Pattern`: track, step, nota/hit e step on/rest;
+- `Pattern`: editor unico con traccia, step, nota e stato on/rest sempre visibili;
 - `Settings`: lunghezza 16/32/48/64, pagina e auto-scroll.
 
-I NeoKey restano il pannello fisico rapido per i 16 step della pagina corrente.
+In `Pattern` il primo step della pagina è già selezionato:
+
+- NeoKey diverso: seleziona lo step senza cambiarne lo stato;
+- NeoKey dello step selezionato: alterna nota e pausa;
+- rotazione encoder master: cambia la nota e attiva lo step (su KICK, destra = hit e sinistra = pausa);
+- click encoder master: passa fra V1, V2 e KICK;
+- Back: torna al menu Sequencer.
+
+Durante la modifica la pagina resta ferma. Per modificare gli step 17–64,
+scegli la pagina in `Settings > Seq Page`, poi riapri Pattern. Se il transport
+è in esecuzione, disattiva `Page Auto Scroll` per mantenere la pagina scelta.
+Uscendo da Pattern si ripristina il normale comportamento dell'auto-scroll.
+
+Fuori da Pattern, i NeoKey restano il pannello fisico rapido per i 16 step della pagina corrente.
 Mostrano una sola corsia alla volta: V1 rosso, V2 blu o kick verde, senza
 sovrapporre i colori. OSC3 non è una terza corsia: è il terzo oscillatore della
 patch e segue la nota di riferimento della voce corrente. Un evento su V1 o V2

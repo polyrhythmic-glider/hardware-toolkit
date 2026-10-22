@@ -4,8 +4,9 @@
 #include <stddef.h>
 
 const uint32_t PRESET_MAGIC = 0x50474C44;
-// Versione 8: patch Daisy moderno (OSC3, ENV3, LFO e route estese).
-const uint16_t PRESET_VERSION = 8;
+// Versione 9: due banchi indipendenti di tre oscillatori.
+const uint16_t PRESET_VERSION = 9;
+const uint16_t LEGACY_PRESET_VERSION_8 = 8;
 const uint16_t LEGACY_PRESET_VERSION_7 = 7;
 const uint16_t LEGACY_PRESET_VERSION_6 = 6;
 const uint16_t LEGACY_PRESET_VERSION_5 = 5;
@@ -38,6 +39,66 @@ enum LegacyModDestinationV7 : uint8_t {
   LEGACY_MOD_DEST_FX_MIX,
   LEGACY_MOD_DEST_DELAY_FEEDBACK,
   LEGACY_MOD_DEST_REVERB_MIX
+};
+
+struct LegacySynthPresetV8 {
+  uint32_t magic;
+  uint16_t version;
+  int frequency;
+  int volume;
+  int attack;
+  int decay;
+  int sustain;
+  int releaseMs;
+  bool filterEnabled;
+  int filterType;
+  int filterCutoff;
+  int waveVoiceLevels[WAVE_VOICE_COUNT];
+  int waveVoiceShape[WAVE_VOICE_COUNT];
+  int waveVoiceTune[WAVE_VOICE_COUNT];
+  int waveVoiceFold[WAVE_VOICE_COUNT];
+  int waveVoiceDetune[WAVE_VOICE_COUNT];
+  int kickLevel;
+  int kickPitch;
+  int kickDecay;
+  int kickSweep;
+  int kickAttack;
+  int kickDrive;
+  int sequencerBpm;
+  int sequencerLength;
+  int reservedSequencerA;
+  int reservedSequencerB;
+  int reservedSequencerC;
+  int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int reservedStepData[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT];
+  int delayMix;
+  int delayTimeMs;
+  int delayFeedback;
+  int reverbMix;
+  int reverbRoom;
+  AdsrParameters envelopeParameters[ENVELOPE_COUNT];
+  ModRouteSettings modulationRoutes[MOD_SOURCE_COUNT][MOD_DESTINATION_COUNT];
+  bool oscillatorEnabled[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorLevels[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorShape[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorTune[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorFold[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorDetune[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorOctave[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorPhasePercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorPulseWidthPercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorPanPercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorKeyTrackingPercent[SYNTH_OSCILLATOR_COUNT];
+  int oscillatorModulationAmountPercent[SYNTH_OSCILLATOR_COUNT];
+  bool envelopeEnabled[ENVELOPE_COUNT];
+  int envelopeAmountPercent[ENVELOPE_COUNT];
+  int envelopeVelocitySensitivityPercent[ENVELOPE_COUNT];
+  int envelopeRetriggerMode[ENVELOPE_COUNT];
+  LfoControlParameters lfoParameters[SYNTH_LFO_COUNT];
+  int filterResonance;
+  int synthNoiseLevel;
+  int synthPan;
 };
 
 struct SynthPreset {
@@ -98,7 +159,12 @@ struct SynthPreset {
   int filterResonance;
   int synthNoiseLevel;
   int synthPan;
+  OscillatorBank secondVoiceOscillators;
+  int firstVoiceLevelPercent;
 };
+
+static_assert(offsetof(SynthPreset, secondVoiceOscillators) == sizeof(LegacySynthPresetV8),
+              "Preset v9 must retain the complete v8 prefix");
 
 // Layout v7 esatto, prima dell'estensione del patch DSP Daisy.
 struct LegacySynthPresetV7 {
@@ -530,6 +596,8 @@ void capturePreset(SynthPreset& preset) {
   preset.filterResonance = filterResonance;
   preset.synthNoiseLevel = synthNoiseLevel;
   preset.synthPan = synthPan;
+  preset.secondVoiceOscillators = voiceOscillators[1];
+  preset.firstVoiceLevelPercent = voiceOscillators[0].masterLevelPercent;
 }
 
 void applyPreset(const SynthPreset& preset) {
@@ -564,24 +632,29 @@ void applyPreset(const SynthPreset& preset) {
   memcpy(oscillatorModulationAmountPercent,
          preset.oscillatorModulationAmountPercent,
          sizeof(oscillatorModulationAmountPercent));
-  for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; oscillator++) {
-    waveVoiceLevels[oscillator] = clampPresetInt(waveVoiceLevels[oscillator], 0, 100);
-    waveVoiceShape[oscillator] = clampPresetInt(waveVoiceShape[oscillator], 0, WAVE_SHAPE_COUNT - 1);
-    waveVoiceTune[oscillator] = clampPresetInt(waveVoiceTune[oscillator], -48, 48);
-    waveVoiceFold[oscillator] = clampPresetInt(waveVoiceFold[oscillator], 0, 100);
-    waveVoiceDetune[oscillator] = clampPresetInt(waveVoiceDetune[oscillator], -100, 100);
-    oscillatorOctave[oscillator] = clampPresetInt(oscillatorOctave[oscillator], -4, 4);
-    oscillatorPhasePercent[oscillator] = clampPresetInt(oscillatorPhasePercent[oscillator], 0, 100);
-    oscillatorPulseWidthPercent[oscillator] = clampPresetInt(
-      oscillatorPulseWidthPercent[oscillator], 1, 99
-    );
-    oscillatorPanPercent[oscillator] = clampPresetInt(oscillatorPanPercent[oscillator], -100, 100);
-    oscillatorKeyTrackingPercent[oscillator] = clampPresetInt(
-      oscillatorKeyTrackingPercent[oscillator], 0, 100
-    );
-    oscillatorModulationAmountPercent[oscillator] = clampPresetInt(
-      oscillatorModulationAmountPercent[oscillator], -100, 100
-    );
+  voiceOscillators[0].masterLevelPercent = preset.firstVoiceLevelPercent;
+  voiceOscillators[1] = preset.secondVoiceOscillators;
+  for (OscillatorBank& bank : voiceOscillators) {
+    bank.masterLevelPercent = clampPresetInt(bank.masterLevelPercent, 0, 100);
+    for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; oscillator++) {
+      bank.waveVoiceLevels[oscillator] = clampPresetInt(bank.waveVoiceLevels[oscillator], 0, 100);
+      bank.waveVoiceShape[oscillator] = clampPresetInt(bank.waveVoiceShape[oscillator], 0, WAVE_SHAPE_COUNT - 1);
+      bank.waveVoiceTune[oscillator] = clampPresetInt(bank.waveVoiceTune[oscillator], -48, 48);
+      bank.waveVoiceFold[oscillator] = clampPresetInt(bank.waveVoiceFold[oscillator], 0, 100);
+      bank.waveVoiceDetune[oscillator] = clampPresetInt(bank.waveVoiceDetune[oscillator], -100, 100);
+      bank.oscillatorOctave[oscillator] = clampPresetInt(bank.oscillatorOctave[oscillator], -4, 4);
+      bank.oscillatorPhasePercent[oscillator] = clampPresetInt(bank.oscillatorPhasePercent[oscillator], 0, 100);
+      bank.oscillatorPulseWidthPercent[oscillator] = clampPresetInt(
+        bank.oscillatorPulseWidthPercent[oscillator], 1, 99
+      );
+      bank.oscillatorPanPercent[oscillator] = clampPresetInt(bank.oscillatorPanPercent[oscillator], -100, 100);
+      bank.oscillatorKeyTrackingPercent[oscillator] = clampPresetInt(
+        bank.oscillatorKeyTrackingPercent[oscillator], 0, 100
+      );
+      bank.oscillatorModulationAmountPercent[oscillator] = clampPresetInt(
+        bank.oscillatorModulationAmountPercent[oscillator], -100, 100
+      );
+    }
   }
   kickLevel = preset.kickLevel;
   kickPitch = preset.kickPitch;
@@ -669,10 +742,42 @@ void applyPreset(const SynthPreset& preset) {
   resetSequencerClock();
 }
 
+// Old tracks played OSC1 and OSC2 in a shared bank. Keep their timbres on
+// OSC1 of V1/V2; carry the optional shared OSC3 into both independent banks.
+void migrateSharedOscillatorBank() {
+  OscillatorBank& first = voiceOscillators[0];
+  OscillatorBank& second = voiceOscillators[1];
+  first.masterLevelPercent = 100;
+  second = first;
+  second.oscillatorEnabled[0] = first.oscillatorEnabled[1];
+  second.waveVoiceLevels[0] = first.waveVoiceLevels[1];
+  second.waveVoiceShape[0] = first.waveVoiceShape[1];
+  second.waveVoiceTune[0] = first.waveVoiceTune[1];
+  second.waveVoiceFold[0] = first.waveVoiceFold[1];
+  second.waveVoiceDetune[0] = first.waveVoiceDetune[1];
+  second.oscillatorOctave[0] = first.oscillatorOctave[1];
+  second.oscillatorPhasePercent[0] = first.oscillatorPhasePercent[1];
+  second.oscillatorPulseWidthPercent[0] = first.oscillatorPulseWidthPercent[1];
+  second.oscillatorPanPercent[0] = first.oscillatorPanPercent[1];
+  second.oscillatorKeyTrackingPercent[0] = first.oscillatorKeyTrackingPercent[1];
+  second.oscillatorModulationAmountPercent[0] = first.oscillatorModulationAmountPercent[1];
+  first.oscillatorEnabled[1] = false;
+  second.oscillatorEnabled[1] = false;
+}
+
+void applyLegacyPresetV8(const LegacySynthPresetV8& legacy) {
+  SynthPreset migrated = {};
+  memcpy(&migrated, &legacy, sizeof(legacy));
+  migrated.version = PRESET_VERSION;
+  applyPreset(migrated);
+  migrateSharedOscillatorBank();
+}
+
 void applyLegacyPresetV7(const LegacySynthPresetV7& legacy) {
   SynthPreset migrated;
   migrateLegacyPresetV7(legacy, migrated);
   applyPreset(migrated);
+  migrateSharedOscillatorBank();
 }
 
 void applyLegacyPresetV4(const LegacySynthPresetV4& preset) {
@@ -789,6 +894,7 @@ void applyLegacyPresetV3(const LegacySynthPresetV3& preset) {
   initializeDefaultModulationRouting();
   clampSequencerIndexes();
   resetSequencerClock();
+  migrateSharedOscillatorBank();
 }
 
 bool saveCurrentPreset() {
@@ -816,6 +922,16 @@ bool loadCurrentPreset() {
     preferences.end();
     if (read != sizeof(preset) || preset.magic != PRESET_MAGIC || preset.version != PRESET_VERSION) return false;
     applyPreset(preset);
+    return true;
+  }
+
+  if (storedSize == sizeof(LegacySynthPresetV8)) {
+    LegacySynthPresetV8 preset;
+    size_t read = preferences.getBytes(key, &preset, sizeof(preset));
+    preferences.end();
+    if (read != sizeof(preset) || preset.magic != PRESET_MAGIC ||
+        preset.version != LEGACY_PRESET_VERSION_8) return false;
+    applyLegacyPresetV8(preset);
     return true;
   }
 

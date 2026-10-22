@@ -100,14 +100,15 @@ void fillControlPayload(ControlPayload& payload) {
   // The simple transport always starts from the first step. Editing selection
   // is UI-only and never changes the Daisy clock position.
   payload.selectedStep = 0;
-  payload.previewVoice = (uint8_t)clampInt(
+  payload.previewVoice = 0;  // The TFT preview edits the V1 oscillator bank.
+  payload.previewOscillator = (uint8_t)clampInt(
     getCurrentWaveVoiceIndex(), 0, OSCILLATOR_PARAMETER_COUNT - 1
   );
   payload.masterVolume = (uint8_t)clampInt(volume, 0, 100);
 
   for (int voice = 0; voice < VOICE_COUNT; ++voice) {
     payload.waveform[voice] = (uint8_t)clampInt(waveVoiceShape[voice], 0, WAVE_SHAPE_COUNT - 1);
-    payload.voiceLevel[voice] = (uint8_t)clampInt(waveVoiceLevels[voice], 0, 100);
+    payload.voiceLevel[voice] = (uint8_t)clampInt(voiceOscillators[voice].masterLevelPercent, 0, 100);
     payload.tuneSemitones[voice] = (int8_t)clampInt(waveVoiceTune[voice], -24, 24);
     payload.detuneCents[voice] = (int8_t)clampInt(waveVoiceDetune[voice], -50, 50);
     payload.wavefold[voice] = (uint8_t)clampInt(waveVoiceFold[voice], 0, 100);
@@ -148,23 +149,27 @@ void fillControlPayload(ControlPayload& payload) {
   payload.reverbMix = (uint8_t)clampInt(reverbMix, 0, 100);
   payload.reverbRoom = (uint8_t)clampInt(reverbRoom, 0, 95);
 
-  for (int oscillator = 0; oscillator < OSCILLATOR_PARAMETER_COUNT; ++oscillator) {
-    DaisyLinkProtocol::OscillatorControlParameters& target =
-      payload.oscillators[oscillator];
-    target.flags = oscillatorEnabled[oscillator] ? 1U : 0U;
-    target.waveform = (uint8_t)clampInt(waveVoiceShape[oscillator], 0, WAVE_SHAPE_COUNT - 1);
-    target.levelPercent = (uint8_t)clampInt(waveVoiceLevels[oscillator], 0, 100);
-    target.octave = (int8_t)clampInt(oscillatorOctave[oscillator], -4, 4);
-    target.semitoneTune = (int8_t)clampInt(waveVoiceTune[oscillator], -48, 48);
-    target.fineTuneCents = (int8_t)clampInt(waveVoiceDetune[oscillator], -100, 100);
-    target.phasePercent = (uint8_t)clampInt(oscillatorPhasePercent[oscillator], 0, 100);
-    target.pulseWidthPercent = (uint8_t)clampInt(oscillatorPulseWidthPercent[oscillator], 1, 99);
-    target.wavefoldPercent = (uint8_t)clampInt(waveVoiceFold[oscillator], 0, 100);
-    target.panPercent = (int8_t)clampInt(oscillatorPanPercent[oscillator], -100, 100);
-    target.keyTrackingPercent = (uint8_t)clampInt(oscillatorKeyTrackingPercent[oscillator], 0, 100);
-    target.modulationAmountPercent = (int8_t)clampInt(
-      oscillatorModulationAmountPercent[oscillator], -100, 100
-    );
+  static_assert(SYNTH_MELODIC_VOICE_COUNT == VOICE_COUNT, "Voice count mismatch");
+  for (int voice = 0; voice < VOICE_COUNT; ++voice) {
+    const OscillatorBank& bank = voiceOscillators[voice];
+    for (int oscillator = 0; oscillator < OSCILLATOR_PARAMETER_COUNT; ++oscillator) {
+      DaisyLinkProtocol::OscillatorControlParameters& target =
+        payload.oscillators[voice][oscillator];
+      target.flags = bank.oscillatorEnabled[oscillator] ? 1U : 0U;
+      target.waveform = (uint8_t)clampInt(bank.waveVoiceShape[oscillator], 0, WAVE_SHAPE_COUNT - 1);
+      target.levelPercent = (uint8_t)clampInt(bank.waveVoiceLevels[oscillator], 0, 100);
+      target.octave = (int8_t)clampInt(bank.oscillatorOctave[oscillator], -4, 4);
+      target.semitoneTune = (int8_t)clampInt(bank.waveVoiceTune[oscillator], -48, 48);
+      target.fineTuneCents = (int8_t)clampInt(bank.waveVoiceDetune[oscillator], -100, 100);
+      target.phasePercent = (uint8_t)clampInt(bank.oscillatorPhasePercent[oscillator], 0, 100);
+      target.pulseWidthPercent = (uint8_t)clampInt(bank.oscillatorPulseWidthPercent[oscillator], 1, 99);
+      target.wavefoldPercent = (uint8_t)clampInt(bank.waveVoiceFold[oscillator], 0, 100);
+      target.panPercent = (int8_t)clampInt(bank.oscillatorPanPercent[oscillator], -100, 100);
+      target.keyTrackingPercent = (uint8_t)clampInt(bank.oscillatorKeyTrackingPercent[oscillator], 0, 100);
+      target.modulationAmountPercent = (int8_t)clampInt(
+        bank.oscillatorModulationAmountPercent[oscillator], -100, 100
+      );
+    }
   }
 
   for (int envelope = 0; envelope < ENVELOPE_PARAMETER_COUNT; ++envelope) {

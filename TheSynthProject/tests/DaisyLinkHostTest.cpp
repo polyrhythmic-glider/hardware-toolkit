@@ -131,7 +131,36 @@ static void testParser() {
   assert(received == 1);
 }
 
+static void testIndependentOscillatorBanks() {
+  ControlPayload payload = {};
+  for (int voice = 0; voice < VOICE_COUNT; ++voice) {
+    for (int oscillator = 0; oscillator < OSCILLATOR_PARAMETER_COUNT; ++oscillator) {
+      auto& parameters = payload.oscillators[voice][oscillator];
+      parameters.flags = 1;
+      parameters.waveform = voice * 3 + oscillator;
+      parameters.semitoneTune = voice * 12 + oscillator;
+      parameters.levelPercent = 20 + voice * 30 + oscillator;
+    }
+  }
+  payload.previewVoice = 1;
+  payload.previewOscillator = 2;
+  ControlPacket packet, decoded;
+  preparePacket(packet, CONTROL_PACKET_TYPE, 200, payload);
+  StreamParser<ControlPacket, ControlPayload, CONTROL_PACKET_TYPE> parser;
+  const auto* bytes = reinterpret_cast<const uint8_t*>(&packet);
+  bool received = false;
+  for (size_t i = 0; i < sizeof(packet); ++i) received |= parser.push(bytes[i], decoded);
+  assert(received);
+  assert(memcmp(&decoded.payload, &payload, sizeof(payload)) == 0);
+  assert(decoded.payload.oscillators[0][2].waveform == 2);
+  assert(decoded.payload.oscillators[1][2].waveform == 5);
+  packet.header.version = 4;
+  packet.checksum = crc16Ccitt(reinterpret_cast<const uint8_t*>(&packet), offsetof(ControlPacket, checksum));
+  assert((!isPacketValid<ControlPacket, ControlPayload>(packet, CONTROL_PACKET_TYPE)));
+}
+
 int main() {
+  testIndependentOscillatorBanks();
   testHandshake();
   testWrapAndStaleFrames();
   testParser<ControlPacket, ControlPayload, CONTROL_PACKET_TYPE>();

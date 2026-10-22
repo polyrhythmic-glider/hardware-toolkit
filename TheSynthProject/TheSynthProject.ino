@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string.h>
 #include "SynthConfig.h"
+#include "OscillatorModel.h"
 #include "HardwarePins.h"
 #include "ModulationModel.h"
 #include "MenuModel.h"
@@ -154,18 +155,20 @@ int sequencerStepPitches[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool sequencerStepEnabled[WAVE_VOICE_COUNT][SEQUENCER_STEP_COUNT] = {};
 bool kickStepEnabled[SEQUENCER_STEP_COUNT] = {};
 uint16_t kickTriggerSequence = 0;
-bool oscillatorEnabled[SYNTH_OSCILLATOR_COUNT] = { true, false, false };
-int waveVoiceLevels[SYNTH_OSCILLATOR_COUNT] = { 100, 100, 0 };
-int waveVoiceShape[SYNTH_OSCILLATOR_COUNT] = { 0, 1, 0 };
-int waveVoiceTune[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
-int waveVoiceFold[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
-int waveVoiceDetune[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
-int oscillatorOctave[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
-int oscillatorPhasePercent[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
-int oscillatorPulseWidthPercent[SYNTH_OSCILLATOR_COUNT] = { 50, 50, 50 };
-int oscillatorPanPercent[SYNTH_OSCILLATOR_COUNT] = { 0, 0, 0 };
-int oscillatorKeyTrackingPercent[SYNTH_OSCILLATOR_COUNT] = { 100, 100, 100 };
-int oscillatorModulationAmountPercent[SYNTH_OSCILLATOR_COUNT] = { 100, 100, 100 };
+OscillatorBank voiceOscillators[SYNTH_MELODIC_VOICE_COUNT];
+// The existing TFT oscillator editor addresses the V1 bank.
+bool (&oscillatorEnabled)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].oscillatorEnabled;
+int (&waveVoiceLevels)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].waveVoiceLevels;
+int (&waveVoiceShape)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].waveVoiceShape;
+int (&waveVoiceTune)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].waveVoiceTune;
+int (&waveVoiceFold)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].waveVoiceFold;
+int (&waveVoiceDetune)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].waveVoiceDetune;
+int (&oscillatorOctave)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].oscillatorOctave;
+int (&oscillatorPhasePercent)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].oscillatorPhasePercent;
+int (&oscillatorPulseWidthPercent)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].oscillatorPulseWidthPercent;
+int (&oscillatorPanPercent)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].oscillatorPanPercent;
+int (&oscillatorKeyTrackingPercent)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].oscillatorKeyTrackingPercent;
+int (&oscillatorModulationAmountPercent)[SYNTH_OSCILLATOR_COUNT] = voiceOscillators[0].oscillatorModulationAmountPercent;
 LfoControlParameters lfoParameters[SYNTH_LFO_COUNT] = {
   { false, LFO_WAVE_SINE, 100, 0, true, 0, false, true, false, 0, MOD_DEST_OSC1_PITCH },
   { false, LFO_WAVE_TRIANGLE, 100, 0, true, 0, false, true, false, 0, MOD_DEST_FILTER_CUTOFF }

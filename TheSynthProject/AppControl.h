@@ -721,7 +721,7 @@ bool isAnySequencerVoiceEnabledAtStep(int stepIndex) {
   if (stepIndex < 0 || stepIndex >= SEQUENCER_STEP_COUNT) return false;
 
   for (int voice = 0; voice < WAVE_VOICE_COUNT; voice++) {
-    if (waveVoiceLevels[voice] > 0 && sequencerStepEnabled[voice][stepIndex]) {
+    if (voiceOscillators[voice].masterLevelPercent > 0 && sequencerStepEnabled[voice][stepIndex]) {
       return true;
     }
   }
@@ -1122,7 +1122,7 @@ const char* getValueText(int itemIndex) {
     case ACTION_MIX_VOICE_2:
     {
       int waveIndex = getMixerWaveIndex(action);
-      snprintf(buffer, sizeof(buffer), "%d%%", waveIndex >= 0 ? waveVoiceLevels[waveIndex] : 0);
+      snprintf(buffer, sizeof(buffer), "%d%%", waveIndex >= 0 ? voiceOscillators[waveIndex].masterLevelPercent : 0);
       break;
     }
 
@@ -1584,8 +1584,8 @@ void changeCurrentValue(int delta) {
     {
       int waveIndex = getMixerWaveIndex(action);
       if (waveIndex < 0) break;
-      waveVoiceLevels[waveIndex] += delta * 5;
-      waveVoiceLevels[waveIndex] = clampInt(waveVoiceLevels[waveIndex], 0, 100);
+      voiceOscillators[waveIndex].masterLevelPercent += delta * 5;
+      voiceOscillators[waveIndex].masterLevelPercent = clampInt(voiceOscillators[waveIndex].masterLevelPercent, 0, 100);
       break;
     }
 

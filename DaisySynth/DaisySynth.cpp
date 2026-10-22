@@ -233,7 +233,8 @@ bool synthPatchChanged(const ControlPayload& previous,
                        const ControlPayload& current) {
   constexpr uint8_t kFilterFlag = CONTROL_FILTER_ENABLED;
   if (((previous.flags ^ current.flags) & kFilterFlag) != 0U) return true;
-  if (previous.filterType != current.filterType ||
+  if (memcmp(previous.voiceLevel, current.voiceLevel, sizeof(current.voiceLevel)) != 0 ||
+      previous.filterType != current.filterType ||
       previous.filterCutoffHz != current.filterCutoffHz ||
       previous.filterResonancePercent != current.filterResonancePercent ||
       previous.noiseLevelPercent != current.noiseLevelPercent ||
@@ -261,7 +262,7 @@ void configureSynthEngineFromControl() {
          oscillator < PolyDsp::kOscillatorsPerVoice;
          ++oscillator) {
       const OscillatorControlParameters& parameters =
-        activeControl.oscillators[oscillator];
+        activeControl.oscillators[engineVoice % VOICE_COUNT][oscillator];
       synthEngine.SetOscillatorParameter(
         engineVoice,
         oscillator,
@@ -335,6 +336,9 @@ void configureSynthEngineFromControl() {
         parameters.modulationAmountPercent / 100.0f
       );
     }
+
+    synthEngine.SetVoiceParameter(engineVoice, PolyDsp::VoiceParameter::Amp,
+      activeControl.voiceLevel[engineVoice % VOICE_COUNT] / 100.0f);
 
     for (size_t envelope = 0;
          envelope < PolyDsp::kEnvelopesPerVoice;
@@ -468,75 +472,41 @@ void configureSynthEngineFromControl() {
   }
 }
 
-uint8_t getCompatibilityReferenceNote(uint8_t step, bool preview);
-
-void setCompatibilityOscillators(uint8_t step, bool preview) {
-  step = step < STEP_COUNT ? step : 0;
-  uint8_t previewVoice = activeControl.previewVoice < PolyDsp::kOscillatorsPerVoice
-                           ? activeControl.previewVoice
-                           : 0;
-  uint8_t referenceNote = getCompatibilityReferenceNote(step, preview);
-  bool melodicStepActive = anyVoiceEnabledAtStep(step);
-
-  for (size_t oscillator = 0;
-       oscillator < PolyDsp::kOscillatorsPerVoice;
-       ++oscillator) {
-    bool laneHasNote = oscillator < VOICE_COUNT &&
-                       isStepEnabled(activeControl.voiceEnabledMask[oscillator], step);
-    uint8_t note = laneHasNote
-                     ? activeControl.stepMidiNote[oscillator][step]
-                     : referenceNote;
-    bool oscillatorEnabled = (activeControl.oscillators[oscillator].flags & 1U) != 0U;
-    bool enabled = preview
-                     ? oscillator == previewVoice
-                     : oscillatorEnabled &&
-                         hasControlFlag(CONTROL_SEQUENCER_ENABLED) &&
-                         melodicStepActive;
-    synthEngine.SetCompatibilityOscillatorNote(
-      oscillator, note
-    );
-    synthEngine.SetCompatibilityOscillatorGate(oscillator, enabled);
-  }
+bool sequencerVoiceHasNote(size_t voice, uint8_t step, bool preview) {
+  static_assert(VOICE_COUNT == PolyDsp::kSequencerVoices, "Sequencer voice count mismatch");
+  if (preview) return voice == activeControl.previewVoice;
+  return hasControlFlag(CONTROL_SEQUENCER_ENABLED) &&
+         isStepEnabled(activeControl.voiceEnabledMask[voice], step);
 }
 
-uint8_t getCompatibilityReferenceNote(uint8_t step, bool preview) {
+void updateSequencerVoiceGates(uint8_t step, bool preview, bool gateOpen) {
   step = step < STEP_COUNT ? step : 0;
-  if (preview) {
-    uint8_t previewVoice = activeControl.previewVoice < VOICE_COUNT
-                             ? activeControl.previewVoice
-                             : 0;
-    return activeControl.stepMidiNote[previewVoice][step];
-  }
-  for (size_t oscillator = 0; oscillator < VOICE_COUNT; ++oscillator) {
-    if (isStepEnabled(activeControl.voiceEnabledMask[oscillator], step)) {
-      return activeControl.stepMidiNote[oscillator][step];
+  for (size_t voice = 0; voice < VOICE_COUNT; ++voice) {
+    synthEngine.SetSequencerGate(voice,
+      gateOpen && sequencerVoiceHasNote(voice, step, preview));
+    for (size_t oscillator = 0; oscillator < PolyDsp::kOscillatorsPerVoice; ++oscillator) {
+      bool enabled = (activeControl.oscillators[voice][oscillator].flags & 1U) != 0U;
+      if (preview) enabled = voice == activeControl.previewVoice &&
+                             oscillator == activeControl.previewOscillator;
+      synthEngine.SetSequencerOscillatorGate(voice, oscillator, enabled);
     }
   }
-  return activeControl.stepMidiNote[0][step];
 }
 
-void triggerCompatibilityVoice(uint8_t step, bool preview) {
-  bool hasNotes = preview || anyVoiceEnabledAtStep(step);
-  synthEngine.ReserveCompatibilityVoice(preview ||
-                                        hasControlFlag(CONTROL_TRANSPORT_RUNNING));
-  if (!hasNotes) {
-    setCompatibilityOscillators(step, preview);
-    synthEngine.SetCompatibilityGate(false);
-    return;
+void triggerSequencerVoices(uint8_t step, bool preview) {
+  step = step < STEP_COUNT ? step : 0;
+  synthEngine.ReserveSequencerVoices(preview || hasControlFlag(CONTROL_TRANSPORT_RUNNING));
+  for (size_t voice = 0; voice < VOICE_COUNT; ++voice) {
+    if (sequencerVoiceHasNote(voice, step, preview)) {
+      synthEngine.TriggerSequencerVoice(voice, activeControl.stepMidiNote[voice][step], 127);
+    }
   }
-
-  synthEngine.TriggerCompatibilityVoice(
-    getCompatibilityReferenceNote(step, preview), 127, false
-  );
-  // NoteOn initializes the general polyphonic oscillator gates. Apply the
-  // legacy per-track notes and step masks afterwards.
-  setCompatibilityOscillators(step, preview);
-  synthEngine.SetCompatibilityGate(true);
+  updateSequencerVoiceGates(step, preview, true);
 }
 
 void triggerCurrentStep() {
   if (!hasControlFlag(CONTROL_PREVIEW_ENABLED)) {
-    triggerCompatibilityVoice(currentStep, false);
+    triggerSequencerVoices(currentStep, false);
   }
 
   if (activeControl.kickLevel > 0 &&
@@ -570,7 +540,11 @@ void applyControlAtBlockBoundary() {
   if (activeControl.sequenceLength == 0) activeControl.sequenceLength = 1;
   activeControl.selectedStep %= activeControl.sequenceLength;
   activeControl.previewVoice = clampByte(
-    activeControl.previewVoice, PolyDsp::kOscillatorsPerVoice - 1
+    activeControl.previewVoice, VOICE_COUNT - 1
+  );
+
+  activeControl.previewOscillator = clampByte(
+    activeControl.previewOscillator, PolyDsp::kOscillatorsPerVoice - 1
   );
 
   updateClockSettings();
@@ -618,21 +592,20 @@ void applyControlAtBlockBoundary() {
   bool previewWasEnabled = (previous.flags & CONTROL_PREVIEW_ENABLED) != 0U;
   bool previewEnabled = hasControlFlag(CONTROL_PREVIEW_ENABLED);
   bool previewChanged = previous.previewVoice != activeControl.previewVoice ||
+                        previous.previewOscillator != activeControl.previewOscillator ||
                         previous.selectedStep != activeControl.selectedStep;
   if (previewEnabled && (!previewWasEnabled || previewChanged)) {
-    triggerCompatibilityVoice(activeControl.selectedStep, true);
+    triggerSequencerVoices(activeControl.selectedStep, true);
   } else if (previewEnabled) {
-    synthEngine.ReserveCompatibilityVoice(true);
-    setCompatibilityOscillators(activeControl.selectedStep, true);
-    synthEngine.SetCompatibilityGate(true);
+    synthEngine.ReserveSequencerVoices(true);
+    updateSequencerVoiceGates(activeControl.selectedStep, true, true);
   } else if (isRunning) {
-    synthEngine.ReserveCompatibilityVoice(true);
-    setCompatibilityOscillators(currentStep, false);
-    synthEngine.SetCompatibilityGate(envelopeGateIsOpen());
+    synthEngine.ReserveSequencerVoices(true);
+    if (previewWasEnabled) triggerSequencerVoices(currentStep, false);
+    updateSequencerVoiceGates(currentStep, false, envelopeGateIsOpen());
   } else {
-    setCompatibilityOscillators(activeControl.selectedStep, false);
-    synthEngine.SetCompatibilityGate(false);
-    synthEngine.ReserveCompatibilityVoice(false);
+    updateSequencerVoiceGates(activeControl.selectedStep, false, false);
+    synthEngine.ReserveSequencerVoices(false);
   }
 
   if (activeControl.kickTriggerSequence != previous.kickTriggerSequence &&
@@ -890,7 +863,12 @@ void audioCallback(AudioHandle::InterleavingInputBuffer,
     } else {
       advanceSequencer();
 
-      synthEngine.SetCompatibilityGate(envelopeGateIsOpen());
+      bool preview = hasControlFlag(CONTROL_PREVIEW_ENABLED);
+      bool gate = envelopeGateIsOpen();
+      uint8_t step = preview ? activeControl.selectedStep : currentStep;
+      for (size_t voice = 0; voice < VOICE_COUNT; ++voice) {
+        synthEngine.SetSequencerGate(voice, gate && sequencerVoiceHasNote(voice, step, preview));
+      }
       float voiceLeft = 0.0f;
       float voiceRight = 0.0f;
       synthEngine.Process(voiceLeft, voiceRight);

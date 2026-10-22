@@ -62,19 +62,22 @@ int getSequencerNoteChecksum() {
 int getWaveVoiceParamChecksum() {
   int checksum = 0;
 
-  for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; oscillator++) {
-    checksum = checksum * 31 + (oscillatorEnabled[oscillator] ? 1 : 0);
-    checksum = checksum * 31 + waveVoiceShape[oscillator];
-    checksum = checksum * 31 + waveVoiceLevels[oscillator];
-    checksum = checksum * 31 + oscillatorOctave[oscillator];
-    checksum = checksum * 31 + waveVoiceTune[oscillator];
-    checksum = checksum * 31 + waveVoiceFold[oscillator];
-    checksum = checksum * 31 + waveVoiceDetune[oscillator];
-    checksum = checksum * 31 + oscillatorPhasePercent[oscillator];
-    checksum = checksum * 31 + oscillatorPulseWidthPercent[oscillator];
-    checksum = checksum * 31 + oscillatorPanPercent[oscillator];
-    checksum = checksum * 31 + oscillatorKeyTrackingPercent[oscillator];
-    checksum = checksum * 31 + oscillatorModulationAmountPercent[oscillator];
+  for (const OscillatorBank& bank : voiceOscillators) {
+    checksum = checksum * 31 + bank.masterLevelPercent;
+    for (int oscillator = 0; oscillator < SYNTH_OSCILLATOR_COUNT; oscillator++) {
+      checksum = checksum * 31 + (bank.oscillatorEnabled[oscillator] ? 1 : 0);
+      checksum = checksum * 31 + bank.waveVoiceShape[oscillator];
+      checksum = checksum * 31 + bank.waveVoiceLevels[oscillator];
+      checksum = checksum * 31 + bank.oscillatorOctave[oscillator];
+      checksum = checksum * 31 + bank.waveVoiceTune[oscillator];
+      checksum = checksum * 31 + bank.waveVoiceFold[oscillator];
+      checksum = checksum * 31 + bank.waveVoiceDetune[oscillator];
+      checksum = checksum * 31 + bank.oscillatorPhasePercent[oscillator];
+      checksum = checksum * 31 + bank.oscillatorPulseWidthPercent[oscillator];
+      checksum = checksum * 31 + bank.oscillatorPanPercent[oscillator];
+      checksum = checksum * 31 + bank.oscillatorKeyTrackingPercent[oscillator];
+      checksum = checksum * 31 + bank.oscillatorModulationAmountPercent[oscillator];
+    }
   }
 
   return checksum;

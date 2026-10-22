@@ -8,10 +8,9 @@
 // il callback audio della Daisy non deve fare parsing di testo o allocazioni.
 namespace DaisyLinkProtocol {
 
-// Version 4 keeps the 64-step sequencer payload and appends the modern
-// three-oscillator/three-envelope/two-LFO patch plus 16 modulation routes.
+// Version 5 gives each sequencer voice its own three-oscillator bank.
 // Both boards must run firmware built from the same protocol version.
-constexpr uint8_t PROTOCOL_VERSION = 4;
+constexpr uint8_t PROTOCOL_VERSION = 5;
 constexpr uint8_t SYNC_0 = 0xD5;
 constexpr uint8_t SYNC_1 = 0x59;
 constexpr uint8_t CONTROL_PACKET_TYPE = 1;
@@ -135,6 +134,7 @@ struct DAISY_LINK_PACKED ControlPayload {
   uint8_t sequenceLength;
   uint8_t selectedStep;
   uint8_t previewVoice;
+  uint8_t previewOscillator;
   uint8_t masterVolume;
 
   uint8_t waveform[VOICE_COUNT];
@@ -169,7 +169,7 @@ struct DAISY_LINK_PACKED ControlPayload {
   uint8_t reverbMix;
   uint8_t reverbRoom;
 
-  OscillatorControlParameters oscillators[OSCILLATOR_PARAMETER_COUNT];
+  OscillatorControlParameters oscillators[VOICE_COUNT][OSCILLATOR_PARAMETER_COUNT];
   EnvelopeControlParameters envelopes[ENVELOPE_PARAMETER_COUNT];
   LfoControlParameters lfos[LFO_PARAMETER_COUNT];
   ModulationRouteParameters modulationRoutes[MODULATION_ROUTE_COUNT];

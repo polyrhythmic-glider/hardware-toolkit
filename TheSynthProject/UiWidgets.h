@@ -285,13 +285,13 @@ void drawParamIcon(int itemIndex, int cx, int cy, uint16_t color) {
       break;
 
     case ACTION_MIX_VOICE_1:
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[0], (float)waveVoiceFold[0], 0.0f, color);
-      tft.drawFastHLine(cx - 8, cy + 7, map(waveVoiceLevels[0], 0, 100, 0, 16), COL_GOLD);
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, voiceOscillators[0].waveVoiceShape[0], (float)voiceOscillators[0].waveVoiceFold[0], 0.0f, color);
+      tft.drawFastHLine(cx - 8, cy + 7, map(voiceOscillators[0].masterLevelPercent, 0, 100, 0, 16), COL_GOLD);
       break;
 
     case ACTION_MIX_VOICE_2:
-      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, waveVoiceShape[1], (float)waveVoiceFold[1], 0.0f, color);
-      tft.drawFastHLine(cx - 8, cy + 7, map(waveVoiceLevels[1], 0, 100, 0, 16), COL_GOLD);
+      drawWaveShapePreviewForParams(cx - 8, cy - 5, 16, 10, voiceOscillators[1].waveVoiceShape[0], (float)voiceOscillators[1].waveVoiceFold[0], 0.0f, color);
+      tft.drawFastHLine(cx - 8, cy + 7, map(voiceOscillators[1].masterLevelPercent, 0, 100, 0, 16), COL_GOLD);
       break;
 
     case ACTION_MIX_KICK:
@@ -1264,7 +1264,7 @@ void drawSynthView(uint16_t accent, bool fullClear, bool playheadOnly) {
   tft.print(getSequencerPage() + 1);
   tft.print(sequencerAutoScroll ? " AUTO" : " MAN");
   char trackValueText[16];
-  int trackLevel = kickTrack ? kickLevel : waveVoiceLevels[voice];
+  int trackLevel = kickTrack ? kickLevel : voiceOscillators[voice].masterLevelPercent;
   snprintf(trackValueText, sizeof(trackValueText), "%s %d", getSequencerTrackLabel(track), trackLevel);
   printRight(trackValueText, 156, 106, 1, trackLevel > 0 ? trackColor : COL_MUTED);
 
@@ -1402,7 +1402,7 @@ void drawPatternEditor(bool clearView, bool detailsChanged) {
     tft.setCursor(4, 110);
     tft.print(isActiveSequencerTrackKick() ? "TURN:HIT   CLICK:TRACK" : "TURN:NOTE  CLICK:TRACK");
     tft.fillRect(0, 22, SCREEN_W, 40, COL_BG);
-    char label[28];
+    char label[64];
     snprintf(label, sizeof(label), "%s  STEP %02d  PAGE %d/%d",
              getSequencerTrackLabel(track), sequencerSelectedStep + 1,
              getSequencerPage() + 1, getSequencerPageCount());
@@ -1521,7 +1521,7 @@ void drawSequencerStepEnableEdit(uint16_t accent) {
 
 int getMixerVoiceLevel(int voiceIndex) {
   if (voiceIndex >= 0 && voiceIndex < WAVE_VOICE_COUNT) {
-    return waveVoiceLevels[voiceIndex];
+    return voiceOscillators[voiceIndex].masterLevelPercent;
   }
 
   return kickLevel;
@@ -1568,13 +1568,13 @@ void drawMixerWaveEdit(int voice, uint16_t accent) {
   if (voice < 0 || voice >= WAVE_VOICE_COUNT) return;
 
   char value[10];
-  snprintf(value, sizeof(value), "%d%%", waveVoiceLevels[voice]);
+  snprintf(value, sizeof(value), "%d%%", voiceOscillators[voice].masterLevelPercent);
 
   drawValueReadout(value, menuItems[getMenuItemIndex(selectedItem)].tag, accent);
-  printRight(waveformNames[waveVoiceShape[voice]], 150, 67, 1, getMixerVoiceColor(voice, accent));
+  printRight(waveformNames[voiceOscillators[voice].waveVoiceShape[0]], 150, 67, 1, getMixerVoiceColor(voice, accent));
 
   drawPanelFrame(10, 74, 140, 20, accent);
-  drawWaveShapePreviewForParams(14, 78, 132, 12, waveVoiceShape[voice], (float)waveVoiceFold[voice], 0.0f, getMixerVoiceColor(voice, accent));
+  drawWaveShapePreviewForParams(14, 78, 132, 12, voiceOscillators[voice].waveVoiceShape[0], (float)voiceOscillators[voice].waveVoiceFold[0], 0.0f, getMixerVoiceColor(voice, accent));
 
   drawMixerLevelBars(accent, voice);
 }

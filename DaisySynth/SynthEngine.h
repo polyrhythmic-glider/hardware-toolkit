@@ -9,12 +9,14 @@
 namespace PolyDsp {
 
 constexpr size_t kMaxVoices = 4;
+constexpr size_t kSequencerVoices = 2;
 constexpr size_t kOscillatorsPerVoice = 3;
 constexpr size_t kEnvelopesPerVoice = 3;
 constexpr size_t kLfosPerVoice = 2;
 constexpr size_t kMaxModRoutesPerVoice = 16;
 
 static_assert(kMaxVoices == 4, "The Daisy engine must expose four voices");
+static_assert(kSequencerVoices < kMaxVoices, "Keep voices available for MIDI allocation");
 static_assert(kOscillatorsPerVoice == 3, "Each voice must expose three oscillators");
 static_assert(kEnvelopesPerVoice == 3, "Each voice must expose three envelopes");
 static_assert(kLfosPerVoice == 2, "Each voice must expose two LFOs");
@@ -430,7 +432,13 @@ class SynthEngine {
                           const ModulationRoute& route);
   void ApplyVoicePatch(size_t voiceIndex, const VoicePatch& patch);
 
-  // Compatibility surface used only by the current two-track UART sequencer.
+  // Each UART track owns a complete DSP voice and its three oscillators.
+  void ReserveSequencerVoices(bool reserved);
+  void TriggerSequencerVoice(size_t track, uint8_t note, uint8_t velocity);
+  void SetSequencerGate(size_t track, bool gate);
+  void SetSequencerOscillatorGate(size_t track, size_t oscillator, bool enabled);
+
+  // Legacy single-voice API retained for existing engine clients/tests.
   void ReserveCompatibilityVoice(bool reserved);
   void SetCompatibilityOscillatorNote(size_t oscillatorIndex, float midiNote);
   void SetCompatibilityOscillatorGate(size_t oscillatorIndex, bool enabled);
@@ -448,7 +456,7 @@ class SynthEngine {
 
   std::array<Voice, kMaxVoices> voices_;
   uint32_t allocationCounter_ = 0;
-  bool compatibilityVoiceReserved_ = false;
+  size_t reservedVoiceCount_ = 0;
   GlobalModulation globalModulation_;
 };
 

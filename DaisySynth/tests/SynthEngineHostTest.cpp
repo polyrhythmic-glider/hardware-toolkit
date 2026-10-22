@@ -101,6 +101,62 @@ PolyDsp::VoicePatch MakeWorstCasePatch() {
 
 }  // namespace
 
+bool TestIndependentSequencerVoices() {
+  PolyDsp::SynthEngine engine;
+  engine.Init(48000.0f);
+  engine.ReserveSequencerVoices(true);
+  engine.TriggerSequencerVoice(0, 48, 127);
+  engine.TriggerSequencerVoice(1, 72, 127);
+  bool passed = Expect(engine.GetVoice(0).MidiNote() == 48 &&
+                       engine.GetVoice(1).MidiNote() == 72,
+                       "V1/V2 must play independent notes");
+  engine.SetSequencerGate(0, false);
+  passed = Expect(!engine.GetVoice(0).GateState() && engine.GetVoice(1).GateState(),
+                  "a rest in V1 must not close V2") && passed;
+  engine.TriggerSequencerVoice(0, 55, 127);
+  passed = Expect(engine.GetVoice(1).MidiNote() == 72 && engine.GetVoice(1).GateState(),
+                  "retriggering V1 must leave V2 playing its own note") && passed;
+  engine.NoteOff(72);
+  passed = Expect(engine.GetVoice(1).GateState(),
+                  "MIDI note-off must not release a reserved sequencer voice") && passed;
+  for (int note = 60; note < 68; ++note) engine.NoteOn(note, 100);
+  passed = Expect(engine.GetVoice(0).MidiNote() == 55 && engine.GetVoice(1).MidiNote() == 72,
+                  "polyphonic allocation must reserve both sequencer voices") && passed;
+  engine.ReserveSequencerVoices(false);
+  passed = Expect(!engine.GetVoice(0).GateState() && !engine.GetVoice(1).GateState(),
+                  "stopping must release both sequencer voices") && passed;
+
+  // Each of V2's three oscillators must produce the same audio even when the
+  // matching oscillator in V1 is changed. Compare independent engine instances.
+  for (size_t oscillator = 0; oscillator < PolyDsp::kOscillatorsPerVoice; ++oscillator) {
+    PolyDsp::SynthEngine reference, edited;
+    reference.Init(48000.0f);
+    edited.Init(48000.0f);
+    auto patch = PolyDsp::MakeDefaultVoicePatch();
+    for (size_t i = 0; i < PolyDsp::kOscillatorsPerVoice; ++i) {
+      patch.oscillators[i].enabled = i == oscillator;
+      patch.oscillators[i].level = 0.5f;
+    }
+    reference.ApplyVoicePatch(1, patch);
+    edited.ApplyVoicePatch(1, patch);
+    edited.SetOscillatorParameter(0, oscillator, PolyDsp::OscillatorParameter::Waveform, 3);
+    edited.SetOscillatorParameter(0, oscillator, PolyDsp::OscillatorParameter::SemitoneTune, 12);
+    reference.TriggerSequencerVoice(1, 60, 127);
+    edited.TriggerSequencerVoice(1, 60, 127);
+    float peak = 0.0f;
+    for (int frame = 0; frame < 4096; ++frame) {
+      float refLeft, refRight, editLeft, editRight;
+      reference.Process(refLeft, refRight);
+      edited.Process(editLeft, editRight);
+      if (!Expect(refLeft == editLeft && refRight == editRight,
+                  "editing V1 must not change V2 oscillator audio")) return false;
+      peak = fmaxf(peak, fmaxf(fabsf(editLeft), fabsf(editRight)));
+    }
+    passed = Expect(peak > 0.00001f, "each V2 oscillator must be audible") && passed;
+  }
+  return passed;
+}
+
 int main() {
   constexpr float kSampleRate = 48000.0f;
   PolyDsp::VoiceOscillator waveformProbe;
@@ -234,8 +290,9 @@ int main() {
   passed = Expect(retriggerPeak > 0.00001f,
                   "compatibility sequencer did not recover after a rest") && passed;
 
+  passed = TestIndependentSequencerVoices() && passed;
   if (!passed) return 1;
-  printf("PASS: 16 waveforms, polyphony, modulation and sequencer note/rest/retrigger (peaks %.4f/%.4f)\n",
+  printf("PASS: 16 waveforms, polyphony, modulation, independent V1/V2 oscillators and sequencer note/rest/retrigger (peaks %.4f/%.4f)\n",
          peak,
          retriggerPeak);
   return 0;

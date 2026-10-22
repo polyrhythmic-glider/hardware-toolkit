@@ -897,7 +897,7 @@ float Voice::MidiToFrequency(float midiNote) {
 
 void SynthEngine::Init(float sampleRate) {
   allocationCounter_ = 0;
-  compatibilityVoiceReserved_ = false;
+  reservedVoiceCount_ = 0;
   globalModulation_ = {};
   for (size_t voice = 0; voice < kMaxVoices; ++voice) {
     voices_[voice].Init(sampleRate, static_cast<uint32_t>(voice * 7919U + 1U));
@@ -905,7 +905,7 @@ void SynthEngine::Init(float sampleRate) {
 }
 
 size_t SynthEngine::AllocateVoice() const {
-  size_t firstCandidate = compatibilityVoiceReserved_ ? 1 : 0;
+  size_t firstCandidate = reservedVoiceCount_;
   for (size_t voice = firstCandidate; voice < kMaxVoices; ++voice) {
     if (!voices_[voice].IsActive()) return voice;
   }
@@ -925,7 +925,7 @@ void SynthEngine::NoteOn(uint8_t note, uint8_t velocity) {
 }
 
 void SynthEngine::NoteOff(uint8_t note) {
-  for (size_t voice = 0; voice < kMaxVoices; ++voice) {
+  for (size_t voice = reservedVoiceCount_; voice < kMaxVoices; ++voice) {
     if (voices_[voice].IsActive() && voices_[voice].MidiNote() == note) {
       voices_[voice].NoteOff();
     }
@@ -933,7 +933,7 @@ void SynthEngine::NoteOff(uint8_t note) {
 }
 
 void SynthEngine::AllNotesOff() {
-  compatibilityVoiceReserved_ = false;
+  reservedVoiceCount_ = 0;
   for (size_t voice = 0; voice < kMaxVoices; ++voice) {
     voices_[voice].AllNotesOff();
   }
@@ -1009,8 +1009,31 @@ void SynthEngine::ApplyVoicePatch(size_t voiceIndex, const VoicePatch& patch) {
   if (voiceIndex < kMaxVoices) voices_[voiceIndex].ApplyPatch(patch);
 }
 
+void SynthEngine::ReserveSequencerVoices(bool reserved) {
+  reservedVoiceCount_ = reserved ? kSequencerVoices : 0;
+  if (!reserved) {
+    for (size_t voice = 0; voice < kSequencerVoices; ++voice) {
+      voices_[voice].NoteOff();
+    }
+  }
+}
+
+void SynthEngine::TriggerSequencerVoice(size_t track, uint8_t note, uint8_t velocity) {
+  if (track >= kSequencerVoices) return;
+  reservedVoiceCount_ = kSequencerVoices;
+  voices_[track].NoteOn(note, velocity, ++allocationCounter_);
+}
+
+void SynthEngine::SetSequencerGate(size_t track, bool gate) {
+  if (track < kSequencerVoices) voices_[track].SetGate(gate);
+}
+
+void SynthEngine::SetSequencerOscillatorGate(size_t track, size_t oscillator, bool enabled) {
+  if (track < kSequencerVoices) voices_[track].SetOscillatorGate(oscillator, enabled);
+}
+
 void SynthEngine::ReserveCompatibilityVoice(bool reserved) {
-  compatibilityVoiceReserved_ = reserved;
+  reservedVoiceCount_ = reserved ? 1 : 0;
   if (!reserved) voices_[0].NoteOff();
 }
 
@@ -1025,7 +1048,7 @@ void SynthEngine::SetCompatibilityOscillatorGate(size_t oscillatorIndex, bool en
 void SynthEngine::TriggerCompatibilityVoice(uint8_t referenceNote,
                                             uint8_t velocity,
                                             bool hardRetrigger) {
-  compatibilityVoiceReserved_ = true;
+  reservedVoiceCount_ = 1;
   voices_[0].NoteOn(referenceNote, velocity, ++allocationCounter_);
   if (hardRetrigger) voices_[0].Retrigger(true);
 }

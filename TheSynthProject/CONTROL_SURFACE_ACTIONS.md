@@ -2,26 +2,26 @@
 
 I quattro OLED sono una control surface performativa globale. Non seguono la
 traccia selezionata sul TFT e non contengono pagine di sequencer o transport.
-E1, E2 ed E3 modificano i tre parametri mostrati; E4 ruota fra tutte le pagine
-e il quarto OLED mostra una finestra scorrevole di quattro nomi.
+E1, E2 ed E3 modificano i tre parametri mostrati. E4 ruota fra 15 pagine;
+un click entra nelle tre sottopagine della pagina corrente e un altro click
+torna alla selezione delle pagine. Ogni pagina ricorda la propria sottopagina.
+Il quarto OLED mostra quattro nomi e tre pallini per ogni riga.
 
-| Pagina OLED | E1 | E2 | E3 | Click E3 |
+| Pagine OLED | Sottopagina 1: E1 / E2 / E3 | Sottopagina 2: E1 / E2 / E3 | Sottopagina 3: E1 / E2 / E3 | Click E3 |
 | --- | --- | --- | --- | --- |
-| `OSCILLATOR 1` | Wave | Level | Fold | On/Off OSC1 |
-| `OSCILLATOR 2` | Wave | Level | Fold | On/Off OSC2 |
-| `OSCILLATOR 3` | Wave | Level | Fold | On/Off OSC3 |
-| `ENVELOPE 1` | Attack | Decay | Release | On/Off ENV1 |
-| `ENVELOPE 2` | Attack | Decay | Release | On/Off ENV2 |
-| `ENVELOPE 3` | Attack | Decay | Release | On/Off ENV3 |
-| `LFO 1` | Rate | Depth | Destination | On/Off LFO1 |
-| `LFO 2` | Rate | Depth | Destination | On/Off LFO2 |
-| `PERFORMANCE` | Master | Noise | Pan | - |
-| `FILTER` | Cutoff | Resonance | LP/HP/BP | On/Off filter |
-| `DELAY + REV` | Delay mix | Feedback | Reverb mix | - |
-| `909 MAIN` | Level | Tune | Attack | Trigger kick |
-| `909 SHAPE` | Decay | Sweep | Drive | Trigger kick |
+| `V1 OSC 1-3`, `V2 OSC 1-3` (sei pagine) | Wave / Level / Fold | Octave / Tune / Detune | Phase / Pulse / Pan | On/Off oscillatore |
+| `ENV 1-3` (tre pagine) | Attack / Decay o Sustain / Release | Amount / Velocity / Retrigger | Destination / Route On / Route Amount | On/Off inviluppo |
+| `LFO 1-2` (due pagine) | Rate / Depth / Destination | Wave / Phase / Bipolar | Retrigger / Free Run / Tempo Sync | On/Off LFO |
+| `PERF` | Master / Tune / Tempo | V1 Level / V2 Level / 909 Level | V1 O1 Pan / V1 O2 Pan / V1 O3 Pan | - |
+| `FILTER` | Cutoff / Resonance / Type | Noise / Pan / Filter On | Source / Destination / Amount | On/Off filtro |
+| `FX` | Delay Mix / Time / Feedback | Reverb Mix / Room / Delay Send | Source / Destination / Amount | - |
+| `909 BD` | Level / Tune / Decay | Attack / Sweep / Tune | Drive / Level / Attack | Trigger kick |
 
-Il click E4 apre il selettore delle modalità OLED storiche. Le modalità
+Il click E2 nella sottopagina ADSR alterna Decay e Sustain. Le quantità nelle
+rotte FILTER e FX abilitano la rotta quando vengono modificate. Tempo Sync
+degli LFO resta un parametro riservato, senza sincronizzazione DSP attiva.
+
+Tenere premuto E4 per 700 ms apre il selettore delle modalità OLED. Le modalità
 `Encoder View`, `Waveform`, `Pong`, `Diagnostics` e `Prelaunch` restano
 disponibili; tornando a `Synth Control` si ritrova la banca performativa.
 
@@ -53,10 +53,10 @@ Uscendo da Pattern si ripristina il normale comportamento dell'auto-scroll.
 
 Fuori da Pattern, i NeoKey restano il pannello fisico rapido per i 16 step della pagina corrente.
 Mostrano una sola corsia alla volta: V1 rosso, V2 blu o kick verde, senza
-sovrapporre i colori. OSC3 non è una terza corsia: è il terzo oscillatore della
-patch e segue la nota di riferimento della voce corrente. Un evento su V1 o V2
-apre tutti e tre gli oscillatori abilitati: le corsie scelgono evento e pitch,
-non mettono in solo OSC1 o OSC2.
+sovrapporre i colori. V1 e V2 possiedono ciascuna tre oscillatori indipendenti;
+un evento apre gli oscillatori abilitati del proprio banco sulla nota della
+traccia. Una pausa chiude soltanto il gate della propria voce. OSC3 è il terzo
+oscillatore del banco, senza una corsia aggiuntiva.
 
 La nota sotto il playhead viene evidenziata con numero e bordo luminosi. La
 pressione di un NeoKey invalida solo griglia e pannelli interessati, così il TFT

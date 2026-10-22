@@ -133,17 +133,16 @@ baudrate/firmware non corrispondenti.
 - watchdog: la Daisy sfuma a silenzio se non riceve più l'ESP32;
 - trigger kick one-shot inviati dall'interfaccia e recupero automatico UART.
 
-Il protocollo UART è ora **v4** e invia, oltre al prefisso sequencer compatibile,
-il patch con tre oscillatori, tre ENV, due LFO e fino a 16 route abilitate. Le
-due track correnti restano V1 e V2; OSC3 non crea una terza corsia ma segue la
-nota di riferimento della compatibility voice. Ogni evento melodico apre tutti
-gli oscillatori abilitati della voce: V1/V2 forniscono evento e pitch, non sono
-gate esclusivi di OSC1/OSC2. ESP32 e Daisy devono quindi essere aggiornate
+Il protocollo UART è **v5** e invia due banchi di tre oscillatori, tre ENV,
+due LFO e fino a 16 route abilitate. V1 e V2 usano voci DSP indipendenti:
+ogni evento apre gli oscillatori abilitati del proprio banco sulla nota della
+traccia, senza cambiare note o gate dell'altra. OSC3 non crea una terza corsia.
+ESP32 e Daisy devono quindi essere aggiornate
 insieme. Tutte le 16 forme hanno ora un renderer audio; la modalità storica
 `WAVEFORM` resta un visualizzatore senza uscita audio.
 
-Il formato preset ESP32 è **v8** e conserva le migrazioni da v3-v7. Sul TFT,
-`Wave Engine` espone OSC1-3 ed `Envelope` espone ENV1-3. Gli OLED sono una
+Il formato preset ESP32 è **v9** e conserva le migrazioni da v3-v8. Sul TFT,
+`Wave Engine` espone OSC1-3 di V1 ed `Envelope` espone ENV1-3. Gli OLED sono una
 banca performativa globale per OSC, ENV, LFO, filtro, effetti e kick; sequencer
 e transport sono mostrati soltanto sul TFT. Dettagli:
 [`../DaisySynth/DSP_ARCHITECTURE.md`](../DaisySynth/DSP_ARCHITECTURE.md) e

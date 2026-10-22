@@ -30,12 +30,13 @@ La modalità predefinita è `SYNTH CONTROL`. Ogni OLED descrive il parametro
 dell'encoder sottostante.
 
 - Pressione E3: azione contestuale; vedi `CONTROL_SURFACE_ACTIONS.md`.
-- Pressione E4: menu principale della control surface.
-- Rotazione E4: scorre la banca globale di 13 pagine performative.
+- Click E4: alterna selezione delle pagine e delle sottopagine.
+- Pressione E4 per 700 ms: menu principale della control surface.
+- Rotazione E4: scorre 15 pagine oppure le tre sottopagine della pagina corrente.
 
 Gli OLED non seguono più la traccia del sequencer e non mostrano transport o
-step. Le pagine sono OSC1-3, ENV1-3, LFO1-2, Performance, Filter, Delay+Reverb
-e le due pagine 909. E1-E3 modificano sempre i tre parametri visibili; il click
+step. Le pagine sono OSC1-3 di V1, OSC1-3 di V2, ENV1-3, LFO1-2, PERF, FILTER,
+FX e 909 BD. E1-E3 modificano sempre i tre parametri visibili; il click
 E3 abilita/disabilita il blocco corrente oppure triggera il kick. Il quarto OLED
 mostra una finestra scorrevole di quattro pagine.
 
@@ -53,12 +54,11 @@ manualmente.
 
 La verifica richiede tre conferme di snapshot distinti realmente inviati,
 applicati dalla Daisy e restituiti nella telemetria. Il timeout è di 500 ms
-senza stati validi o senza avanzamento delle conferme. La ESP32 ritenta la UART
 senza stati validi o senza avanzamento delle conferme. La UART ESP resta aperta
 durante tutta la sessione; Daisy riabilita automaticamente il proprio ricevitore
 se non riceve un frame valido al boot o dopo un errore. I parser recuperano anche
-frame troncati. Il protocollo resta v4, ma **questa funzione richiede
-l'aggiornamento di entrambi i firmware** per includere tutte le correzioni.
+frame troncati. Il protocollo è v5 e **richiede l'aggiornamento di entrambi i
+firmware**: i pacchetti di versioni precedenti vengono rifiutati.
 
 Test della logica di connessione: `make -C DaisySynth test-link-host` dalla
 radice del repository. Collaudo sulle schede dopo il caricamento:
@@ -90,11 +90,36 @@ interessate: non viene più eseguito un `fillScreen()` ad ogni pressione, quindi
 playhead e auto-scroll possono continuare a seguire la telemetria Daisy.
 
 La traccia kick pilota il modello `SyntheticBassDrum` di DaisySP, scelto per il
-carattere 909. Sui mini OLED la pagina `909 MAIN` assegna E1-E3 a Level, Tune e
-Attack; `909 SHAPE` assegna E1-E3 a Decay, Sweep e Drive. Il quarto encoder
-continua a cambiare pagina e il suo OLED mostra il `PAGE MENU`. I preset
-precedenti restano leggibili: il vecchio valore `Click` viene interpretato come
-`Attack` nello stesso campo salvato.
+carattere 909. Nel `PAGE MENU` ogni oggetto ha una sola riga e tre pallini:
+
+| Pagina | Sottopagina 1 | Sottopagina 2 | Sottopagina 3 |
+| --- | --- | --- | --- |
+| V1 OSC 1-3, V2 OSC 1-3 (sei righe separate) | base | pitch | shape |
+| ENV 1, ENV 2, ENV 3 (righe separate) | ADSR | dynamics | modulation |
+| LFO 1, LFO 2 (righe separate) | motion | shape | behaviour |
+| PERF | master | livelli | stereo |
+| FILTER | cutoff-res-type | noise-pan | modulation |
+| FX | delay | reverb | routing |
+| 909 BD | body | transient | drive |
+
+Ruotare E4 seleziona una riga; il click entra nella pagina e da quel momento
+la rotazione di E4 cambia soltanto la sua sottopagina. Un altro click torna
+alla selezione delle righe. Il pallino pieno indica la sottopagina corrente,
+ricordata separatamente per ogni oggetto; il titolo dell'OLED E4 ne mostra il nome.
+E1-E3 modificano i parametri della sottopagina. In ADSR E1 regola attack,
+E2 decay oppure sustain (click E2 per alternarli), E3 release.
+Il click E3 mantiene l'azione della pagina: on/off per OSC, ENV, LFO e FILTER,
+trigger per 909 BD.
+
+Le pagine modulation degli ENV selezionano destinazione, abilitazione e quantità
+della singola rotta. FILTER/modulation e FX/routing espongono sorgente,
+destinazione e quantità delle rotte di modulazione già disponibili: cutoff o
+resonance per FILTER, delay mix o reverb mix per FX. Modificare la quantità
+abilita la rotta selezionata; zero ne annulla il contributo.
+
+909 BD/body regola Level, Tune e Decay; transient regola Attack, Sweep e Tune;
+drive regola Drive, Level e Attack. I preset precedenti restano leggibili:
+il vecchio valore `Click` viene interpretato come `Attack` nello stesso campo salvato.
 
 Nel menu TFT, `Utility > Control Surface` permette di scegliere con
 l'encoder master una delle sei modalità OLED. Control surface e diagnostica
@@ -126,7 +151,8 @@ non semplici indicatori configurati a priori.
 
 ## Inviluppi e modulazione
 
-`Wave Engine` espone OSC1, OSC2 e OSC3. L'area `Envelope` espone ENV1, ENV2 ed
+`Wave Engine` sul TFT espone OSC1, OSC2 e OSC3 del banco V1; gli OLED consentono
+di modificare entrambi i banchi V1 e V2. L'area `Envelope` espone ENV1, ENV2 ed
 ENV3, ciascuno con Attack, Decay, Sustain, Release e un sottomenu
 `Destinations`. Ogni destinazione ha `Enabled` e un amount bipolare da `-100%`
 a `+100%`; più route possono essere attive nello stesso momento. Le
@@ -136,16 +162,18 @@ ognuno dei tre oscillatori, all-osc pitch, noise, pan, delay e reverb.
 ENV1 è assegnato di default ad Amp al `+100%`; ENV2 ed ENV3 partono disabilitati
 e senza route. LFO1 e LFO2 partono disabilitati e si regolano dagli OLED con
 Rate, Depth e Destination. La configurazione è memorizzata nella tabella
-generica `source x destination`, salvata nei preset v8 e trasmessa con UART v4.
-I preset v3-v7 vengono migrati con OSC3, ENV3 e LFO inizializzati in modo
-neutro. Vedi [`PRESET_FORMAT.md`](PRESET_FORMAT.md).
+generica `source x destination`, salvata nei preset v9 e trasmessa con UART v5.
+I preset v3-v8 vengono migrati nei due banchi indipendenti; per v3-v7, OSC3,
+ENV3 e LFO sono inizializzati in modo neutro. Vedi [`PRESET_FORMAT.md`](PRESET_FORMAT.md).
 
 Ogni sottomenu OSC del TFT contiene Power, Wave, Level, Octave, Tune, Detune,
 Phase, Pulse Width, Fold, Pan, Key Tracking, Mod Input e Scope. Le 16 forme
 visibili sono tutte renderizzate dalla Daisy, incluse `EVEN`, `ODD` e `FORMNT`.
 Se i tre OSC sono `ON` e hanno Level maggiore di zero, uno step melodico li
-suona contemporaneamente nella stessa voce. V1 e V2 rimangono corsie di
-evento/pitch; OSC3 segue la nota melodica di riferimento.
+suona contemporaneamente nella propria voce. V1 e V2 hanno note, gate, livelli
+e tre oscillatori indipendenti: una pausa o una modifica su V1 non cambia V2.
+I parametri di inviluppi, LFO, filtro e modulazione restano comuni ai due banchi,
+con stato DSP separato per ogni voce.
 
 `Utility > Serial Diagnostics` e' disattivato per default. All'avvio il Monitor
 Seriale stampa una sola mappa ASCII con TFT, OLED, NeoKey, MCP23017 e le due

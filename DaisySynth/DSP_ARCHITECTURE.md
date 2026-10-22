@@ -5,6 +5,7 @@ Le costanti pubbliche in `SynthEngine.h` sono:
 
 ```cpp
 constexpr size_t kMaxVoices = 4;
+constexpr size_t kSequencerVoices = 2;
 constexpr size_t kOscillatorsPerVoice = 3;
 constexpr size_t kEnvelopesPerVoice = 3;
 constexpr size_t kLfosPerVoice = 2;
@@ -65,16 +66,15 @@ occupati, sostituisce quello con allocation age minore, cioè la voce attiva pi�
 vecchia. `NoteOff(note)` rilascia le voci con quella nota e `AllNotesOff()`
 chiude tutti i gate lasciando completare le release.
 
-La voce 0 può essere riservata temporaneamente dal compatibility layer del
-sequencer. Le due track UART storiche restano corsie di eventi e pitch: quando
-almeno una contiene una nota, tutti gli oscillatori abilitati della stessa voce
-vengono aperti insieme. OSC1 e OSC2 usano la nota della propria corsia quando
-presente e, negli altri step, la nota melodica di riferimento; OSC3 segue
-sempre quella nota di riferimento. In questo modo un singolo step può sommare
-OSC1+OSC2+OSC3 senza introdurre una terza lane o cambiare il protocollo. Le
-nuove chiamate `NoteOn`/`NoteOff` usano comunque l'allocatore e, quando la
-compatibility voice è riservata, possono usare gli altri slot senza alterare il
-comportamento del sequencer.
+`ReserveSequencerVoices()` riserva gli slot 0 e 1 per V1 e V2 durante il
+sequencer o il preview. `TriggerSequencerVoice()` e `SetSequencerGate()`
+gestiscono note e gate separati. Ogni traccia possiede tre oscillatori:
+un evento apre quelli abilitati del proprio banco, senza alterare l'altra
+traccia. UART v5 trasporta i due banchi e seleziona separatamente voce e
+oscillatore del preview. `NoteOn` e `NoteOff` escludono entrambi gli slot
+riservati; le altre due voci restano disponibili all'allocatore. Lo stop
+rilascia entrambe le voci. L'API compatibility a voce singola resta disponibile
+per i client precedenti del motore.
 
 ## Inviluppi e LFO
 
@@ -159,7 +159,8 @@ make test-host
 Il test rende quattro note reali con la configurazione 12 oscillatori, 12 ADSR,
 8 LFO e quattro filtri, verifica tutte le 16 forme, output finito/non nullo,
 contributi globali, release e oldest-voice stealing. Controlla esplicitamente
-che `EVEN`, `ODD` e `FORMNT` non coincidano con il fallback Sine.
+che `EVEN`, `ODD` e `FORMNT` non coincidano con il fallback Sine, oltre a note,
+pause, retrigger e indipendenza audio dei tre oscillatori fra V1 e V2.
 
 ## Risorse della build
 
@@ -167,8 +168,8 @@ Con toolchain ARM `-O2` e startup validation abilitata, la build verificata usa:
 
 | Regione | Uso | Capacità | Percentuale |
 | --- | ---: | ---: | ---: |
-| FLASH | 100.680 B | 128 KiB | 76,81% |
-| SRAM | 416.272 B | 512 KiB | 79,40% |
+| FLASH | 101.336 B | 128 KiB | 77,31% |
+| SRAM | 416.416 B | 512 KiB | 79,43% |
 | RAM_D2 | 16.896 B | 288 KiB | 5,73% |
 | SDRAM | 115.212 B | 64 MiB | 0,17% |
 
@@ -178,13 +179,12 @@ simboli generici `malloc/free`, che non sono chiamati dal percorso DSP.
 
 ## Esposizione e limiti attuali
 
-- UART v4 trasporta OSC1-3, ENV1-3, LFO1-2 e 16 route; i preset ESP32 v8
-  serializzano il patch moderno e migrano v3-v7.
-- Il sequencer compatibile conserva due corsie melodiche più kick. Ogni evento
-  melodico apre tutti gli OSC abilitati; OSC3 segue la nota di riferimento
-  della voce e non è una terza corsia indipendente.
-- Gli OLED espongono controlli performativi compatti; i parametri completi e
-  le route degli envelope sono nel menu TFT.
+- UART v5 trasporta due banchi OSC1-3, parametri comuni ENV1-3 e LFO1-2, e
+  16 route; i preset ESP32 v9 serializzano entrambi i banchi e migrano v3-v8.
+- Il sequencer conserva due corsie melodiche indipendenti più kick. Ogni
+  evento apre gli OSC abilitati del proprio banco.
+- Gli OLED espongono entrambi i banchi in pagine con tre sottopagine; il menu
+  TFT mantiene l'editor completo degli oscillatori di V1 e le route ENV.
 - Tempo sync degli LFO è un placeholder.
 - Il pan usa una legge lineare; non è ancora equal-power.
 - Non c'è ancora un ingresso MIDI fisico collegato alle API polifoniche.

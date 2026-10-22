@@ -1,7 +1,7 @@
 # Formato preset
 
 I preset persistenti appartengono alla ESP32 e sono salvati in `Preferences`,
-namespace `polyglider`. Il formato corrente è **v8**.
+namespace `polyglider`. Il formato corrente è **v9**.
 
 ## Versioni e migrazioni
 
@@ -12,11 +12,18 @@ namespace `polyglider`. Il formato corrente è **v8**.
 | v5 | 16 step con ADSR/route, note come offset | converte gli offset, poi passa attraverso la migrazione v7 |
 | v6 | 16 step con pitch MIDI assoluti | copia i primi 16 step e inizializza 17-64 come rest |
 | v7 | 64 step, pagina, auto-scroll, due ENV e route legacy | traduce le route legacy nella matrice moderna e applica default neutri ai campi nuovi |
-| v8 | patch moderno completo più sequencer a 64 step | caricamento diretto |
+| v8 | patch moderno completo più sequencer a 64 step | separa il banco condiviso nei banchi V1 e V2 |
+| v9 | due banchi di tre oscillatori e livelli indipendenti V1/V2 | caricamento diretto |
 
 Il loader distingue prima la dimensione del record, poi valida magic e
 versione. I layout legacy sono struct separate: l'espansione della matrice v8
-non cambia la dimensione attesa dei preset v3-v7.
+non cambia la dimensione attesa dei preset v3-v7. Il record v9 conserva tutto
+il prefisso v8 e aggiunge il banco V2 completo e il livello master di V1.
+
+La migrazione del banco condiviso mantiene OSC1 come primo oscillatore di V1
+e copia OSC2 nel primo oscillatore di V2. OSC2 viene disabilitato in entrambi
+i nuovi banchi; l'eventuale OSC3 viene copiato in entrambi. I livelli master
+di V1 e V2 partono al 100%, mantenendo i livelli dei singoli oscillatori.
 
 Durante la migrazione v7, le destinazioni ancora valide vengono preservate.
 Le vecchie route aggregate vengono tradotte alla destinazione moderna più
@@ -34,7 +41,7 @@ non applicava vengono ignorate.
 - filter resonance, noise level e pan della voce;
 - impostazioni già presenti del sequencer: 64 step, pagina e auto-scroll.
 
-I default di migrazione non cambiano il suono precedente:
+La migrazione da v3-v7 inizializza i campi moderni con questi default:
 
 - OSC3 disabilitato e level 0;
 - ENV1 abilitato e assegnato ad Amp a `+100%`;
@@ -44,6 +51,6 @@ I default di migrazione non cambiano il suono precedente:
 - quattro voci disponibili nel motore Daisy.
 
 Il record persistente conserva più route di quante ne vengano inviate in uno
-snapshot UART. Il protocollo v4 trasporta al massimo 16 route abilitate, in
+snapshot UART. Il protocollo v5 trasporta al massimo 16 route abilitate, in
 ordine di sorgente e destinazione, che è anche il limite fixed-size di ogni
 voce Daisy.

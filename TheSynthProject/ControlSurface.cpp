@@ -32,6 +32,7 @@ constexpr uint8_t MCP_GPPUA = 0x0C;
 constexpr uint8_t MCP_PORTA_DATA_REGISTER = 0x12;
 constexpr uint8_t ENCODER_STEPS_PER_DETENT = 4;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
+constexpr uint32_t E4_MAIN_MENU_HOLD_MS = 700;
 // Resta visibile durante il boot del TFT, ma usa solo una checklist testuale.
 constexpr uint32_t STARTUP_SPLASH_MS = 3600;
 // Let the four checklist rows follow the TFT progress bar instead of showing
@@ -263,11 +264,18 @@ uint32_t clickFlashUntil[4] = { 0, 0, 0, 0 };
 uint8_t lastTouchedPage = ControlSurfaceBridge::PAGE_VOICE_1;
 uint8_t lastTouchedEncoder = 0;
 uint32_t lastParameterChangeMs = 0;
+uint32_t e4PressedAtMs = 0;
+bool e4HoldConsumed = false;
+bool subpageMode = false;
+uint8_t selectedSubpages[ControlSurfaceBridge::PAGE_COUNT / 3] = {};
 
 const uint8_t PERFORMANCE_PAGES[] = {
   ControlSurfaceBridge::PAGE_VOICE_1,
   ControlSurfaceBridge::PAGE_VOICE_2,
   ControlSurfaceBridge::PAGE_VOICE_3,
+  ControlSurfaceBridge::PAGE_V2_OSC_1,
+  ControlSurfaceBridge::PAGE_V2_OSC_2,
+  ControlSurfaceBridge::PAGE_V2_OSC_3,
   ControlSurfaceBridge::PAGE_ENV_1,
   ControlSurfaceBridge::PAGE_ENV_2,
   ControlSurfaceBridge::PAGE_ENV_3,
@@ -276,8 +284,7 @@ const uint8_t PERFORMANCE_PAGES[] = {
   ControlSurfaceBridge::PAGE_MIXER,
   ControlSurfaceBridge::PAGE_FILTER_FX,
   ControlSurfaceBridge::PAGE_DELAY_REVERB,
-  ControlSurfaceBridge::PAGE_KICK,
-  ControlSurfaceBridge::PAGE_KICK_SHAPE
+  ControlSurfaceBridge::PAGE_KICK
 };
 
 const uint8_t* getContextPages(uint8_t& count) {
@@ -289,7 +296,7 @@ void syncSynthPageToActiveTrack() {
   uint8_t count = 0;
   const uint8_t* pages = getContextPages(count);
   for (uint8_t i = 0; i < count; i++) {
-    if (synthPage == pages[i]) return;
+    if (ControlSurfaceBridge::pageBase(synthPage) == pages[i]) return;
   }
 
   synthPage = pages[0];
@@ -306,7 +313,7 @@ void stepContextPage(int delta) {
   const uint8_t* pages = getContextPages(count);
   int current = 0;
   for (uint8_t i = 0; i < count; i++) {
-    if (synthPage == pages[i]) {
+    if (ControlSurfaceBridge::pageBase(synthPage) == pages[i]) {
       current = i;
       break;
     }
@@ -315,10 +322,52 @@ void stepContextPage(int delta) {
   current += delta > 0 ? 1 : -1;
   while (current < 0) current += count;
   synthPage = pages[current % count];
+  synthPage += selectedSubpages[synthPage / 3];
   lastTouchedPage = synthPage;
   lastTouchedEncoder = 0;
   lastParameterChangeMs = millis();
   redrawRequested = true;
+}
+
+void stepSubpage(int delta) {
+  int subpage = ControlSurfaceBridge::pageSubpage(synthPage);
+  subpage = (subpage + (delta > 0 ? 1 : 2)) % 3;
+  synthPage = ControlSurfaceBridge::pageBase(synthPage) + subpage;
+  selectedSubpages[synthPage / 3] = subpage;
+  lastTouchedPage = synthPage;
+  lastTouchedEncoder = 0;
+  lastParameterChangeMs = millis();
+  redrawRequested = true;
+}
+
+void openMainMenu() {
+  subpageMode = false;
+  menuSelection = currentMode;
+  menuOpen = true;
+  clickFlashUntil[3] = millis() + 180;
+  redrawRequested = true;
+}
+
+// Encoder buttons report their click on press. Delay E4's click until release
+// so a long hold can be reserved for Main Menu without triggering OSC actions.
+void processE4Button(InputFrame& input, uint32_t now) {
+  if (input.click[3]) {
+    e4PressedAtMs = now;
+    e4HoldConsumed = false;
+    input.click[3] = false;
+  }
+
+  if (input.pressed[3] && e4PressedAtMs != 0 &&
+      !e4HoldConsumed && now - e4PressedAtMs >= E4_MAIN_MENU_HOLD_MS) {
+    e4HoldConsumed = true;
+    openMainMenu();
+  }
+
+  if (!input.pressed[3] && e4PressedAtMs != 0) {
+    if (!e4HoldConsumed) input.click[3] = true;
+    e4PressedAtMs = 0;
+    e4HoldConsumed = false;
+  }
 }
 
 volatile int legacyWaveform = 0;
@@ -835,8 +884,19 @@ void drawStatusFrame(const char* title) {
   oled.setTextColor(SSD1306_WHITE);
 }
 
+// Each object has its own three subpages and remembered selection.
+void drawSubpageDots(uint8_t page, int startX, int centerY, uint16_t color) {
+  int selected = ControlSurfaceBridge::pageSubpage(page);
+  for (int subpage = 0; subpage < 3; ++subpage) {
+    int x = startX + subpage * 7;
+    if (subpage == selected) oled.fillCircle(x, centerY, 2, color);
+    else oled.drawCircle(x, centerY, 2, color);
+  }
+}
+
 void drawSynthParameterCard(const char* page, const char* label, const char* value, uint8_t slot) {
   drawStatusFrame(page);
+  drawSubpageDots(synthPage, 87, 8, SSD1306_BLACK);
 
   oled.drawRoundRect(3, 19, 122, 42, 4, SSD1306_WHITE);
   oled.drawPixel(6, 22, SSD1306_WHITE);
@@ -1303,13 +1363,13 @@ void drawPongPanel() {
 
 void drawSynthControlPanel() {
   if (activeDisplay == 3) {
-    drawStatusFrame("PAGE MENU");
+    drawStatusFrame(subpageMode ? ControlSurfaceBridge::subpageName(synthPage) : "PAGE MENU");
 
     uint8_t count = 0;
     const uint8_t* pages = getContextPages(count);
     uint8_t selectedIndex = 0;
     for (uint8_t i = 0; i < count; i++) {
-      if (synthPage == pages[i]) {
+      if (ControlSurfaceBridge::pageBase(synthPage) == pages[i]) {
         selectedIndex = i;
         break;
       }
@@ -1324,7 +1384,7 @@ void drawSynthControlPanel() {
     uint8_t lastVisible = min((uint8_t)(firstVisible + visibleRows), count);
     for (uint8_t i = firstVisible; i < lastVisible; i++) {
       int y = 18 + (i - firstVisible) * 12;
-      bool selected = synthPage == pages[i];
+      bool selected = ControlSurfaceBridge::pageBase(synthPage) == pages[i];
       if (selected) {
         oled.fillRect(0, y - 1, SCREEN_WIDTH, 11, SSD1306_WHITE);
         oled.setTextColor(SSD1306_BLACK);
@@ -1332,7 +1392,9 @@ void drawSynthControlPanel() {
         oled.setTextColor(SSD1306_WHITE);
       }
       oled.setCursor(4, y + 1);
-      oled.print(ControlSurfaceBridge::pageName(pages[i]));
+      oled.print(ControlSurfaceBridge::pageMenuName(pages[i]));
+      drawSubpageDots(pages[i] + selectedSubpages[pages[i] / 3], 101, y + 4,
+                      selected ? SSD1306_BLACK : SSD1306_WHITE);
     }
     oled.setTextColor(SSD1306_WHITE);
     return;
@@ -1470,7 +1532,16 @@ void handleSynthControlInput(const InputFrame& input) {
   }
 
   if (input.delta[3] != 0) {
-    stepContextPage(input.delta[3]);
+    if (subpageMode) {
+      stepSubpage(input.delta[3]);
+    } else {
+      stepContextPage(input.delta[3]);
+    }
+  }
+
+  if (input.click[1]) {
+    ControlSurfaceBridge::activateParameterAction(synthPage, 1);
+    redrawRequested = true;
   }
 
   if (input.click[2]) {
@@ -1480,8 +1551,7 @@ void handleSynthControlInput(const InputFrame& input) {
   }
 
   if (input.click[3]) {
-    menuSelection = currentMode;
-    menuOpen = true;
+    subpageMode = !subpageMode;
     clickFlashUntil[3] = millis() + 180;
     redrawRequested = true;
   }
@@ -1614,6 +1684,8 @@ void tick() {
     return;
   }
 
+  if (!menuOpen) processE4Button(input, now);
+
   syncSynthPageToActiveTrack();
 
   if (menuOpen) {
@@ -1621,13 +1693,7 @@ void tick() {
   } else if (currentMode == SYNTH_CONTROL) {
     handleSynthControlInput(input);
   } else {
-    bool pongResetClick = currentMode == PONG && pongGameOver && input.click[3];
-    if (input.click[3] && !pongResetClick) {
-      menuSelection = currentMode;
-      menuOpen = true;
-      clickFlashUntil[3] = now + 180;
-      redrawRequested = true;
-    } else if (currentMode == ENCODER_VIEW) {
+    if (currentMode == ENCODER_VIEW) {
       handleEncoderViewInput(input);
     } else if (currentMode == WAVEFORM) {
       handleWaveformInput(input);

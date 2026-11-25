@@ -25,6 +25,9 @@ bool NekoScheduler::begin() {
       timer.deadlineMs = 0;
     }
   }
+  if (preferences_.getBytesLength("reminders") == sizeof(reminders_))
+    preferences_.getBytes("reminders", reminders_.data(), sizeof(reminders_));
+  for (auto &reminder : reminders_) reminder.text[sizeof(reminder.text) - 1] = 0;
   return true;
 }
 
@@ -35,6 +38,25 @@ void NekoScheduler::save() {
   blob.alarms = alarms_;
   blob.nextTimerId = nextTimerId_;
   preferences_.putBytes("state", &blob, sizeof(blob));
+  ++revision_;
+}
+
+bool NekoScheduler::addReminder(time_t due, const char *text) {
+  if (time(nullptr) < 1700000000 || due <= time(nullptr) || !text || !*text || strlen(text) >= 64) return false;
+  for (auto &item : reminders_) if (!item.active) {
+    item = {}; item.active = true; item.dueEpoch = due;
+    strlcpy(item.text, text, sizeof(item.text));
+    preferences_.putBytes("reminders", reminders_.data(), sizeof(reminders_));
+    ++revision_; return true;
+  }
+  return false;
+}
+
+bool NekoScheduler::removeReminder(uint8_t index) {
+  if (index >= reminders_.size()) return false;
+  reminders_[index] = {};
+  preferences_.putBytes("reminders", reminders_.data(), sizeof(reminders_));
+  ++revision_; return true;
 }
 
 uint32_t NekoScheduler::startTimer(uint32_t seconds, const char *label) {
@@ -106,6 +128,7 @@ bool NekoScheduler::pushNotification(const char *text, uint8_t priority, uint32_
   strlcpy(notification_.text, text, sizeof(notification_.text));
   lastNotificationHash_ = value;
   lastNotificationMs_ = millis();
+  ++revision_;
   return true;
 }
 
@@ -116,14 +139,25 @@ void NekoScheduler::tick(time_t epoch) {
     const int32_t remainingMs = static_cast<int32_t>(timer.deadlineMs - nowMs);
     timer.remainingSeconds = remainingMs > 0 ? (remainingMs + 999) / 1000 : 0;
     if (remainingMs <= 0) {
-      strlcpy(timerEventLabel_, timer.label, sizeof(timerEventLabel_));
-      timerEvent_ = true;
+      queueEvent(false, timer.label);
       timer = {};
       save();
     }
   }
-  if (notification_.active && static_cast<int32_t>(nowMs - notification_.expiresMs) >= 0) notification_ = {};
+  if (notification_.active && static_cast<int32_t>(nowMs - notification_.expiresMs) >= 0) {
+    notification_ = {}; ++revision_;
+  }
+  if (nowMs - lastCheckpointMs_ >= 60000) {
+    lastCheckpointMs_ = nowMs;
+    if (std::any_of(timers_.begin(), timers_.end(), [](const auto &t) { return t.active && !t.paused; })) save();
+  }
   if (epoch < 1700000000) return;
+  for (auto &item : reminders_) if (item.active && item.dueEpoch <= epoch) {
+    pushNotification(item.text, 2, 300);
+    item.active = false;
+    preferences_.putBytes("reminders", reminders_.data(), sizeof(reminders_));
+    ++revision_;
+  }
   tm local{};
   localtime_r(&epoch, &local);
   const int32_t dayKey = local.tm_year * 366 + local.tm_yday;
@@ -131,25 +165,30 @@ void NekoScheduler::tick(time_t epoch) {
     if (!alarm.enabled || !(alarm.weekdays & (1U << local.tm_wday)) || alarm.lastDay == dayKey) continue;
     if (local.tm_hour == alarm.hour && local.tm_min == alarm.minute) {
       alarm.lastDay = dayKey;
-      strlcpy(alarmEventLabel_, alarm.label, sizeof(alarmEventLabel_));
-      alarmEvent_ = true;
+      queueEvent(true, alarm.label);
       save();
     }
   }
 }
 
 bool NekoScheduler::takeTimerEvent(char *label, size_t size) {
-  if (!timerEvent_) return false;
-  strlcpy(label, timerEventLabel_, size);
-  timerEvent_ = false;
-  return true;
+  return takeEvent(false, label, size);
 }
 
 bool NekoScheduler::takeAlarmEvent(char *label, size_t size) {
-  if (!alarmEvent_) return false;
-  strlcpy(label, alarmEventLabel_, size);
-  alarmEvent_ = false;
-  return true;
+  return takeEvent(true, label, size);
+}
+
+void NekoScheduler::queueEvent(bool alarm, const char *label) {
+  for (auto &event : events_) if (!event.active) {
+    event.active = true; event.alarm = alarm; strlcpy(event.label, label, sizeof(event.label)); return;
+  }
+}
+bool NekoScheduler::takeEvent(bool alarm, char *label, size_t size) {
+  for (auto &event : events_) if (event.active && event.alarm == alarm) {
+    strlcpy(label, event.label, size); event = {}; return true;
+  }
+  return false;
 }
 
 time_t NekoScheduler::nextAlarmEpoch(time_t now) const {
@@ -165,6 +204,7 @@ time_t NekoScheduler::nextAlarmEpoch(time_t now) const {
       candidate.tm_hour = alarm.hour;
       candidate.tm_min = alarm.minute;
       candidate.tm_sec = 0;
+      candidate.tm_isdst = -1;
       const time_t epoch = mktime(&candidate);
       if (epoch > now && (!best || epoch < best)) best = epoch;
     }

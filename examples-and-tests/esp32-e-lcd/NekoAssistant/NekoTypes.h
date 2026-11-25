@@ -35,8 +35,8 @@ constexpr uint8_t SHTC3_ADDRESS = 0x70;
 }  // namespace Board
 
 enum class Page : uint8_t {
-  Home, Clock, Timers, Alarms, Reminders, Weather, Environment, Notifications,
-  Audio, Storage, Connectivity, Battery, Settings, Diagnostics, About, Count
+  Home, Cat, Clock, Environment, Timers, Alarms, Reminders, Notifications,
+  Connectivity, Battery, Settings, Storage, Audio, Diagnostics, DiagnosticsMenu, Count
 };
 
 enum class CatMood : uint8_t {
@@ -94,4 +94,10 @@ struct NotificationSlot {
   uint8_t priority = 1;
   uint32_t expiresMs = 0;
   char text[96] = "";
+};
+
+struct ReminderSlot {
+  bool active = false;
+  int64_t dueEpoch = 0;
+  char text[64]{};
 };

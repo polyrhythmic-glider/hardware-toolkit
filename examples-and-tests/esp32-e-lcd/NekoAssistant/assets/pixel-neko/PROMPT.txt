@@ -1,0 +1,15 @@
+Use case: stylized-concept
+Asset type: production sprite atlas for an original virtual pet running on a tiny 1-bit reflective LCD.
+Create one beautiful, carefully drawn original kitten character inspired by the charm and finish of a vintage virtual pet / Tamagotchi, but not any existing copyrighted character. Cute, stylish, mischievous, very clearly a CAT, big expressive glossy eyes, short fluffy cheek tufts, triangular ears, a rounded compact body, little paws and a curved expressive tail. Subtle little collar/tag allowed. Three-quarter view looking slightly to the RIGHT so a speech balloon can point to the mouth on the right side of the head. Strong designed silhouette, appealing proportions, polished pixel art.
+CRITICAL MEDIUM: Pure BLACK and WHITE only. NO gray pixels, NO colors. Convey midtones and volume with hand placed ordered/checkerboard dithering and sparse black stipple clusters. Crisp connected black outlines, clean white eye highlights, white background. NOT ASCII, NOT a typographic cat, not vector-looking clip art.
+COMPOSITION: One wide sprite sheet, EXACTLY 4 columns and 2 rows, EIGHT equally sized rectangular cells, all cells plain white with NO grid lines, NO labels, NO letters, NO borders or drop shadows. Keep each entire kitten inside a generous central square area of its cell, same character size and consistent same baseline/center across all eight cells; enough white spacing to separate frames cleanly. Prefer a 1536x1024 landscape canvas. Each kitten must be fully visible including tail and paws.
+Frame order left to right top row then bottom row:
+0: idle eyes open, tail curled toward left.
+1: gentle inhale, tail moves slightly toward center, eyes open.
+2: gentle exhale, tail toward right, eyes open.
+3: idle with eyes half closed in a blink.
+4: eyes fully closed in a relaxed blink.
+5: talking, mouth clearly a small open oval, eyes bright.
+6: delighted, happy curved eyes and one paw raised for a little wave.
+7: alert and curious, large round eyes, ears perked.
+Keep the identity, face, torso and dither markings extremely consistent between cells. Motions should be small, legible animation keyframes rather than eight different cats. Pixel grid aesthetic with a clean silhouette that will still read when each character is displayed about 128 pixels tall. Do not include any UI or speech bubble in the atlas.

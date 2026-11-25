@@ -52,22 +52,27 @@ ST7305_U8g2::~ST7305_U8g2()
 
 void ST7305_U8g2::_cmd(uint8_t cmd)
 {
+  _spi->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE0));
   digitalWrite(_dc, LOW);
   digitalWrite(_cs, LOW);
   _spi->transfer(cmd);
   digitalWrite(_cs, HIGH);
+  _spi->endTransaction();
 }
 
 void ST7305_U8g2::_data(const uint8_t *data, size_t len)
 {
+  _spi->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE0));
   digitalWrite(_dc, HIGH);
   digitalWrite(_cs, LOW);
   _spi->transferBytes((uint8_t *)data, nullptr, len);
   digitalWrite(_cs, HIGH);
+  _spi->endTransaction();
 }
 
 void ST7305_U8g2::_cmd_data(uint8_t cmd, const uint8_t *data, size_t len)
 {
+  _spi->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE0));
   digitalWrite(_dc, LOW);
   digitalWrite(_cs, LOW);
   _spi->transfer(cmd);
@@ -76,6 +81,7 @@ void ST7305_U8g2::_cmd_data(uint8_t cmd, const uint8_t *data, size_t len)
     _spi->transferBytes((uint8_t *)data, nullptr, len);
   }
   digitalWrite(_cs, HIGH);
+  _spi->endTransaction();
 }
 
 void ST7305_U8g2::reset()
@@ -195,7 +201,8 @@ void ST7305_U8g2::begin(uint8_t tile_buf_height, const u8g2_cb_t *rotation)
   digitalWrite(_rst, HIGH);
 
   _spi->begin(_sck, -1, _mosi, -1);
-  _spi->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE0));
+  // Each transfer owns a bounded SPI transaction. Leaving one open here
+  // deadlocks the SPI APB callback when setCpuFrequencyMhz changes the clock.
 
   u8g2_t *u = u8g2_wrapper.getU8g2();
   u8x8_Setup(u8g2_GetU8x8(u), u8x8_d_st7305_custom, u8x8_dummy_cb, u8x8_byte_custom, u8x8_dummy_cb);

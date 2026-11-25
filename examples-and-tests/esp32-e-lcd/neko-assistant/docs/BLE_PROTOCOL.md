@@ -22,3 +22,30 @@ Servizio custom: `01004f4b-454e-a19e-6f4d-5280106e2b7a`. Le caratteristiche sost
 | 1b | Diagnostics | R | JSON compatto, max 160 |
 
 Errori ATT: lunghezza invalida, valore non consentito, cifratura insufficiente, autorizzazione fisica insufficiente, risorsa esaurita. La companion di riferimento è in `companion/`.
+
+
+## Estensioni Arduino ASCII Edition 0.3.0
+
+La variante Arduino mantiene i UUID 1.0 e aggiunge `1c004f4b-454e-a19e-6f4d-5280106e2b7a`
+(READ/NOTIFY): conferma asincrona UTF-8 `OK <dettaglio>` / `ERR <dettaglio>`.
+Le scritture vengono accodate dal task BLE e applicate dal task dell'applicazione.
+Inviare un comando per volta, attendendo la conferma prima del successivo.
+
+Sulla caratteristica Control (0x1A):
+
+| Opcode | Payload dopo opcode | Azione |
+|---|---|---|
+| 0x02 | — | Riavvia |
+| 0x03 / 0x04 / 0x05 | — | Diagnostica / Gatto / Home |
+| 0x10 / 0x11 / 0x12 | uint32 LE ID timer | Pausa / riprende / annulla |
+| 0x13 | uint8, 0–3 | Prestazioni / bilanciato / risparmio / notte |
+| 0x14 | uint64 LE epoch, testo UTF-8 1–63 byte | Crea promemoria |
+| 0x15 | uint8 indice, 0–3 | Elimina promemoria |
+| 0x16 | — | Segna notifica come letta |
+
+AlarmConfig può usare un pacchetto di 29 byte: 4 byte originali, 23 byte
+etichetta (zero padding), un byte riservato, indice slot 0–7 all'offset 28.
+Il vecchio payload breve continua a scrivere lo slot 0.
+Diagnostics include versione, profilo, errori I2C e array `timers` con ID,
+secondi residui e stato pausa. Sensore non valido: temperatura `INT16_MIN`,
+umidità `UINT16_MAX`. Queste estensioni non sono implementate nella variante ESP-IDF.

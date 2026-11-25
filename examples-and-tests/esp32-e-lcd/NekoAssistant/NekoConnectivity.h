@@ -3,6 +3,7 @@
 #include <BLECharacteristic.h>
 #include <BLEServer.h>
 #include <WiFi.h>
+#include <atomic>
 #include "NekoHardware.h"
 #include "NekoScheduler.h"
 #include "NekoSettings.h"
@@ -13,6 +14,9 @@ public:
   void begin();
   void tick();
   void openProvisioningWindow(uint32_t seconds = 120);
+  bool takeChanged() { const bool changed = changed_; changed_ = false; return changed; }
+  int takePageRequest() { const int page = pageRequest_; pageRequest_ = -1; return page; }
+  bool configureWifi(const char *ssid, const char *password);
   bool wifiConnected() const { return WiFi.status() == WL_CONNECTED; }
   bool bleConnected() const { return bleConnected_; }
   int8_t rssi() const { return wifiConnected() ? static_cast<int8_t>(WiFi.RSSI()) : -127; }
@@ -38,8 +42,9 @@ private:
   void beginWifi();
   void beginBle();
   void handleWrite(BLECharacteristic *characteristic);
+  void processCommand(uint8_t id, const uint8_t *data, size_t size);
+  void result(bool ok, const char *detail);
   BLECharacteristic *make(BLEService *service, const char *uuid, uint32_t properties, bool encryptedWrite = false);
-  static bool uuidEndsWith(const BLECharacteristic *characteristic, const char *prefix);
 
   NekoSettings &settings_;
   NekoHardware &hardware_;
@@ -55,9 +60,15 @@ private:
   BLECharacteristic *nameCharacteristic_ = nullptr;
   BLECharacteristic *volumeCharacteristic_ = nullptr;
   BLECharacteristic *diagnosticsCharacteristic_ = nullptr;
-  bool bleConnected_ = false;
+  BLECharacteristic *resultCharacteristic_ = nullptr;
+  struct Command { uint8_t id; uint8_t size; uint8_t data[128]; };
+  QueueHandle_t commands_ = nullptr;
+  std::atomic_bool bleConnected_{false};
+  bool changed_ = false;
+  int pageRequest_ = -1;
   uint32_t provisioningUntilMs_ = 0;
   uint32_t lastStatusMs_ = 0;
-  bool rtcWrittenAfterSync_ = false;
+  static NekoConnectivity *active_;
+  std::atomic_bool rtcSyncPending_{false};
   bool started_ = false;
 };

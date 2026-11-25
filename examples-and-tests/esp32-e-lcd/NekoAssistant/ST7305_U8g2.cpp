@@ -1,1 +1,2 @@
-#include "../waveshare-official/02_Example/Arduino/10_U8G2_Test/ST7305_U8g2.cpp"
+// Reuse the working ST7305 port already maintained in this repository.
+#include "../rlcd_explorer/ST7305_U8g2.cpp"

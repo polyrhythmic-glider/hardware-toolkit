@@ -10,15 +10,19 @@
 <body>
   <main>
     <header><span class="mark">N</span><div><h1>Neko Companion</h1><p id="connection">Non connesso</p></div><button id="connect">Connetti</button></header>
+    <p id="feedback" role="status" aria-live="polite"></p>
     <section class="metrics">
       <article><small>Batteria</small><strong id="battery">--%</strong></article>
       <article><small>Temperatura interna</small><strong id="temperature">-- °C</strong></article>
       <article><small>Umidità</small><strong id="humidity">--%</strong></article>
     </section>
     <section><h2>Identità e ora</h2><label>Nome del gatto<input id="catName" maxlength="23" value="Neko"></label><div class="actions"><button id="saveName">Salva nome</button><button id="setTime">Sincronizza ora</button></div></section>
+    <section><h2>Il tuo tempo</h2><div class="row"><label>Nome<input id="timerLabel" value="Focus" maxlength="23"></label><label>Minuti<input id="timerMinutes" type="number" value="25" min="1" max="10080"></label></div><button id="startTimer">Avvia timer</button><div id="timers" aria-live="polite"></div></section>
+    <section><h2>Promemoria</h2><label>Cosa vuoi ricordare?<input id="reminderText" maxlength="63" value="Bere un bicchiere d'acqua"></label><label>Tra quanti minuti?<input id="reminderMinutes" type="number" value="30" min="1" max="10080"></label><button id="saveReminder">Ricordamelo</button></section>
+    <section><h2>Ritmo di Neko</h2><label>Profilo<select id="profile"><option value="0">Prestazioni</option><option value="1">Bilanciato</option><option value="2">Risparmio</option><option value="3">Notte</option></select></label><button id="saveProfile">Salva profilo</button></section>
     <section><h2>Notifica</h2><label>Messaggio<input id="notification" maxlength="95" placeholder="Una nota breve, con stile."></label><button id="sendNotification">Invia</button></section>
-    <section><h2>Sveglia</h2><div class="row"><label>Ora<input id="alarmTime" type="time" value="07:00"></label><label>Giorni<select id="alarmDays"><option value="127">Ogni giorno</option><option value="62">Lun–Ven</option><option value="65">Weekend</option></select></label></div><label>Etichetta<input id="alarmLabel" maxlength="28" value="Sveglia"></label><button id="saveAlarm">Configura sveglia</button></section>
-    <section><h2>Wi‑Fi</h2><p class="hint">Sul dispositivo: pressione lunga di KEY. La finestra cifrata dura due minuti.</p><label>SSID<input id="ssid" maxlength="32" autocomplete="off"></label><label>Password<input id="wifiPassword" type="password" maxlength="64" autocomplete="new-password"></label><button id="saveWifi">Invia credenziali</button></section>
+    <section><h2>Sveglia</h2><label>Slot (0–7)<input id="alarmIndex" type="number" value="0" min="0" max="7"></label><div class="row"><label>Ora<input id="alarmTime" type="time" value="07:00"></label><label>Giorni<select id="alarmDays"><option value="127">Ogni giorno</option><option value="62">Lun–Ven</option><option value="65">Weekend</option></select></label></div><label>Etichetta<input id="alarmLabel" maxlength="23" value="Sveglia"></label><button id="saveAlarm">Configura sveglia</button></section>
+    <section><h2>Wi‑Fi</h2><p class="hint">Sul dispositivo: tieni premuti KEY e BOOT per 2 secondi, poi scegli Connessioni nel menu Sistema. La finestra cifrata dura due minuti.</p><label>SSID<input id="ssid" maxlength="32" autocomplete="off"></label><label>Password<input id="wifiPassword" type="password" maxlength="64" autocomplete="new-password"></label><button id="saveWifi">Invia credenziali</button></section>
     <footer>Protocollo Neko GATT 1.0 · Web Bluetooth richiede HTTPS e Chrome/Edge compatibile.</footer>
   </main>
   <script src="app.js"></script>

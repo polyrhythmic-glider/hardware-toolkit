@@ -1,76 +1,139 @@
-# Neko Assistant per Arduino IDE
+# Neko · 0.7.0
 
-Questa è la build da usare e caricare direttamente con **Arduino IDE 2.x**.
-Non richiede PlatformIO.
+Firmware per Waveshare ESP32-S3-RLCD-4.2 N16R8: pannello riflettivo **300×400**
+usato in orizzontale a **400×300 pixel**, bianco e nero.
 
-## Installazione una tantum
+Il gatto è un personaggio originale ditherato, animato a partire da un'unica sprite:
+corpo, mantello e proporzioni restano identici mentre si muovono coda, occhi e bocca.
+Respira e reagisce alle coccole. Un fumetto collega la frase al muso.
+Gli occhi a metà e chiusi usano palpebre curve dedicate: la pupilla non viene
+deformata. Il movimento della coda sfuma fino al punto di attacco.
+L'altra vista mostra soltanto l'orologio, con grandi cifre continue Orbitron.
+Il display aggiorna solo le tile cambiate; il fumetto e i testi restano fermi.
 
-1. In Board Manager installare **esp32 by Espressif Systems 3.3.10** (o 3.3.x).
-2. Dal Library Manager installare **U8g2 2.36.19 o successiva**. Il driver/adattatore
-   ST7305 specifico della scheda è già incluso nello sketch dalla copia ufficiale
-   Waveshare presente nel repository.
-3. Aprire `NekoAssistant.ino`.
+## Schermate e comandi
 
-## Impostazioni Arduino IDE
+La navigazione normale alterna solo **Neko** e **Orologio**, senza barra superiore,
+riepiloghi o etichette decorative. La pagina di presentazione è stata eliminata.
+Tutti i dati tecnici sono nel menu nascosto **Sistema**: Ambiente, Batteria,
+Connessioni, SD, Audio, Preferenze e Diagnostica, più Esci.
 
-Selezionare **ESP32S3 Dev Module** e configurare:
-
-| Opzione | Valore |
+| Gesto | Azione |
 |---|---|
-| USB Mode | Hardware CDC and JTAG |
-| USB CDC On Boot | Enabled |
-| CPU Frequency | 240 MHz |
-| Flash Mode | QIO 80 MHz |
-| Flash Size | 16 MB |
-| Partition Scheme | 16M Flash (3MB APP/9.9MB FATFS) |
-| PSRAM | OPI PSRAM |
-| Upload Mode | UART0 / Hardware CDC |
+| Click KEY / GPIO18 oppure BOOT / GPIO0 dopo l'avvio | Alterna Neko e Orologio |
+| KEY + BOOT insieme per 2 secondi | Apre/chiude Sistema |
+| Click KEY / BOOT in Sistema | Voce successiva/precedente; da una sottopagina torna al menu |
+| Doppio click in Sistema | Apre la voce selezionata oppure Esci |
+| Doppio click su Neko | Coccola |
+| Doppio click su Orologio | Altra frase |
+| Doppio click su Timer | Pausa/riprende primo timer; crea 5 minuti se vuoto |
+| Doppio click su Promemoria | Pausa tra 10 minuti, con ora valida |
+| Doppio click su Messaggi | Segna come letto |
+| Doppio click su Preferenze | Cambia profilo energetico |
 
-Scegliere la porta COM della scheda, quindi usare **Verify** e **Upload**.
+Le pressioni lunghe di un solo tasto non aprono pagine tecniche.
 
-Attenzione: **Flash QIO** e **PSRAM OPI** sono due impostazioni diverse. Se il
-Monitor Seriale mostra `quad_psram: PSRAM chip is not connected`, in Tools è
-stata selezionata per errore `QSPI PSRAM`. Selezionare `OPI PSRAM`, ricompilare e
-caricare nuovamente. Lo sketch può funzionare anche con PSRAM `Disabled`, ma OPI
-è l'impostazione corretta per il modulo N16R8.
+BOOT durante accensione/reset seleziona il bootloader ESP32.
 
-L'esito dell'ultima compilazione reale, incluse versioni, occupazione e hash dei
-binari, è registrato in [`BUILD_VERIFIED.md`](BUILD_VERIFIED.md).
+## Frasi e grafica
 
-## Funzioni e comandi
+La frase cambia **ogni 5 minuti** dall'avvio e funziona offline; può essere cambiata
+anche manualmente. Gli avvisi importanti hanno precedenza. Ogni citazione conserva autore
+e link alla fonte. Alcune fonti:
+[proverbi](https://it.wikiquote.org/wiki/Proverbi_italiani),
+[Seneca](https://it.wikiquote.org/wiki/Lucio_Anneo_Seneca),
+[Dante](https://it.wikiquote.org/wiki/Dante_Alighieri),
+[Saint-Exupéry](https://it.wikiquote.org/wiki/Antoine_de_Saint-Exup%C3%A9ry),
+[Pavese](https://it.wikiquote.org/wiki/Cesare_Pavese).
+Non vengono eseguite chiamate di rete per le frasi.
 
-- il pulsante **KEY è GPIO18, attivo LOW**: quello integrato sulla scheda è già
-  collegato; per un tasto esterno collegare un contatto momentaneo fra GPIO18 e
-  GND. Lo sketch abilita `INPUT_PULLUP`, quindi non serve una resistenza esterna;
-- anche **BOOT/GPIO0** cambia pagina dopo che il firmware è partito. Non tenerlo
-  premuto durante reset o accensione, perché in quel momento seleziona il bootloader;
-- il firmware incorpora senza modifiche il driver `multi_button` dell'esempio
-  ufficiale Waveshare `07_Audio_Test`: timer ESP ogni 5 ms, debounce a tre
-  campioni e callback single/double/long. Come nello stesso esempio, due task
-  FreeRTOS attendono direttamente gli EventGroup di GPIO18 e GPIO0; vengono
-  avviati prima di SD, OTA e BLE. Nel Monitor Seriale a 115200 baud ogni
-  gesto produce una riga `[KEY/Waveshare] ...`; in Diagnostica i
-  livelli `KEY18` e `BOOT0` devono passare da `1` a `0` durante la pressione;
-- click KEY: pagina successiva;
-- doppio click: timer rapido da 5 minuti;
-- pressione lunga: pagina connettività e finestra provisioning BLE di 2 minuti;
-- pressione di 5 secondi: diagnostica;
-- RTC PCF85063, SHTC3, batteria, microSD, Wi-Fi/SNTP e BLE sono inizializzati
-  usando il pinout ufficiale della scheda;
-- una microSD FAT32 con `neko-update.bin` e il marker vuoto
-  `neko-update.ready` avvia un aggiornamento solo sopra il 50% di batteria o con
-  una tendenza di carica positiva.
+32 citazioni con autore completo e fonte: hacker, open source, tecnologia, controcultura,
+antifascismo, anticapitalismo, poesia, filosofia e proverbi. I temi si alternano;
+i testi inglesi restano in originale. Fonti e note in `assets/quotes/SOURCES.md`.
+Il fumetto adatta larghezza e altezza al testo, mantenendo un margine di 16 pixel
+sopra e sotto; il piccolo logo Polyrhythmic Glider è fermo in alto a sinistra. Il fumetto usa
+Helvetica Bold 18 (maiuscole alte 19 pixel, prima 10), interlinea 28 pixel e
+Helvetica 10 per l'autore. Le citazioni sono misurate con il font reale U8g2:
+nessun taglio, riduzione del carattere o autore abbreviato. Gli avvisi lunghi
+possono usare Helvetica Bold 14.
 
-Il gatto usa quattro vere sprite XBM 1-bit (idle, felice, assonnato e allerta),
-senza antialiasing. Le bitmap compilate sono in `NekoCatSprites.h`; il foglio di
-anteprima è `cat-sprites-preview.png` e lo script riproducibile è in
-`tools/generate_cat_sprites.py`.
+Sprite originali create con **imagegen integrato**: sorgente, prompt e anteprime in
+[`assets/pixel-neko/`](assets/pixel-neko/README.md). Il TTF originale Orbitron e la
+licenza SIL OFL sono in `assets/orbitron/`. Il vecchio disegno ASCII non è utilizzato.
 
-Tutto il testo UI usa `drawUTF8()` e font U8g2 completi (`*_tf`), quindi lettere
-italiane come `à`, `è`, `é`, `ì`, `ò` e `ù` sono decodificate correttamente.
+Rigenerare i formati embedded e web con Pillow:
 
-Il companion Web Bluetooth resta in `../neko-assistant/companion` e usa lo stesso
-protocollo BLE. Audio avanzato ES8311/ES7210 resta intenzionalmente diagnostico
-nella build Arduino: il percorso codec ufficiale richiede i componenti ESP-IDF
-vendorizzati nell'esempio Waveshare; la build ESP-IDF completa resta in
-`../neko-assistant` come riferimento, ma non serve per caricare questo sketch.
+```sh
+python3 tools/pack_display_assets.py
+```
+
+L'importer produce una base 1-bit a 64/128/160/192/224 px, glifi dell'orologio e risorse web
+incorporate. La dashboard usa la stessa base e la stessa macchina di animazione.
+
+## Wi-Fi e dashboard
+
+Aprire l'IP mostrato in Connessioni o `http://neko.local` sulla stessa LAN di Neko.
+Utente `neko`, password casuale specifica del dispositivo nella pagina Connessioni.
+La dashboard gestisce timer, promemoria, sveglie, messaggi, nome, profili energetici,
+sincronizzazione ora e coccole; mostra il gatto animato con fumetto e fonte cliccabile.
+Sprite e font sono serviti dall'ESP32: nessun CDN necessario.
+
+Senza credenziali, Neko apre per 10 minuti una rete WPA2 `Neko-XXXX`, con la stessa
+password, all'indirizzo `http://192.168.4.1`. Aprire Sistema con KEY+BOOT e scegliere
+Connessioni riapre la configurazione per 2 minuti. Cambio rete consentito solo durante
+questa finestra fisica.
+HTTP con autenticazione locale: mantenere la dashboard nella propria LAN.
+
+Trasferimento USB da una connessione NetworkManager già salvata, senza stampare
+la password o scriverla nei sorgenti:
+
+```sh
+python3 tools/neko_usb.py --provision-from-nm NOME_CONNESSIONE
+```
+
+## Build e test
+
+Arduino IDE 2.x: core ESP32 3.3.x, U8g2 2.36.19, ESP32S3 Dev Module,
+USB Hardware CDC/JTAG e CDC On Boot, flash 16 MB QIO 80 MHz,
+partizioni app3M_fat9M_16MB, PSRAM **OPI**. Aprire `NekoAssistant.ino`.
+Il driver locale in `../rlcd_explorer` usa transazioni SPI bilanciate, compatibili
+con i cambi di frequenza CPU.
+
+```sh
+./arduino-build.sh
+./arduino-build.sh --upload /dev/ttyACM0
+./tests/run-host.sh
+./tests/run-typography.sh
+python3 tests/test_display_assets.py
+```
+
+Lo script di build rileva Arduino CLI nel PATH o nell'IDE in `~/Scaricati`, scarica
+U8g2 con SHA-256 verificato e usa il core ESP32 installato. Override:
+`ARDUINO_CLI_BIN=/percorso/arduino-cli`. Build e cache: `.build/neko/` nel repository.
+
+I test verificano gesti e combinazione nascosta, navigazione a due viste, scheduler,
+aggiornamenti parziali, identità della sprite fuori dalle zone animate, moto continuo,
+400 campioni identici fra C++ e JavaScript, cambio frase a 5 minuti, tutti i 1.440
+orari, continuità dei glifi e asset nativi a un bit. L'ultimo collaudo reale è
+registrato in `BUILD_VERIFIED.md`.
+
+## USB e limiti
+
+Seriale a 115200: `help`, `status`, `home`, `cat`, `clock`, `phrase-next`, `pet`,
+`diag`, `timer <secondi>`, `pause`, `resume`, `cancel`, `wifi`, `screen`.
+
+```sh
+python3 tools/neko_usb.py --command status
+python3 tools/neko_usb.py --capture /tmp/neko-screen.png
+```
+
+Il tool USB richiede pyserial, le catture anche Pillow. `screen` esporta il framebuffer
+reale; non ricostruisce un mockup della schermata.
+
+- Fino a quattro timer, otto sveglie, quattro promemoria persistenti.
+- Timer salvati ogni minuto e ripristinati in pausa dopo un riavvio.
+- Orologio: RTC hardware, sincronizzazione SNTP o da companion.
+- Batteria e stato di carica stimati dalla tensione; deep sleep a livello critico.
+- Codec audio rilevati, ma avvisi visivi e nessun assistente vocale incluso.
+- SD update: `neko-update.bin` + `neko-update.ready`, con almeno 50% di batteria
+  o carica stimata. Dopo tre crash: safe mode; conteggio azzerato dopo un minuto stabile.

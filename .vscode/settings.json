@@ -8,7 +8,7 @@
   "clangd.arguments": [
     "--background-index",
     "--header-insertion=never",
-    "--query-driver=**/arm-none-eabi-*,**/xtensa-esp32-elf-*"
+    "--query-driver=**/xtensa-esp32-elf-*"
   ],
   "C_Cpp.intelliSenseEngine": "disabled"
 }

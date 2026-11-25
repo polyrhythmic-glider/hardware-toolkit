@@ -2,25 +2,20 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "clangd: rigenera database ESP32 + Daisy",
+      "label": "Test: host",
       "type": "shell",
-      "command": "${workspaceFolder}/tools/generate_compile_commands.sh",
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "clear": true
-      }
+      "command": "${workspaceFolder}/tools/test-host.sh",
+      "problemMatcher": [
+        "$gcc"
+      ]
     },
     {
-      "label": "Daisy: build",
+      "label": "Neko: build Arduino",
       "type": "shell",
-      "command": "make",
-      "args": ["-j2"],
-      "options": {
-        "cwd": "${workspaceFolder}/DaisySynth"
-      },
-      "problemMatcher": ["$gcc"]
+      "command": "${workspaceFolder}/experiments/esp32-e-lcd/NekoAssistant/arduino-build.sh",
+      "problemMatcher": [
+        "$gcc"
+      ]
     }
   ]
 }

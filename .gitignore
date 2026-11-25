@@ -11,7 +11,6 @@ Thumbs.db
 
 # Build/cache output
 build/
-DaisySynth/build-link-diagnostic/
 .build/
 .tmp/
 dist/
@@ -32,3 +31,10 @@ compile_commands.json
 *.lst
 *.sym
 *.bak
+
+# Tool/test caches and external vendor checkout
+.cache/
+__pycache__/
+*.py[cod]
+build-host/
+experiments/esp32-e-lcd/waveshare-official/

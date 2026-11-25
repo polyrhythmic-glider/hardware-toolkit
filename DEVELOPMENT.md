@@ -1,41 +1,54 @@
-# VSCodium, clangd e librerie embedded
+# Sviluppo del laboratorio hardware
 
-Il repository contiene due toolchain differenti:
+Ogni sketch è un progetto autonomo. Aprire la sua cartella in Arduino IDE e
+scegliere la scheda e le librerie indicate nella documentazione del progetto.
+I test in [`hardware-tests/`](hardware-tests/) hanno cablaggi propri; leggere i
+commenti nello sketch e il README prima del caricamento.
 
-- `TheSynthProject`: Arduino ESP32, core ESP32 e librerie Adafruit;
-- `DaisySynth`: `arm-none-eabi-g++`, libDaisy e DaisySP.
+## Neko e display RLCD
 
-Un elenco manuale di `includePath` non basta: clangd deve ricevere anche target,
-define e flag del compilatore. Lo script seguente genera un unico compilation
-database usando i comandi reali dei due sistemi di build:
-
-```sh
-./tools/generate_compile_commands.sh
-```
-
-In VSCodium lo stesso comando è disponibile da `Terminal > Run Task` come
-`clangd: rigenera database ESP32 + Daisy`. Al termine eseguire dalla Command
-Palette `clangd: Restart language server`; in alternativa chiudere e riaprire
-il workspace.
-
-Il file generato `compile_commands.json` e la directory `.clangd-build/` sono
-locali e ignorati da Git. Vanno rigenerati dopo aggiornamenti del core ESP32,
-delle librerie Arduino, di libDaisy/DaisySP o dei relativi percorsi.
-
-## Percorsi non standard
-
-Lo script rileva `arduino-cli` nel `PATH` oppure dentro Arduino IDE per Linux.
-I percorsi possono essere specificati esplicitamente:
+Build Arduino senza caricamento sulla scheda:
 
 ```sh
-ARDUINO_CLI_BIN=/percorso/arduino-cli \
-LIBDAISY_DIR=/percorso/libDaisy \
-DAISYSP_DIR=/percorso/DaisySP \
-./tools/generate_compile_commands.sh
+./experiments/esp32-e-lcd/NekoAssistant/arduino-build.sh
 ```
 
-La configurazione VSCodium associa `*.ino` a C++, abilita l'indice in
-background e autorizza clangd a interrogare sia `arm-none-eabi-g++` sia il
-compilatore Xtensa ESP32. Questo permette di risolvere correttamente simboli come
-`DaisySeed`, gli header `daisy_seed.h`/`daisysp.h`, Arduino e le librerie
-Adafruit senza aggiungere percorsi globali all'editor.
+Lo script rileva Arduino CLI oppure usa `ARDUINO_CLI_BIN`, mantiene U8g2 e
+output in `.build/neko/` e usa la configurazione ESP32-S3 N16R8 del progetto.
+Per il caricamento aggiungere `--upload /dev/ttyACM0`.
+
+## Test host
+
+Servono g++ e Node.js per la verifica della dashboard web.
+
+```sh
+./tools/test-host.sh
+```
+
+Il comando esegue i test Neko Arduino e quelli degli algoritmi della variante
+ESP-IDF, senza collegare schede. I binari host vengono generati in
+`.build/tests/neko-idf/`.
+
+Dopo la prima build Arduino sono disponibili anche i test tipografici:
+
+```sh
+./experiments/esp32-e-lcd/NekoAssistant/tests/run-typography.sh
+```
+
+La verifica degli asset richiede Python e Pillow:
+
+```sh
+python3 experiments/esp32-e-lcd/NekoAssistant/tests/test_display_assets.py
+```
+
+## Editor e file locali
+
+In VSCodium/VS Code i task inclusi eseguono i test host e la build Arduino Neko.
+Gli `.ino` sono associati a C++; clangd può utilizzare un
+`compile_commands.json` generato per lo sketch su cui si lavora.
+Build, cache, dipendenze scaricate e credenziali locali non vanno committate.
+Gli indici precedenti del synth sono conservati localmente in
+`.build/archive/synth-index/` e possono essere rigenerati nella nuova repo.
+
+Per compilare, indicizzare o testare il sintetizzatore ESP32 + Daisy usare
+[synth-toolkit](https://github.com/polyrhythmic-glider/synth-toolkit).

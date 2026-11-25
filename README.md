@@ -1,44 +1,44 @@
 # Hardware Toolkit
 
-Il repository ora ha un solo firmware principale per ESP32:
+Laboratorio hardware di Polyrhythmic Glider: sketch diagnostici, esperimenti
+ESP32/Arduino e firmware storici.
 
-- [`TheSynthProject/`](TheSynthProject/) contiene l'applicazione integrata da compilare e caricare;
-- [`examples-and-tests/`](examples-and-tests/) contiene sketch diagnostici, il vecchio firmware 4 OLED e i progetti e-LCD separati.
+Il sintetizzatore integrato **ESP32 + Daisy Seed** è stato trasferito in
+[**synth-toolkit**](https://github.com/polyrhythmic-glider/synth-toolkit), con firmware,
+cablaggi, protocollo UART, DSP, test specifici e configurazione di sviluppo.
 
-`TheSynthProject` unisce il pannello TFT ST7735 con encoder singolo e tasto back alla
-control surface originale con 4 encoder, 3 OLED SH1106, 1 OLED SSD1306,
-PCA9548A e Pong. La
-ESP32 gestisce interfaccia, preset e pattern; la Daisy Seed esegue il clock
-audio, il sequencer e il DSP. La Daisy è l'unico backend e l'unica uscita audio.
+## Progetti
 
-La scheda 4 encoder/4 OLED già montata è la base consigliata: PCA, OLED e
-meccanica restano invariati. La tabella di migrazione indica quali fili encoder
-spostare e come collegare la UART verso la Daisy.
+| Percorso | Uso |
+| --- | --- |
+| [`hardware-tests/`](hardware-tests/) | Sketch indipendenti per I2C, MCP23017, NeoKey, LED e matrice |
+| [`experiments/esp32-e-lcd/`](experiments/esp32-e-lcd/) | Waveshare ESP32-S3 RLCD, Neko Arduino, variante ESP-IDF ed explorer ST7305 |
+| [`archive/synthProject/`](archive/synthProject/) | Vecchio pannello quattro OLED con audio I2S PCM5102 e Pong |
+| [`tools/`](tools/) | Verifiche host dei progetti del laboratorio |
 
-## Da dove iniziare
+Per Neko usare lo [sketch Arduino](experiments/esp32-e-lcd/NekoAssistant/).
+La [variante ESP-IDF](experiments/esp32-e-lcd/neko-assistant/) resta un esperimento
+separato, con requisiti e componenti esterni documentati nel suo README.
 
-1. Leggere [`TheSynthProject/WIRING_INTEGRATED.md`](TheSynthProject/WIRING_INTEGRATED.md).
-2. Aprire [`TheSynthProject/TheSynthProject.ino`](TheSynthProject/TheSynthProject.ino) con Arduino IDE.
-3. Selezionare `ESP32 Dev Module` per una ESP32 DevKit V1 / WROOM-32.
-4. Compilare, caricare e seguire la sequenza di collaudo nel documento di cablaggio.
+## Sviluppo e test
 
-Il vecchio setup autonomo 4 encoder/4 OLED è conservato senza modifiche in
-[`examples-and-tests/legacy-four-oled/`](examples-and-tests/legacy-four-oled/).
-
-Il firmware audio Daisy Seed è in
-[`DaisySynth/`](DaisySynth/). Cablaggio UART, uscita audio e collaudo sono
-descritti in
-[`TheSynthProject/DAISY_MIGRATION.md`](TheSynthProject/DAISY_MIGRATION.md).
-
-## VSCodium e clangd
-
-Per indicizzare correttamente sia le librerie Arduino/ESP32 sia
-libDaisy/DaisySP, generare il database unificato:
+Istruzioni di compilazione, test host e uso dell'editor sono in
+[`DEVELOPMENT.md`](DEVELOPMENT.md). Gli sketch Arduino sono raccolti in cartelle
+con lo stesso nome del file `.ino`, così si aprono direttamente in Arduino IDE.
 
 ```sh
-./tools/generate_compile_commands.sh
+./tools/test-host.sh
 ```
 
-Configurazione editor, task VSCodium e risoluzione degli errori come
-`Unknown type name 'DaisySeed'` sono descritti in
-[`DEVELOPMENT.md`](DEVELOPMENT.md).
+Cache, firmware compilati e backup locali restano fuori da Git in `.build/`.
+
+## Vecchi percorsi
+
+La cronologia precedente alla separazione è conservata in questa repository.
+
+| Prima | Adesso |
+| --- | --- |
+| `TheSynthProject/`, `DaisySynth/`, riferimenti Daisy e strumenti clangd synth | [synth-toolkit](https://github.com/polyrhythmic-glider/synth-toolkit) |
+| `examples-and-tests/hardware-tests/` | [`hardware-tests/`](hardware-tests/) |
+| `examples-and-tests/esp32-e-lcd/` | [`experiments/esp32-e-lcd/`](experiments/esp32-e-lcd/) |
+| `examples-and-tests/legacy-four-oled/` | [`archive/synthProject/`](archive/synthProject/) |
